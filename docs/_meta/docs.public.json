@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "updated": "2026-10-30",
+  "scope": "public-docs-only",
+  "notes": "Only public documentation is listed. Internal, migration, production-topology, and research documents are intentionally absent.",
+  "docs": [
+    {
+      "path": "README.md",
+      "title": "文档索引",
+      "audience": "all",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "user/README.md",
+      "title": "使用者入口",
+      "audience": "user",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "user/features.md",
+      "title": "可选功能",
+      "audience": "user",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "ops/STARTUP.md",
+      "title": "启动与初始化",
+      "audience": "operator",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "ops/INSTALL.md",
+      "title": "安装与初始化",
+      "audience": "operator",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "ops/CONFIGURATION.md",
+      "title": "配置参考",
+      "audience": "operator",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "ops/OPERATIONS.md",
+      "title": "运行与运维",
+      "audience": "operator",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "ops/troubleshoot.md",
+      "title": "故障排查",
+      "audience": "operator",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "ops/backup-restore.md",
+      "title": "备份与恢复",
+      "audience": "operator",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "ops/deploy-linux.md",
+      "title": "Linux 部署",
+      "audience": "operator",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "ops/system-config-hot-reload.md",
+      "title": "配置热更新",
+      "audience": "operator",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/PROJECT_MAP.md",
+      "title": "项目地图",
+      "audience": "contributor",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/API.md",
+      "title": "API 端点",
+      "audience": "contributor",
+      "status": "ready",
+      "language": "en"
+    },
+    {
+      "path": "dev/api-sources-health.md",
+      "title": "数据源健康接口",
+      "audience": "contributor",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "dev/DATA_FORMAT.md",
+      "title": "数据格式",
+      "audience": "contributor",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "dev/AUDIO_PIPELINE.md",
+      "title": "音频链路",
+      "audience": "contributor",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "dev/AI_SYSTEM.md",
+      "title": "AI 系统架构",
+      "audience": "contributor",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/qq-gateway.md",
+      "title": "QQ 网关",
+      "audience": "contributor",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/onboarding-v4-2026-10-27.md",
+      "title": "初始化引导 v4",
+      "audience": "contributor",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/add-a-service.md",
+      "title": "新增受管服务",
+      "audience": "contributor",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "dev/p2p-data-protocol.md",
+      "title": "P2P 数据协议（实验，当前不可用）",
+      "audience": "contributor",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/COHORT.md",
+      "title": "Cohort 机制",
+      "audience": "contributor",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/UNKNOWN_SPEAKER_FEATURE.md",
+      "title": "陌生人识别",
+      "audience": "contributor",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/windows-parity-2026-10-26.md",
+      "title": "Windows 兼容性",
+      "audience": "contributor",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/android-webview-token-bridge-2026-10-25.md",
+      "title": "Android WebView Token 桥",
+      "audience": "contributor",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/brand-assets.md",
+      "title": "品牌资产",
+      "audience": "contributor",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "kernel/README.md",
+      "title": "音频内核",
+      "audience": "kernel-integrator",
+      "status": "rewrite",
+      "language": "en"
+    },
+    {
+      "path": "kernel-contract.md",
+      "title": "内核契约",
+      "audience": "kernel-integrator",
+      "status": "ready",
+      "language": "en"
+    },
+    {
+      "path": "kernel/EULA.md",
+      "title": "内核 EULA",
+      "audience": "kernel-integrator",
+      "status": "ready",
+      "language": "en"
+    },
+    {
+      "path": "kernel/COMMERCIAL.md",
+      "title": "内核商业许可",
+      "audience": "kernel-integrator",
+      "status": "ready",
+      "language": "en"
+    },
+    {
+      "path": "adr/README.md",
+      "title": "ADR 索引",
+      "audience": "architect",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "adr/0001-single-parent-process.md",
+      "title": "ADR 0001：单父进程",
+      "audience": "architect",
+      "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "adr/0002-config-draft-apply.md",
+      "title": "ADR 0002：配置两阶段",
+      "audience": "architect",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "adr/0003-remove-bootstrap-mode.md",
+      "title": "ADR 0003：移除 bootstrap",
+      "audience": "architect",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "adr/0004-single-port.md",
+      "title": "ADR 0004：单端口",
+      "audience": "architect",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "adr/0006-ffmpeg-via-pypi.md",
+      "title": "ADR 0006：ffmpeg 经 PyPI",
+      "audience": "architect",
+      "status": "ready",
+      "language": "zh"
+    }
+  ]
+}

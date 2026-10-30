@@ -1,0 +1,7 @@
+{
+  "versionCode": 1,
+  "versionName": "1.1.0",
+  "downloadUrl": "https://localhost:8767/api/ota/download",
+  "changelog": "• Initial open source release",
+  "fileSize": 0
+}

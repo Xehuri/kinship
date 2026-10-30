@@ -1,0 +1,8 @@
+# 含真实 API key 的本地配置绝不入库（模板见 config.example.json）
+config.json
+state/*
+!state/.gitkeep
+__pycache__/
+*.pyc
+.pytest_cache/
+*.bak-*

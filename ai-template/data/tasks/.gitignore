@@ -1,0 +1,19 @@
+# 脚本运行日志
+logs/
+
+# 调度器持久化状态（运行时自动生成）
+.data_check_state.json
+
+# DeepSeek API key（敏感，不提交）
+deepseek_key.txt
+.balance_state.json
+
+# 小米云拉取任务水位状态（运行时自动生成）
+.xiaomi_cloud_health_state.json
+.xiaomi_cloud_health_state.json.meta
+
+# 会话压缩器提醒状态（运行时自动生成）
+.session_compactor_state.json
+
+# 前台时长监控持久化状态（运行时自动生成）
+.foreground_watch_state.json

@@ -1,0 +1,264 @@
+# Loom 部署配置模板（T07）
+# 复制为 loom.yaml 使用；loom.yaml 本身必须 gitignore，绝不入库。
+# 凭据铁律：credentials 段只允许 ${ENV_VAR} 引用形式，密钥值经 systemd
+# Environment= 注入进程环境（见 docs/credential-migration-checklist.md），
+# 绝不出现在本文件、git、或任何 agent 上下文中。
+
+server:
+  # D32：开发/测试端口下限 5097（5096/8768/8769/18888 为现网禁碰端口）
+  port: 5097
+  hostname: 127.0.0.1
+  # 忙时发送是否抢占当前轮：true = 新消息插队首并 abort 当前任务；false/缺省 = 旧排队语义
+  # interruptOnSend: true
+  # 主会话自动唤醒开关：键缺席 = 启用；显式 false 关闭（converge 的 wake 参数消失，
+  # 带 wake 的调用被拒收）。改动需重启服务生效。
+  # autoWakeEnabled: false
+  # session 列表 API 开关：键缺席 = 关闭；显式 true 开启。改动需重启服务生效。
+  # sessionList: true
+  # 主会话 id：非空且仅字母数字/下划线（禁止连字符）；键缺席 = 不物化。
+  # mainSessionId: main_session_01
+
+# 工作区指针：部署配置一行路径参数，禁止硬编码（D33 修正三）。
+# 开发期指向 fixture-workspace；切换日指向干净工作区即可独立起。
+workspace: /opt/kinship/loom-harness/fixture-workspace
+
+# provider 端点表（可整段缺省）：provider 级 baseUrl 为该供应商全部模型的缺省端点，
+# models[].baseUrl 可按模型显式覆盖；两者皆缺且 provider 非 fake 时 serve 响亮拒绝。
+# 凭据二选一：条目内联 apiKey（可省略，写了优先）或 credentials 段的 ${ENV_VAR} 引用。
+# 内联 apiKey 只进 serve 接线；/config 仅回 apiKeyConfigured 布尔，绝不回显密钥值。
+providers:
+  - provider: eflowcode
+    baseUrl: https://example.internal/v1   # 部署时改成真实 OpenAI 兼容端点
+    # apiKey: sk-...                       # 可选内联密钥；优先于下方 credentials 引用
+  # 本地 OpenAI 兼容端点（vLLM/llama.cpp 等）；该 provider 的模型不连外网。
+  - provider: local-vllm
+    baseUrl: http://127.0.0.1:8000/v1
+
+# 模型目录：window/output/vision/timeout（contextWindow/maxOutput 单位 token，
+# timeout 单位毫秒；vision 可省略，默认 false；baseUrl 可省略，回落 providers[]；
+# reasoningEffort 可省略 = 走上游默认，可选 none/minimal/low/medium/high/xhigh/max；
+# reasoningContentReplay 可省略 = 不物化，失败回合重放时是否回传 reasoning_content
+# （T4 配置面，运行时归 T6）。
+# W53 起可多条并存：models[0] 供主会话/副会话/压缩；子智能体在
+# agents/*.md 的 frontmatter 用 `model: <id>` 选用其余条目（不写则继承主模型）。
+models:
+  - id: qwen3.8-flash
+    provider: eflowcode
+    contextWindow: 262144
+    maxOutput: 32768
+    vision: true
+    timeout: 120000
+    # reasoningEffort: high   # 设置后 pi-ai 按 reasoning 模型转发 reasoning_effort
+    # reasoningContentReplay: true  # 失败回合重放时回传 reasoning_content（T4 配置面，运行时归 T6）
+  - id: qwen3.8-27b          # 示例：本地模型；id 必须与 agent frontmatter 的 model: 完全一致
+    provider: local-vllm
+    contextWindow: 262144
+    maxOutput: 32768
+    vision: false
+    timeout: 300000
+
+# 计价表（USD / 百万 token；cacheRead/cacheWrite 可省略，默认 0）
+pricing:
+  eflowcode:
+    input: 0.5
+    output: 2.5
+    cacheRead: 0.1
+    cacheWrite: 1.25
+  local-vllm:                # 本地 GPU，无边际 token 成本
+    input: 0
+    output: 0
+
+# 凭据（providers[].apiKey 缺席时的回退）：逻辑名 -> ${环境变量名} 引用。
+# 加载时用进程环境解析；变量无值 = fail-fast；出现任何非 ${} 的字符串
+# （尤其长字面量）= 校验失败。
+credentials:
+  eflowcode: ${LOOM_KEY_EFLOWCODE}
+  local-vllm: ${LOOM_KEY_LOCAL}   # 无鉴权的本地端点也需占位值（loom 按 provider 取凭据）
+  # 新增供应商照此办理：只写引用名，密钥落 systemd Environment=
+  # openai: ${LOOM_KEY_OPENAI}
+
+# 出口声明（D33 stub：v1 只声明不实现，加载器原样透传）。
+# 终态为 webhook 式出口；ai-mcp 为默认出口实现。
+exits:
+  default:
+    kind: ai-mcp
+    enabled: true
+
+# bash 段（W4，可整段缺省）：bash 工具的 shell 程序指定（program 可含完整路径）。
+# 执行 argv = [program, ...args, command]；deny/net/cwd 断言只看 command，与此正交。
+# 缺省 = 平台默认：POSIX /bin/bash -c（注意：W4 起由 /bin/sh 有意升级为 bash）；
+#         win32 = %ComSpec% ?? cmd.exe + ["/d","/s","/c"]（旧语义不变）。
+# win32 用 git bash 的写法（args 前缀由声明者自负完整性，缝不自动补 -c）：
+#   bash:
+#     shell:
+#       program: "C:\\Program Files\\Git\\bin\\bash.exe"
+#       args: ["--login", "-c"]
+# POSIX 显式钉死解释器（防发行版 /bin/bash 缺位漂移）：
+bash:
+  shell:
+    program: /bin/bash
+    args: ["-c"]
+
+# sandbox 段（W36，可整段缺省）：工具面沙箱配置驱动。用户 2026-10-14 决策——
+# realpath 围栏需 config 可配置，拒绝引擎默认不拦截，而是在 config 配置好才拦截。
+# 键全部缺席 = 引擎空转（全放行）+ 围栏 strict：即 {containment: strict, net: allow, deny: []}。
+# 下方示例为旧内置面（T22 硬编码默认）的等价配置——旧内置表已随 W36 移出缺省，仅供需要
+# 恢复"旧拦截面"的实例照抄；不配 sandbox 段的实例 = 缝对 sudo/systemctl/curl 等一律放行。
+#   containment: strict | off   （缺席=strict）strict=文件类六件套受 workspace realpath 围栏；
+#                               off=read/edit/write/grep/find/ls 可读写任意绝对路径。
+#                               bash 起点恒为 workspace（逃逸面由 OS 权限 + net/deny 治理）。
+#   net: deny | allow           （缺席=allow）deny=缝拒明显外联命令（curl/wget/nc…）首词。
+#   deny: [ "sudo", ... ]       （缺席=[]）命令前缀黑名单，词首匹配即拒。
+# sandbox:
+#   containment: strict
+#   net: deny
+#   deny: ["sudo", "su", "shutdown", "reboot", "halt", "poweroff", "mkfs",
+#          "dd", "mount", "umount", "kill", "pkill", "killall", "systemctl",
+#          "service", "crontab", "nsenter", "docker", "podman", "chown", "git push"]
+
+# pty 段（交互式终端工具，可整段缺省=启用）：enabled 控制 pty_* 五件套是否进工具面；
+# 两个上限为缺席=默认的运维闸（16/64），超限 spawn 响亮拒绝。
+# pty:
+#   enabled: true
+#   maxSessionsPerLoomSession: 16
+#   maxSessionsTotal: 64
+
+# subagent 段（W40 后台 deadline + W42c 派发闸三键 + maxTurns，可整段缺省）：后台子智能体硬
+# deadline 配置化。用户 2026-10-14 现网实况——core 缺省 15min（DEFAULT_BACKGROUND_DEADLINE_MS=900000ms，
+# opencode 对齐默认，值本身不动）杀长线数据核验批次的后台任务，实例抬闸只须声明本键。
+# W42c（用户 2026-10-15 明令"回合数/工具调用上限/时长都要可改"）：横闸 maxFanout、纵闸
+# maxDepth、总量闸 maxInflightTotal 同步开成配置键——数值不动（8/2/16 无事故证据咬过，
+# 开键即修复可调性；键缺席 = tool-wiring 不覆写/不写 = task-tool 派发时刻现读冻结值）。
+# maxTurns 为 task 派发子会话（同步/后台）轮数硬顶，缺省 50（serve SERVE_SUB_MAX_TURNS）；
+# 生产实例将声明 150（实例值，不是框架缺省）。只管 task 子会话，不约束主会话、副会话/
+# 定时会话，也不约束收束闸 convergence.turnHardCap。
+# 键缺席 = 不物化：全部阈值走 core 派发时刻现读缺省（schema 面不造假值）。
+# 生效=改配置+重启（与 sandbox/sourceContract 同纪律，无运行期热重载通道）；
+# 观测面 journalctl "loom subagent deadline" {seconds, source} + "loom subagent limits"
+# {fanout, depth, inflight, turns, source: declared|default, turnsSource: declared|default}
+# （deadline 行与 limits 行独立判源；source 只管 fanout/depth/inflight，turnsSource 单独判 maxTurns）。
+# subagent:
+#   backgroundDeadlineSeconds: 3600   # 整数 ≥1（秒）；boot 写进 task 工具持有的可变 limits 对象，其后每次派发现读吃到
+#   maxFanout: 8                      # 整数 ≥1；同派发时刻现读；= vendored maxSubAgents 对齐默认
+#   maxDepth: 2                       # 整数 ≥1；主(0)→子(1)→孙(2) 深链封顶口径见 core limits.ts 注释
+#   maxInflightTotal: 16              # 整数 ≥1；后台 sub 账本在册非终态总数上限（跨门面合计）
+#   maxTurns: 50                      # 整数 ≥1；task 子会话（同步/后台）轮数硬顶；缺省 50；改配置+重启生效
+
+# convergence 段（W42c，可整段缺省）：收束闸四值配置化。缺省 = core convergence
+# DEFAULT_LIMITS 冻结值（docs/01 D26：催办 5 / 同错 3 / 回合硬顶 60 / 跨请求自动续跑 2）。
+# 键缺席 = 不物化：两消费缝（主会话 registry→MainSessionLoop→gate、副会话
+# sidePort→buildConvergeSession→gate）构造/事件时刻现读冻结值，schema 面不造假值。
+# 段在场时 boot 物化唯一可变 Limits 对象、同一引用喂两缝（声明键取声明值、未声明键取
+# 冻结值——与"现读兜常量"行为全等）。W26 语义铁律不经本段改动：主会话自然停/强制分支
+# 由 server.convergenceEnforced 定，本段只改数值不改分支（side/sub 恒强制）。
+# 生效=改配置+重启；观测面 journalctl "loom convergence" {nudgeLimit, escalateSameError,
+# turnHardCap, autoContinuations, source: declared|default}。
+# convergence:
+#   turnHardCap: 150    # 整数 ≥1；单请求轮数硬顶（第 N turn 末未收束即强制分级收束）
+#   # nudgeLimit / escalateSameError: 整数 ≥1；autoContinuations: 整数 ≥0（0=不自动续跑）
+
+# llm 段（W42c/T4，可整段缺省）：W42a 瞬时 provider 错误带退避重试的实例配置化。
+# 键缺席 = 不物化：主会话 AgentSession 构造时刻兜 core DEFAULT_LLM_ERROR_RETRIES=2、
+# DEFAULT_LLM_ERROR_RETRY_BACKOFF_MS=1000。0 = 显式禁用重试/立即重发。缝位如实声明：
+# 本段经 boot→registry→MainSessionLoop 只作用主会话；side/sub 会话内核无本键透传面，
+# 恒 core 缺省。failedTurnReplay* 为失败回合重放配置面（运行时归 T5，当前不生效）。
+# 生效=改配置+重启；观测面 journalctl "loom llm error retries"
+# {count, source, backoffMs, backoffSource}。
+# llm:
+#   errorRetries: 2                 # 整数 ≥0；同一 LLM call 放弃前重发上限（退避 base×2ⁿ，abort-aware）
+#   errorRetryBackoffMs: 1000       # 整数 ≥0；退避基数毫秒（缺省 1000）
+#   failedTurnReplayRetries: 3      # 整数 ≥0；失败回合重放上限（T5 运行时接线）
+#   failedTurnReplayBackoffMs: 30000 # 整数 ≥0；失败回合重放退避基数（T5 运行时接线）
+
+# skills 段（W5-A，可整段缺省=不启用）：T24 loader 目录白名单，只有列出的目录被扫描
+# 进 catalog（`skill` 工具按名懒读正文；坏 frontmatter/缺 description 记 degrade 不崩清单）。
+# 配置级错误（目录不可读/扫零有效 skill）= 装配期响亮拒启；观测面 journalctl "loom skills degrade"。
+skills:
+  allowlist:
+    - /opt/kinship/loom-harness/fixture-workspace/skills
+
+# mcp 段（W5-B，可整段缺省=不接外部 server）：外部 MCP stdio server 声明表。
+# 每个 server 的工具映射为 mcp_<name>_<tool> 进主/副/子会话共用工具面（D7 单缝同批包痕）；
+# spawn/握手失败 = 响亮 warn + 该 server 工具面缺席（降级，绝不 crash boot）；
+# SIGTERM 停机自动收尸。name 口径 [a-z][a-z0-9_-]{0,31}；env 值只进子进程、/config 只回键名。
+mcp:
+  servers:
+    - name: demo
+      cmd: /usr/bin/node
+      args:
+        - /opt/kinship/loom-harness/packages/core/src/mcp/__fixtures__/fake-mcp-server.mjs
+      cwd: /opt/kinship/loom-harness
+      # 可选字段：requestTimeoutMs（单次调用超时，≥1000）、env（键=字符串值映射）
+      requestTimeoutMs: 15000
+      # env:
+      #   SOME_KEY: some-value
+
+# Python stdio server 先例（聚合网络搜索，随仓库分发于 mcp-servers/search-mcp/）：
+# cmd 为解释器单字符串、args 为脚本参数数组；requestTimeoutMs 需大于 server 内部
+# 请求 deadline（search-mcp 内核 55s，故 60000）。API key 绝不写进本模板：
+# 由部署者在真实 config.yaml 的条目 env 中注入 SEARCH_MCP_TAVILY_KEY / SEARCH_MCP_EXA_KEY，
+# 或在 mcp-servers/search-mcp/config.json 填 key（该文件已被 gitignore，见其 README）。
+#     - name: search
+#       cmd: /opt/venvs/search-mcp/bin/python
+#       args:
+#         - <repo>/mcp-servers/search-mcp/search_mcp.py
+#       cwd: <repo>/mcp-servers/search-mcp
+#       requestTimeoutMs: 60000
+#       env:
+#         SEARCH_MCP_TAVILY_KEY: "tvly-..."
+#         SEARCH_MCP_EXA_KEY: "..."
+
+# compaction 段（W49-C / W57，可整段缺省）：主会话上下文压缩接线（side/子会话零压缩纪律不动，
+# core/compaction/worker.ts 头注）。两条路径：声明 fallbackTokens 即启用 worker（生产路径），
+# buildCompactionHooks 仍挂 microcompact/boundary、但不再挂 legacy autoCompaction；不声明 fallbackTokens 才走 legacy hook
+# （9 段模板 + completeText 非流式，maxContextTokens/triggerRatio/summaryTimeoutMs 仅此路径生效）。
+# 值域：fallbackTokens 正整数（LLM 调用前估算 ≥ 该值触发 fallback）；watermark.levels 每档 ≥1000、
+# 严格递增且全部 < fallbackTokens（跨档向 _messages 追加一次性 system-reminder）；keepRecent ≥1；
+# keepRecentTokens ≥0（recent tail token 预算，与条数下限取更长 tail）；resummarizeEvery ≥1；
+# summaryChunkTokens ≥1（仅 chunked / auto 递归叶子回退用）；summaryMode auto|single|chunked
+# （缺省 auto，single/auto 必须能解析预算）；summaryPerspectives 可选（仅 worker）：摘要视角，
+# 值域 ops|chat，缺省 ["ops","chat"] 即同一前缀跑两趟（ops 用 compact-6、chat 用六段聊天延续模板）
+# 合成一条 summaryText、单 boundary；仅声明 ["ops"] 即回退单 ops 摘要（字节同旧单输出）；须声明
+# fallbackTokens、非空、不重复且含 ops；legacy 路径（无 fallbackTokens）不读此键；
+# summaryReasoningEffort 可选，覆盖摘要调用思考强度；
+# singleCallBudgetTokens 可选，缺省按模型窗口推导 floor(contextWindow*0.85)-min(maxOutput,32768)-4096；
+# summaryMaxSplitDepth 可选（缺省 2）；requestTimeoutMs 每次摘要调用超时；retryCount 单 attempt
+# 共享重试次数；boundary 落 durable compaction_boundary（coveredCount/tailIncluded）；stream 控制
+# 压缩 SSE 节流；microcompact 先廉价降体积，compactableTools 同时驱动摘要输入投影。
+# 生效=改 <实例根>/.loom/config.yaml + 重启（无热重载通道）；观测面 journalctl
+# "loom compaction" {enabled,fallbackTokens,watermark,summaryMode,summaryBudget,summaryTemplate,summaryPerspectives,...}
+# （summaryTemplate 为派生口径 compact-6/legacy-9，非配置键；summaryPerspectives 为 worker 视角，缺省 ops+chat）。
+# 生产 worker 示例（当前实例值）：
+# compaction:
+#   enabled: true
+#   fallbackTokens: 750000
+#   watermark:
+#     levels: [300000, 500000, 600000]
+#   requestTimeoutMs: 300000
+#   retryCount: 10
+#   keepRecent: 8
+#   keepRecentTokens: 15000
+#   resummarizeEvery: 16
+#   summaryMode: auto
+#   summaryReasoningEffort: low
+#   summaryChunkTokens: 100000
+#   boundary: true
+#   stream:
+#     flushIntervalMs: 50
+#     flushMaxBytes: 4096
+#   microcompact:
+#     enabled: true
+#     triggerTokens: 150000
+#     targetTokens: 60000
+#     keepRecent: 5
+#     compactableTools: [read, grep, find, ls, bash, task_fetch, mcp_search_web_search]
+# legacy hook 示例（不声明 fallbackTokens；只有此路径读 maxContextTokens/triggerRatio/summaryTimeoutMs）：
+# compaction:
+#   enabled: true
+#   maxContextTokens: 250000
+#   triggerRatio: 0.8
+#   keepRecent: 8
+#   resummarizeEvery: 16
+#   summaryTimeoutMs: 60000
+#   boundary: false
+#   microcompact: { enabled: true, triggerTokens: 150000, targetTokens: 60000, keepRecent: 5 }

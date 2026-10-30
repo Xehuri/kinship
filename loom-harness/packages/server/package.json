@@ -1,0 +1,23 @@
+{
+  "name": "@axeuh/loom-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "loom": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@axeuh/loom-core": "*",
+    "@axeuh/loom-adapters": "*",
+    "@axeuh/loom-tools": "*",
+    "yaml": "*"
+  }
+}

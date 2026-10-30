@@ -1,0 +1,14 @@
+name: 周报总结
+enabled: true
+schedule:
+  weekly:
+    days: mon
+    at: "03:00"
+prompt: |-
+  【周报总结 - 每周一03:00执行】 按子智能体调度流程执行。
+
+  启动子智能体: task(subagent_type="reviewer", load_skills=[], prompt="请阅读 {AI目录}/agents/04-weekly-review.md 执行。参数: start_date=上周一, end_date=上周日")
+
+  注意：上周一~上周日共7天。自行扫描 {AI目录}/data/daily/ 目录确认日期范围。
+  3. 自行验收后运行 git add/commit
+  4. 主智能体只需确认文件存在

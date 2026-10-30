@@ -1,0 +1,721 @@
+/*
+ * System config editor and field styles. Tokens only: the editor is
+ * teleported to <body>, so these rules may not rely on a settings-page
+ * ancestor. Doubled selectors keep buttons above any shell reset.
+ */
+
+.system-config-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  background: var(--overlay-bg, var(--bg));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.system-config-overlay__header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: calc(14px + var(--app-top-inset, 0px)) var(--space-4) 14px;
+  border-block-end: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.system-config-overlay__title {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.system-config-overlay__header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
+.system-config-overlay__revision {
+  min-inline-size: 0;
+  max-inline-size: 44vw;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .system-config-overlay__revision {
+    display: none;
+  }
+}
+
+.system-config-overlay__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--tap);
+  min-block-size: var(--tap);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.system-config-overlay__close:hover {
+  background: var(--inset);
+  color: var(--ink);
+}
+
+.system-config-overlay__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.system-config-overlay__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-4);
+  inline-size: 100%;
+  max-inline-size: 960px;
+  min-inline-size: 0;
+  margin-inline: auto;
+  padding: var(--space-4) var(--space-4) calc(var(--space-8) + var(--space-4));
+  overflow-y: auto;
+}
+
+/* ==================== Settings card ==================== */
+
+.system-config-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+[data-setting-row="system-config-revision"] .settings-row__value {
+  min-inline-size: 0;
+  max-inline-size: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  [data-setting-row="system-config-revision"] .settings-row__value {
+    max-inline-size: 46%;
+  }
+}
+
+/* ==================== Provider header ==================== */
+
+.system-config-provider {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.system-config-provider__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.system-config-provider__label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.system-config-provider__value {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.system-config-provider__list {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-inline-size: 0;
+}
+
+.system-config-provider__list-item {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* ==================== Toolbar ==================== */
+
+.system-config-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.system-config-search {
+  display: flex;
+  flex: 1 1 240px;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  min-block-size: var(--tap);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.system-config-search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.system-config-search__input {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.system-config-search__input:focus {
+  outline: none;
+}
+
+.system-config-toolbar__count {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==================== Field groups ==================== */
+
+.system-config-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-inline-size: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.system-config-group__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-block-end: var(--space-2);
+  border-block-end: 1px solid var(--hairline);
+  cursor: pointer;
+  list-style: none;
+}
+
+.system-config-group__head::-webkit-details-marker {
+  display: none;
+}
+
+.system-config-group__head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.system-config-group__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.system-config-group__title {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.system-config-group__count {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  margin-inline-start: auto;
+}
+
+.system-config-group__chevron {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--muted);
+  transition: transform var(--motion-fast) ease;
+}
+
+.system-config-group[open] .system-config-group__chevron {
+  transform: rotate(180deg);
+}
+
+.system-config-group__desc {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.system-config-group__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-inline-size: 0;
+  padding-block-start: var(--space-2);
+}
+
+/* ==================== Advanced fold ==================== */
+
+.system-config-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
+.system-config-advanced__toggle.system-config-advanced__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  inline-size: 100%;
+  min-block-size: var(--tap);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: start;
+  cursor: pointer;
+}
+
+.system-config-advanced__toggle.system-config-advanced__toggle:hover {
+  background: var(--inset);
+}
+
+.system-config-advanced__toggle.system-config-advanced__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.system-config-advanced__count {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.system-config-advanced__chevron {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-inline-start: auto;
+  color: var(--muted);
+  transition: transform var(--motion-fast) ease;
+}
+
+.system-config-advanced__chevron--open {
+  transform: rotate(180deg);
+}
+
+.system-config-advanced__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
+/* ==================== Field ==================== */
+
+.system-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-inline-size: 0;
+  padding-block: var(--space-2);
+  border-block-end: 1px solid var(--hairline);
+}
+
+.system-config-field:last-child {
+  border-block-end: 0;
+}
+
+.system-config-field__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-inline-size: 0;
+}
+
+.system-config-field__path {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.system-config-field__tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--inset);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.system-config-field__tag--core {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.system-config-field__tag--sensitive {
+  color: var(--warning);
+}
+
+.system-config-field__tag--deployment,
+.system-config-field__tag--none {
+  color: var(--warning);
+}
+
+.system-config-field__tag--deprecated {
+  color: var(--danger);
+}
+
+.system-config-field__input {
+  inline-size: 100%;
+  min-block-size: var(--tap);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.system-config-field__input::placeholder {
+  color: var(--muted);
+}
+
+.system-config-field__input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.system-config-field__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.system-config-field__input--path {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.system-config-field__textarea {
+  min-block-size: 96px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.system-config-field__path-hint {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.system-config-field__json-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.system-config-field__secret-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-block-start: var(--space-1);
+}
+
+.system-config-field__clear.system-config-field__clear {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 32px;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.system-config-field__clear.system-config-field__clear:hover {
+  background: var(--inset);
+}
+
+.system-config-field__clear.system-config-field__clear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.system-config-field__clear.system-config-field__clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.system-config-field__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+/* ==================== Messages ==================== */
+
+.system-config-message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.system-config-message--error {
+  color: var(--danger);
+}
+
+.system-config-message--warning {
+  color: var(--warning);
+}
+
+.system-config-message--success {
+  color: var(--success);
+}
+
+.system-config-message--note {
+  color: var(--muted);
+}
+
+.system-config-message__icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding-block-start: 2px;
+}
+
+/* ==================== Save bar ==================== */
+
+.system-config-savebar {
+  position: sticky;
+  inset-block-end: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.system-config-savebar__row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.system-config-password {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-inline-size: 0;
+}
+
+.system-config-password__label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.system-config-savebar__actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+}
+
+.system-config-button.system-config-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-block-size: var(--tap);
+  padding-inline: var(--space-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.system-config-button.system-config-button:hover {
+  background: var(--inset);
+}
+
+.system-config-button.system-config-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.system-config-button--primary.system-config-button--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.system-config-button--primary.system-config-button--primary:hover {
+  background: color-mix(in srgb, var(--accent) 86%, var(--ink));
+}
+
+.system-config-button.system-config-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.system-config-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+/* ==================== Result ==================== */
+
+.system-config-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--inset);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.system-config-result__summary {
+  margin: 0;
+  color: var(--ink);
+}
+
+.system-config-result__failed {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.system-config-result__degraded {
+  margin: 0;
+  color: var(--warning);
+  overflow-wrap: anywhere;
+}
+
+.system-config-result__revision {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.system-config-conflict {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 560px) {
+  .system-config-savebar__actions {
+    flex: 1 1 100%;
+  }
+
+  .system-config-savebar__actions .system-config-button {
+    flex: 1 1 auto;
+  }
+}

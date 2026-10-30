@@ -1,0 +1,39 @@
+:root {
+  --bg: #000000;
+  --surface: #1c1c1e;
+  --surface2: #2c2c2e;
+  --surface3: #3a3a3c;
+  --primary: #0a84ff;
+  --primary-light: #409cff;
+  --legacy-accent: #30d158;
+  --legacy-accent2: #ff375f;
+  --legacy-accent3: #ff9f0a;
+  --text: #f5f5f7;
+  --text2: #a8a8ad;
+  --text3: #949499;
+  --border: rgba(255, 255, 255, 0.1);
+  --radius: 16px;
+  --radius-sm: 12px;
+  --danger: #ff453a;
+
+  /* ==================== 顶部页边距避让 ====================
+     全面屏手机的状态栏会压住网页顶部的悬浮控件 (如全屏预览的关闭按钮),
+     且 Android WebView 下 env(safe-area-inset-top) 常因缺少 viewport-fit=cover 而为 0,
+     无法纯自动避让, 因此提供用户手动调节 (设置 -> 外观 -> 顶部页边距)。
+
+     --user-top-inset  用户设置值 (由 composables/useTopInset.ts 写入 <html> 内联样式)
+     --safe-top-env    系统安全区 (设备不支持时为 0)
+     --app-top-inset   最终生效值 = 两者较大者 (PC 端由 base.css 强制归零)
+
+     注意: 这是 :root 初始值; 内联样式优先级更高, 由 JS 覆盖 --user-top-inset。 */
+  --user-top-inset: 0px;
+  --safe-top-env: env(safe-area-inset-top, 0px);
+  --app-top-inset: var(--user-top-inset);
+}
+
+/* max() 可用时取用户设置与系统安全区的较大者 (旧 WebView 退回上面的 var(--user-top-inset)) */
+@supports (padding: max(0px)) {
+  :root {
+    --app-top-inset: max(var(--user-top-inset), var(--safe-top-env));
+  }
+}

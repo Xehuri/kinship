@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 4x2 AI 通知镜像卡（AiNotifyWidgetReceiver）的 appwidget-provider 元数据。
+     尺寸档与 health_summary_widget.xml 同（经典折算 180x110dp + targetCell 4x2，API 31+ 生效）；
+     updatePeriodMillis=0：更新全部走显式通道——showSystemNotification 写入环形缓冲后直更 +
+     演示页注入后直更（见 docs/archive/research/research-android-widget-2026-10-12.md §3.1）；
+     增加 resizeMode：本卡 LazyColumn 滚动形态对齐提醒卡，允许双向调整（拉伸后可见条目数变化）；
+     本卡无 configure 属性：纯文本镜像形态无档位可配。 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:resizeMode="horizontal|vertical"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:widgetCategory="home_screen" />

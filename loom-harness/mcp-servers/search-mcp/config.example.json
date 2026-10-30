@@ -1,0 +1,9 @@
+{
+  "default_provider": "tavily",
+  "fallback_enabled": true,
+  "request_deadline_s": 55,
+  "providers": {
+    "tavily": { "api_key": "" },
+    "exa": { "api_key": "", "monthly_budget_usd": 10.0 }
+  }
+}

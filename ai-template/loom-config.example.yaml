@@ -1,0 +1,124 @@
+# Loom（AI 后端）配置示例 —— 脱敏版
+#
+# 用法：
+#   1. 复制为 {AI目录}/.loom/config.yaml
+#   2. 替换所有 {占位符}（项目根目录、AI 目录、Python 解释器、Provider、模型 ID）
+#   3. 凭据只保留 ${ENV_VAR} 引用，实际值由 systemd EnvironmentFile 或启动环境注入
+#   4. 重启 Loom 生效
+#
+# 不要提交填好的 .loom/config.yaml；模板根 .gitignore 已忽略 .loom/。
+
+server:
+  port: 5100
+  hostname: 127.0.0.1
+  convergenceEnforced: false
+  sourceContract: off
+  interruptOnSend: true
+
+# 绝对路径，例如 /srv/livelog/ai
+workspace: "{项目根目录}/{AI目录}"
+
+providers:
+  - provider: cloud
+    baseUrl: "https://{PROVIDER_HOST}/v1"
+  - provider: local-vllm
+    baseUrl: "http://127.0.0.1:{本地模型端口}/v1"
+
+models:
+  - id: "{主模型ID}"
+    provider: cloud
+    contextWindow: 1000000
+    maxOutput: 32768
+    vision: true
+    timeout: 600000
+    # 思考强度：none|minimal|low|medium|high|xhigh|max；缺省=不上送参数
+    reasoningEffort: max
+    reasoningContentReplay: true
+  # 本地对照模型（可选）；不使用可整段删除
+  - id: "{本地对照模型ID}"
+    provider: local-vllm
+    contextWindow: 262144
+    maxOutput: 32768
+    vision: false
+    timeout: 300000
+
+# 按你的 Provider 计费填写；单位与 Loom 文档一致
+pricing:
+  cloud:
+    input: 0
+    output: 0
+    cacheRead: 0
+    cacheWrite: 0
+  local-vllm:
+    input: 0
+    output: 0
+    cacheRead: 0
+    cacheWrite: 0
+
+credentials:
+  cloud: ${LOOM_KEY_CLOUD}
+  local-vllm: ${LOOM_KEY_LOCAL}
+
+exits:
+  default:
+    kind: ai-mcp
+    enabled: true
+
+bash:
+  shell:
+    program: /bin/bash
+    args: ["-c"]
+
+sandbox:
+  containment: off
+  net: allow
+  deny:
+    - mkfs
+    - rm -rf /
+
+mcp:
+  servers:
+    - name: ai_mcp
+      cmd: "{Python解释器路径}"
+      args:
+        - "{项目根目录}/{AI目录}/mcp/ai_mcp.py"
+      cwd: "{项目根目录}/{AI目录}"
+      requestTimeoutMs: 60000
+    # 其他 MCP（网络搜索、QQ 网关等）按实例自行追加
+
+subagent:
+  backgroundDeadlineSeconds: 3600
+  maxTurns: 150
+
+convergence:
+  turnHardCap: 150
+
+llm:
+  errorRetries: 6
+  errorRetryBackoffMs: 2000
+  failedTurnReplayRetries: 3
+  failedTurnReplayBackoffMs: 30000
+
+compaction:
+  enabled: true
+  fallbackTokens: 750000
+  summaryMode: auto
+  summaryReasoningEffort: low
+  watermark:
+    levels: [300000, 500000, 600000]
+  requestTimeoutMs: 300000
+  retryCount: 10
+  keepRecent: 8
+  keepRecentTokens: 15000
+  resummarizeEvery: 16
+  summaryChunkTokens: 100000
+  boundary: true
+  stream:
+    flushIntervalMs: 50
+    flushMaxBytes: 4096
+  microcompact:
+    enabled: true
+    triggerTokens: 150000
+    targetTokens: 60000
+    keepRecent: 5
+    compactableTools: [read, grep, find, ls, bash, task_fetch, mcp_search_web_search]

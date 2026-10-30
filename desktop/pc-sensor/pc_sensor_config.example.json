@@ -1,0 +1,14 @@
+{
+  "enabled": false,
+  "server_url": "https://your-server.example:8768",
+  "endpoint_candidates": [],
+  "username": "",
+  "backend_token": "",
+  "remember_password": false,
+  "idle_threshold": 300,
+  "window_enabled": true,
+  "idle_enabled": true,
+  "screen_enabled": true,
+  "agent_id": "default-agent",
+  "agent_name": ""
+}

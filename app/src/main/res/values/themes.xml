@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 应用深色底色：与 WebView 首屏背景一致，用于消除冷启动白屏 -->
+    <color name="axeuh_splash_bg">#0D0D14</color>
+    <!-- 设置页暖纸底色：与 Web 端 bg 令牌一致 -->
+    <color name="kinship_settings_bg">#F7F2E8</color>
+    <!-- WebView 窗口底色：与 SPA tokens.css 的 bg 令牌一致 -->
+    <color name="kinship_web_bg">#F7F2E8</color>
+
+    <style name="Theme.AxeuhAssistant" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- 深色窗口背景：消除 MainActivity 中转期间与系统预览窗的白屏 -->
+        <item name="android:windowBackground">@color/axeuh_splash_bg</item>
+    </style>
+
+    <!-- 设置页主题：暖纸窗口背景，消除首帧白屏 -->
+    <style name="Theme.KinshipSettings" parent="@style/Theme.AxeuhAssistant">
+        <item name="android:windowBackground">@color/kinship_settings_bg</item>
+    </style>
+
+    <!-- WebView 主题：窗口/系统栏与 SPA 暖纸底色一致，避免状态栏与导航栏黑边 -->
+    <style name="Theme.KinshipWeb" parent="@style/Theme.AxeuhAssistant">
+        <item name="android:windowBackground">@color/kinship_web_bg</item>
+        <item name="android:statusBarColor">@color/kinship_web_bg</item>
+        <item name="android:navigationBarColor">@color/kinship_web_bg</item>
+        <item name="android:windowLightStatusBar">@bool/kinship_web_light_bars</item>
+        <!-- android:windowLightNavigationBar 需要 API 27+，见 values-v27/themes.xml -->
+    </style>
+
+    <!-- 启动图主题：进程冷启动到首帧期间显示深色背景 + 应用图标，替代白屏 -->
+    <style name="Theme.AxeuhAssistant.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/axeuh_splash_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/axeuh_splash_bg</item>
+        <item name="postSplashScreenTheme">@style/Theme.AxeuhAssistant</item>
+    </style>
+    <!-- 语音助手覆盖层主题 -->
+    <style name="Theme.AxeuhOverlay" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <!-- 聊天面板主题（无浮动，透明背景，占满宽度） -->
+    <style name="Theme.AxeuhChat" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

@@ -1,0 +1,89 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover: 让 WebView 上报真实安全区, 使 env(safe-area-inset-*) 可用 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Kinship</title>
+    <link rel="icon" type="image/svg+xml" href="/mobile/favicon.svg" />
+    <script>
+      /*
+       * Theme bootstrap: resolve persisted appearance preferences before the
+       * app bundle loads, so the first paint already has the right palette.
+       * Keep this in sync with src/composables/useTheme.ts (keys + migration).
+       */
+      (function () {
+        var root = document.documentElement
+        var THEME_KEY = 'axeuh-theme'
+        var ACCENT_KEY = 'axeuh-accent'
+        var DENSITY_KEY = 'axeuh-density'
+        var MOTION_KEY = 'axeuh-motion'
+        var LEGACY_THEME_KEY = 'theme'
+        var THEMES = ['light', 'dark', 'system']
+        var ACCENTS = ['ochre', 'jade', 'indigo', 'rose']
+        var DENSITIES = ['comfortable', 'compact']
+        var MOTIONS = ['full', 'reduced']
+
+        function read(key) {
+          try {
+            return localStorage.getItem(key)
+          } catch (e) {
+            return null
+          }
+        }
+        function write(key, value) {
+          try {
+            localStorage.setItem(key, value)
+          } catch (e) {
+            /* storage unavailable: memory-only fallback is handled by the app */
+          }
+        }
+        function remove(key) {
+          try {
+            localStorage.removeItem(key)
+          } catch (e) {
+            /* ignore */
+          }
+        }
+        function oneOf(value, allowed, fallback) {
+          return allowed.indexOf(value) >= 0 ? value : fallback
+        }
+
+        var legacy = read(LEGACY_THEME_KEY)
+        var theme = read(THEME_KEY)
+        if (!theme && legacy) {
+          if (legacy === 'glacier') {
+            theme = 'light'
+            write(THEME_KEY, theme)
+            if (!read(ACCENT_KEY)) write(ACCENT_KEY, 'indigo')
+          } else if (legacy === 'light' || legacy === 'dark') {
+            theme = legacy
+            write(THEME_KEY, theme)
+          }
+        }
+        if (legacy !== null) remove(LEGACY_THEME_KEY)
+
+        theme = oneOf(theme, THEMES, 'system')
+        var accent = oneOf(read(ACCENT_KEY), ACCENTS, 'ochre')
+        var density = oneOf(read(DENSITY_KEY), DENSITIES, 'comfortable')
+        var motion = oneOf(read(MOTION_KEY), MOTIONS, 'full')
+        var resolved = theme
+        if (theme === 'system') {
+          var prefersLight =
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: light)').matches
+          resolved = prefersLight ? 'light' : 'dark'
+        }
+
+        root.setAttribute('data-theme', resolved)
+        root.setAttribute('data-accent', accent)
+        root.setAttribute('data-density', density)
+        root.setAttribute('data-motion', motion)
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

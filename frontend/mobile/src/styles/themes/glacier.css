@@ -1,0 +1,20 @@
+/* themes/glacier.css -- Glacier blue theme overrides */
+[data-theme="glacier"] {
+  --bg: #e8f4fc;
+  --surface: #ffffff;
+  --surface2: #eef2f6;
+  --surface3: #dde8f0;
+  --primary: #5b8ec4;
+  --primary-light: #89CFF0;
+  --legacy-accent: #00b4d8;
+  --legacy-accent2: #f0a0b8;
+  --legacy-accent3: #f0c860;
+  --text: #2d3a4a;
+  --text2: #566a7c;
+  --text3: #6f8398;
+  --border: rgba(0, 0, 0, 0.08);
+  --overlay-bg: rgba(232, 244, 252, 0.92);
+  --radius: 14px;
+  --radius-sm: 10px;
+  --danger: #ff6b6b;
+}

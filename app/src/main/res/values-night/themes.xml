@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 设置页深色窗口背景：与 tokens.css 的 dark bg 令牌一致 -->
+    <color name="kinship_settings_bg">#171512</color>
+    <!-- WebView 深色窗口背景：与 tokens.css 的 dark bg 令牌一致 -->
+    <color name="kinship_web_bg">#171512</color>
+</resources>

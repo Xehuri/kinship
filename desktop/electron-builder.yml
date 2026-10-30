@@ -1,0 +1,42 @@
+appId: com.xehuri.kinship.desktop
+productName: Kinship Desktop
+copyright: Copyright (c) 2026 Xehuri
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+extraResources:
+  - from: resources/pc-sensor
+    to: pc-sensor
+  - from: resources/icon.png
+    to: icon.png
+asar: true
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+    - target: zip
+      arch:
+        - x64
+  icon: resources/icon.ico
+  signAndEditExecutable: true
+  artifactName: Kinship-Desktop-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Kinship Desktop
+  artifactName: Kinship-Desktop-Setup-${version}-${arch}.${ext}
+portable:
+  artifactName: Kinship-Desktop-Portable-${version}-${arch}.${ext}
+  unpackDirName: KinshipDesktop
+publish: null
+npmRebuild: false

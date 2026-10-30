@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>连接失败</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+  background:#0d0d14;color:#e8e8f0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:100vh;padding:40px 20px;text-align:center;gap:16px
+}
+.icon{font-size:48px;color:#ff6b6b;margin-bottom:8px}
+h1{font-size:20px;font-weight:700}
+p{font-size:13px;color:#9898b0;line-height:1.6;max-width:280px}
+.btn{
+  display:block;width:100%;max-width:240px;padding:14px 0;margin-top:8px;
+  border-radius:12px;border:none;font-size:15px;font-weight:600;
+  cursor:pointer;font-family:inherit
+}
+.btn-primary{background:#6c5ce7;color:#fff}
+.btn-secondary{background:#1e1e2a;color:#9898b0;margin-top:4px}
+.hint{font-size:11px;color:#5a5a78;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="icon">⚠</div>
+<h1>无法连接到服务器</h1>
+<p id="errorMsg">请检查网络连接和服务器地址</p>
+<button class="btn btn-primary" onclick="location.href='axeuh://retry'">重试</button>
+<button class="btn btn-secondary" onclick="location.href='axeuh://ignore'">暂时忽略</button>
+<button class="btn btn-secondary" onclick="location.href='axeuh://open-settings'">打开设置</button>
+<div class="hint" id="detailHint"></div>
+<script>
+var params = new URLSearchParams(location.search);
+if (params.get('code')) {
+  document.getElementById('errorMsg').textContent = '连接失败 (错误 ' + params.get('code') + ')';
+  document.getElementById('detailHint').textContent = params.get('msg') || '';
+}
+</script>
+</body>
+</html>

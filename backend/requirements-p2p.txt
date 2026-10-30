@@ -1,0 +1,10 @@
+# 可选 WebRTC 数据面依赖（P2P Phase 2，默认关闭）。
+#
+# 生产 requirements.txt 不包含 aiortc: 只有 p2p.webrtc.enabled=true 时才需要
+# 安装本文件。未安装时后端正常启动，Phase 1 信令继续工作（fail-open）。
+#
+#   pip install -r backend/requirements-p2p.txt
+#
+# 已验证版本；aiortc 的 ICE 候选 API 对版本敏感，升级前先跑 P2P 测试。
+aiortc==1.15.0
+av==17.1.0

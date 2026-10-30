@@ -1,0 +1,69 @@
+schema: 1
+timezone: Asia/Shanghai
+max_gap_minutes: 120
+default: merged_7
+
+profiles:
+  merged_7:
+    default: true
+    description: 7 检查点契约；cov-00 属于今日计划但读取前一天 22:00~00:00 的数据。
+    note: 每天全部 7 个检查点都进入计划；只有 cov-00 的 target_date 是 previous_day。
+    checkpoints:
+      cov-00:
+        window: "22:00~00:00"
+        trigger: "00:00"
+        target_date: previous_day
+      cov-06:
+        window: "00:00~06:00"
+        trigger: "06:00"
+        target_date: today
+      cov-08:
+        window: "06:00~08:00"
+        trigger: "08:00"
+        target_date: today
+      cov-12:
+        window: "08:00~12:00"
+        trigger: "12:00"
+        target_date: today
+      cov-16:
+        window: "12:00~16:00"
+        trigger: "16:00"
+        target_date: today
+      cov-20:
+        window: "16:00~20:00"
+        trigger: "20:00"
+        target_date: today
+      cov-22:
+        window: "20:00~22:00"
+        trigger: "22:00"
+        target_date: today
+
+  merged_6:
+    default: false
+    description: 可选合并档；cov-night 把 cov-00 与 cov-06 合并为 22:00~06:00，仍读取前一天。
+    note: 合并后覆盖 22:00~06:00，不允许留下 22:00~00:00 的夜窗空洞。
+    checkpoints:
+      cov-night:
+        window: "22:00~06:00"
+        trigger: "06:00"
+        target_date: previous_day
+      cov-08:
+        window: "06:00~08:00"
+        trigger: "08:00"
+        target_date: today
+      cov-12:
+        window: "08:00~12:00"
+        trigger: "12:00"
+        target_date: today
+      cov-16:
+        window: "12:00~16:00"
+        trigger: "16:00"
+        target_date: today
+      cov-20:
+        window: "16:00~20:00"
+        trigger: "20:00"
+        target_date: today
+      cov-22:
+        window: "20:00~22:00"
+        trigger: "22:00"
+        target_date: today

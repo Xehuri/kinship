@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "mode": "legacy",
+  "snapshot_dir": "{项目根目录}/.memory-projection/legacy-snapshot",
+  "claims_hash": ""
+}

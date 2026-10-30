@@ -1,0 +1,30 @@
+{
+  "name": "@axeuh/loom-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./pty": {
+      "types": "./dist/pty/index.d.ts",
+      "default": "./dist/pty/index.js"
+    },
+    "./script-host": {
+      "types": "./dist/script-host/index.d.ts",
+      "default": "./dist/script-host/index.js"
+    },
+    "./seam": {
+      "types": "./dist/seam/index.d.ts",
+      "default": "./dist/seam/index.js"
+    }
+  },
+  "dependencies": {
+    "@axeuh/loom-core": "*",
+    "node-pty": "^1.1.0"
+  }
+}

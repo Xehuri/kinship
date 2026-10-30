@@ -1,0 +1,215 @@
+# =============================================================================
+# Kinship public export allowlist (fail-closed)
+# =============================================================================
+# Semantics:
+#   - Anything not matched by [allow] is denied. There is no implicit include.
+#   - [exclude] is evaluated BEFORE [allow]; a deny always wins.
+#   - Only repository-relative POSIX paths are accepted (no absolute paths,
+#     no "..", no drive letters).
+#   - Every [allow] entry must be an exact file, a literal directory tree, or a
+#     bounded pattern with a non-empty literal prefix. Global patterns such as
+#     "*", "**", "**/*" are invalid.
+#   - tools/public-sync is RETIRED and has been removed from the repository.
+#     The deny entry remains as a guard; the allowlist tooling in
+#     tools/kinship_export/ is the only public export path.
+#   - frontend/mobile/public/circuitjs1 is moved to a separate plugin repo and
+#     is intentionally NOT part of this public tree.
+#   - kernel source and model weights are delivered separately and are NOT part
+#     of this public tree.
+# =============================================================================
+
+schema_version = 1
+mode = "allowlist"
+default_action = "deny"
+
+[meta]
+project = "Kinship"
+public_repo = "Xehuri/kinship"
+retired_tool = "tools/public-sync"
+retired_reason = "Historical manifest sync with force-push; replaced by this fail-closed allowlist"
+circuitjs_location = "separate plugin repository (not exported here)"
+docs_check_gap = "tools/docs-check/check_docs.py scans markdown and AGENTS files only; it does not scan backend tests, app/desktop/frontend sources, or docs/migration"
+
+[allow]
+# Exact files at the repository root only. Nested files are allowed through the
+# explicit directory trees below.
+files = [
+  ".gitattributes",
+  ".gitignore",
+  "AGENTS.md",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "LICENSE",
+  "README.md",
+  "README.en.md",
+  "README.zh-CN.md",
+  "THIRD_PARTY_NOTICES.md",
+  "VERSION",
+  "build.gradle.kts",
+  "config.example.yaml",
+  "gradle.properties",
+  "gradle/wrapper/gradle-wrapper.jar",
+  "gradlew",
+  "gradlew.bat",
+  "launcher.py",
+  "pyproject.toml",
+  "qq",
+  "settings.gradle.kts",
+  "setup.bat",
+  "setup.ps1",
+  "start.bat",
+  "start.ps1",
+]
+
+# Literal directory trees. The trailing slash is required and no wildcard is
+# accepted here, so adding a new public tree is always an explicit edit.
+trees = [
+  "ai-template/",
+  "app/",
+  "assets/",
+  "backend/",
+  "deploy/",
+  "desktop/",
+  "docs/",
+  "frontend/mobile/",
+  "gradle/",
+  "LICENSES/",
+  "loom-harness/",
+  "scripts/",
+  "tools/kinship_export/",
+]
+
+# Bounded patterns are reserved for future use. Keep this list empty unless a
+# path cannot be expressed as an exact file or a literal tree.
+patterns = []
+
+[exclude]
+# Deny rules run first and win over every allow entry. Patterns use POSIX path
+# semantics; "**" matches zero or more path segments.
+patterns = [
+  # Runtime AI data, experiments, archives, and agent working state.
+  "ai/**",
+  "validation/**",
+  "archive/**",
+  ".sisyphus/**",
+  ".omo/**",
+
+  # Secrets, credentials, and runtime configuration. config.example.yaml is
+  # allowed by [allow].files; the real files must never be exported.
+  "backend/config/auth.json",
+  "**/auth.json",
+  "**/config.yaml",
+  "**/config.local.yaml",
+  "config.yaml.lock",
+  "**/.env",
+  "**/.env.*",
+  "**/*.key",
+  "**/*.pem",
+  "backend/config/agents.json",
+  "desktop/pc-sensor/config.json",
+  "desktop/pc-sensor/pc_sensor_config.json",
+  "loom-harness/state/**",
+  "ai-template/backend/config/config.yaml",
+  "ai-template/data/task_executions.yaml",
+  "ai-template/data/tasks/logs/**",
+  "ai-template/.opencode/**",
+  "ai-template/data/cache/**",
+
+  # Backend runtime products.
+  "backend/data/**",
+  "backend/logs/**",
+  "backend/outputs/**",
+  "backend/ai/**",
+  "backend/bin/**",
+  "backend/models/**",
+  "backend/*.jsonl",
+  "backend/usersessions.json",
+
+  # Kernel source and model weights (delivered separately).
+  "kernel/**",
+  "**/models/**",
+  "**/*.ckpt",
+  "**/*.onnx",
+  "**/*.pth",
+  "**/*.pt",
+  "**/*.safetensors",
+  "**/*.bin",
+  "**/*.h5",
+  "**/*.pb",
+
+  # Build artifacts, installers, and binary payloads.
+  "**/*.apk",
+  "**/*.aab",
+  "**/*.exe",
+  "**/*.dll",
+  "**/*.so",
+  "**/*.jar",
+  "**/*.jks",
+  "**/*.keystore",
+  "**/*.zip",
+  "**/*.tar",
+  "**/*.tar.gz",
+  "**/*.tgz",
+  "**/*.7z",
+  "**/*.rar",
+  "**/*.gz",
+  "**/dist/**",
+  "**/build/**",
+  "**/local.properties",
+
+  # Editor/backup copies are not public source.
+  "**/*.bak",
+  "**/*.bak-*",
+
+  # VCS metadata, dependencies, and caches.
+  ".git/**",
+  "**/node_modules/**",
+  "**/__pycache__/**",
+  "**/*.pyc",
+  "**/.pytest_cache/**",
+  "**/.mypy_cache/**",
+  "**/.ruff_cache/**",
+  "**/.gradle/**",
+  "**/.kotlin/**",
+  "**/.idea/**",
+  "**/.venv*/**",
+  "**/playwright-report/**",
+  "**/test-results/**",
+
+  # Logs.
+  "logs/**",
+  "**/logs/**",
+  "**/*.log",
+  "**/*.log.*",
+
+  # Retired, moved, or internal-only material.
+  "tools/public-sync/**",
+  "frontend/mobile/public/circuitjs1/**",
+  "docs/archive/**",
+  "docs/migration/**",
+  "docs/dev/public-sync-*.md",
+  "docs/dev/kinship-*.md",
+  "loom-harness/scripts/make-fixture.sh",
+  "sync-to-github.ps1",
+  "health-data-source-architecture.md",
+
+  # Original single-file SPA backup: embeds a mock personal profile, devices,
+  # sleep/steps narrative, and real coordinate samples from the owner's device.
+  "frontend/mobile/index.original.html",
+
+  # Internal memory research and journals: real personal narrative, places,
+  # health notes, and private discussion. Excluded rather than scrubbed. The
+  # bounded family patterns deny future documents of the same kind too.
+  "docs/记忆-*.md",
+  "docs/记忆与心流-*.md",
+  "docs/Loom-借鉴报告-*.md",
+  "docs/VCP-*.md",
+  "docs/dev/记忆-*.md",
+  "docs/dev/规律机载-*.md",
+  "docs/dev/p2p-方案与进展-*.md",
+  "docs/ops/数据源-小米健康云.md",
+
+  # Internal Loom test battle manual: local session/state dumps and personal
+  # machine paths; it is an operator playbook, not public documentation.
+  "loom-harness/docs/09-*.md",
+]

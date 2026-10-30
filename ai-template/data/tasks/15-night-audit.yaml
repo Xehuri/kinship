@@ -1,0 +1,15 @@
+name: 夜间审计
+schedule:
+  daily: "02:00"
+enabled: false
+prompt: |-
+  【夜间审计】 按审计子智能体调度流程执行。
+
+  1. 运行: python {AI目录}/analysis/audit_collector.py {昨天日期} --out {AI目录}/data/daily/{昨天日期}/audit-{昨天日期}.txt
+  2. 启动子智能体: task(subagent_type="reviewer", load_skills=[], prompt="请阅读 {AI目录}/agents/05-audit.md 执行。参数: date={昨天日期}。注意: 本次执行审计职责，工作边界以 05-audit.md 为准，不执行 02 复盘。")
+
+  注意: 审计目标是昨天（不是今天）。排在 00:40 复盘之后，可审到复盘产出。
+  3. 子智能体自行提交（audit txt + 复盘文件审计小节）
+  4. 主智能体验收: git log -1 --format=%B 读概要 + 快速看 audit txt;
+     若存在 FAIL 或过期待办 → 发一条汇总警告通知（第一人称有人味，见 01 步骤 7.2 与身份定义）；
+     平时无 FAIL 不发。警告只发这一条，报告细节让用户自己翻文件。

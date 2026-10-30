@@ -1,0 +1,200 @@
+/*
+ * Kinship desktop tokens. Warm paper palette aligned with the production web
+ * settings surface: cream base, ink text, ochre accent, 8/6 px radii, hairline
+ * borders. No glass, glow, grid or elevated card shadows.
+ */
+
+:root {
+  color-scheme: light;
+
+  --font-sans:
+    'Geist', 'Noto Sans CJK SC', 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC',
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Noto Serif CJK SC', 'Noto Serif SC', 'Songti SC', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Noto Sans Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --bg: #f7f2e8;
+  --surface: #fcf8f0;
+  --surface-solid: #fcf8f0;
+  --surface-raised: #fffaf1;
+  --surface-sunken: #efe8db;
+  --rail-bg: var(--surface);
+
+  --ink: #1f1c18;
+  --muted: #6f685d;
+  --inset: #efe8db;
+  --hairline: #ddd5c7;
+
+  --border: #ddd5c7;
+  --border-strong: #c9c0b0;
+
+  --text: #1f1c18;
+  --text-muted: #6f685d;
+  --text-faint: #8b8275;
+
+  --accent: #a34b2b;
+  --accent-strong: #8f3f23;
+  --accent-ink: #a34b2b;
+  --accent-contrast: #fffaf1;
+  --focus-ring: rgba(163, 75, 43, 0.52);
+  --focus-soft: rgba(163, 75, 43, 0.1);
+
+  --success: #3f6b4f;
+  --success-ink: #2f5a40;
+  --success-surface: rgba(63, 107, 79, 0.09);
+  --success-border: rgba(63, 107, 79, 0.25);
+
+  --warning: #8a5a1f;
+  --warning-ink: #7a4f17;
+  --warning-surface: rgba(138, 90, 31, 0.09);
+  --warning-border: rgba(138, 90, 31, 0.26);
+
+  --danger: #9b3a2e;
+  --danger-ink: #8a2f25;
+  --danger-surface: rgba(155, 58, 46, 0.08);
+  --danger-border: rgba(155, 58, 46, 0.24);
+
+  --code-surface: #211d18;
+  --code-border: #332e27;
+  --code-text: #efe8db;
+  --code-line: #8b8275;
+
+  --shadow-card: none;
+  --shadow-pop: none;
+  --shadow-button: none;
+
+  --radius-card: 8px;
+  --radius-md: 8px;
+  --radius-sm: 6px;
+  --radius-xs: 4px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-base: 14px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+
+  --motion-fast: 120ms;
+  --motion: 180ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  --rail-width: 216px;
+  --rail-width-compact: 64px;
+  --content-max: 840px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --bg: #171512;
+    --surface: #1e1b17;
+    --surface-solid: #1e1b17;
+    --surface-raised: #24201b;
+    --surface-sunken: #211d18;
+    --rail-bg: var(--surface);
+
+    --ink: #eee8dc;
+    --muted: #a29a8c;
+    --inset: #211d18;
+    --hairline: #332e27;
+
+    --border: #332e27;
+    --border-strong: #4a443a;
+
+    --text: #eee8dc;
+    --text-muted: #a29a8c;
+    --text-faint: #8b8275;
+
+    --accent: #d07a52;
+    --accent-strong: #dc8a60;
+    --accent-ink: #d07a52;
+    --accent-contrast: #171512;
+    --focus-ring: rgba(208, 122, 82, 0.56);
+    --focus-soft: rgba(208, 122, 82, 0.14);
+
+    --success: #8fb49a;
+    --success-ink: #a9c9b2;
+    --success-surface: rgba(143, 180, 154, 0.1);
+    --success-border: rgba(143, 180, 154, 0.28);
+
+    --warning: #d3a15f;
+    --warning-ink: #e0b578;
+    --warning-surface: rgba(211, 161, 95, 0.1);
+    --warning-border: rgba(211, 161, 95, 0.3);
+
+    --danger: #d98a7a;
+    --danger-ink: #e4a193;
+    --danger-surface: rgba(217, 138, 122, 0.1);
+    --danger-border: rgba(217, 138, 122, 0.3);
+
+    --code-surface: #0f0d0b;
+    --code-border: #332e27;
+    --code-text: #eee8dc;
+    --code-line: #8b8275;
+  }
+}
+
+/* Explicit override for local preview/QA and future theme controls. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #171512;
+  --surface: #1e1b17;
+  --surface-solid: #1e1b17;
+  --surface-raised: #24201b;
+  --surface-sunken: #211d18;
+  --rail-bg: var(--surface);
+
+  --ink: #eee8dc;
+  --muted: #a29a8c;
+  --inset: #211d18;
+  --hairline: #332e27;
+
+  --border: #332e27;
+  --border-strong: #4a443a;
+
+  --text: #eee8dc;
+  --text-muted: #a29a8c;
+  --text-faint: #8b8275;
+
+  --accent: #d07a52;
+  --accent-strong: #dc8a60;
+  --accent-ink: #d07a52;
+  --accent-contrast: #171512;
+  --focus-ring: rgba(208, 122, 82, 0.56);
+  --focus-soft: rgba(208, 122, 82, 0.14);
+
+  --success: #8fb49a;
+  --success-ink: #a9c9b2;
+  --success-surface: rgba(143, 180, 154, 0.1);
+  --success-border: rgba(143, 180, 154, 0.28);
+
+  --warning: #d3a15f;
+  --warning-ink: #e0b578;
+  --warning-surface: rgba(211, 161, 95, 0.1);
+  --warning-border: rgba(211, 161, 95, 0.3);
+
+  --danger: #d98a7a;
+  --danger-ink: #e4a193;
+  --danger-surface: rgba(217, 138, 122, 0.1);
+  --danger-border: rgba(217, 138, 122, 0.3);
+
+  --code-surface: #0f0d0b;
+  --code-border: #332e27;
+  --code-text: #eee8dc;
+  --code-line: #8b8275;
+}

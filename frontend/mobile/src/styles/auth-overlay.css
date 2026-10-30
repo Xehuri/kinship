@@ -1,0 +1,236 @@
+/*
+ * 认证覆盖层共享样式 (SetupOverlay / LoginOverlay)
+ *
+ * 两个覆盖层原本各自内联了约 200 行几乎完全相同的 scoped CSS, 仅类名前缀不同。
+ * 这里统一为 auth-* 共享类, 由两个组件同时挂载:
+ *   - 组件保留自身语义类名 (setup-xxx / login-xxx), 供模板/测试/E2E 选择器使用;
+ *   - 视觉样式全部由 auth-* 承担, 两个组件不再重复定义。
+ */
+
+.auth-overlay {
+  --danger: #ff453a; /* 组件级设计 token: --danger (扩展设计系统) */
+
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 700;
+  padding: 20px;
+  outline: none;
+}
+
+/* 覆盖层过渡动画 */
+.auth-overlay-enter-active,
+.auth-overlay-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.auth-overlay-enter-from,
+.auth-overlay-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+/* 卡片 */
+.auth-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 24px;
+}
+
+/* 标题 */
+.auth-title {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 28px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+.auth-title i {
+  color: var(--primary);
+  margin-right: 6px;
+}
+
+/* 副标题 */
+.auth-subtitle {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text2);
+  margin: -16px 0 24px;
+}
+
+/* 表单 */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* 字段 */
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+}
+
+/* 输入框容器 */
+.auth-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.auth-input-icon {
+  position: absolute;
+  left: 14px;
+  color: var(--text3);
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.auth-input-wrap input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px 12px 40px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.auth-input-wrap.has-toggle input {
+  padding-right: 42px;
+}
+
+.auth-input-wrap input::placeholder {
+  color: var(--text3);
+}
+
+.auth-input-wrap input:focus {
+  border-color: var(--primary);
+}
+
+.auth-input-wrap input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 密码可见切换按钮 */
+.auth-eye {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text3);
+  cursor: pointer;
+  padding: 6px 8px;
+  font-size: 14px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.auth-eye:hover {
+  color: var(--text);
+  background: var(--surface3);
+}
+
+/* 错误信息 */
+.auth-error {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: var(--danger);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+/* 错误信息过渡动画 (SetupOverlay 与 LoginOverlay 共用) */
+.error-slide-enter-active,
+.error-slide-leave-active {
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.error-slide-enter-from,
+.error-slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-top: -18px;
+}
+
+.error-slide-enter-to,
+.error-slide-leave-from {
+  max-height: 80px;
+}
+
+/* 提交/登录按钮 */
+.auth-btn {
+  width: 100%;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 13px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.auth-btn:hover {
+  background: var(--primary-light);
+}
+
+.auth-btn:active {
+  opacity: 0.9;
+}
+
+.auth-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-btn .fa-spin {
+  font-size: 14px;
+}
+
+/* 提示文字 */
+.auth-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text3);
+  margin: 16px 0 0;
+  line-height: 1.4;
+}

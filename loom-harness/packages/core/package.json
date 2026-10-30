@@ -1,0 +1,97 @@
+{
+  "name": "@axeuh/loom-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./main-loop": {
+      "types": "./dist/main-loop/index.d.ts",
+      "default": "./dist/main-loop/index.js"
+    },
+    "./assembly": {
+      "types": "./dist/assembly/index.d.ts",
+      "default": "./dist/assembly/index.js"
+    },
+    "./compaction": {
+      "types": "./dist/compaction/index.d.ts",
+      "default": "./dist/compaction/index.js"
+    },
+    "./flow": {
+      "types": "./dist/flow/index.d.ts",
+      "default": "./dist/flow/index.js"
+    },
+    "./run-engine": {
+      "types": "./dist/run-engine/index.d.ts",
+      "default": "./dist/run-engine/index.js"
+    },
+    "./kernel": {
+      "types": "./dist/kernel/index.d.ts",
+      "default": "./dist/kernel/index.js"
+    },
+    "./recovery": {
+      "types": "./dist/recovery/index.d.ts",
+      "default": "./dist/recovery/index.js"
+    },
+    "./receipt": {
+      "types": "./dist/receipt/index.d.ts",
+      "default": "./dist/receipt/index.js"
+    },
+    "./trigger": {
+      "types": "./dist/trigger/index.d.ts",
+      "default": "./dist/trigger/index.js"
+    },
+    "./control": {
+      "types": "./dist/control/index.d.ts",
+      "default": "./dist/control/index.js"
+    },
+    "./pause": {
+      "types": "./dist/pause/index.d.ts",
+      "default": "./dist/pause/index.js"
+    },
+    "./subagent/ids": {
+      "types": "./dist/subagent/ids.d.ts",
+      "default": "./dist/subagent/ids.js"
+    },
+    "./subagent/agents": {
+      "types": "./dist/subagent/agents.d.ts",
+      "default": "./dist/subagent/agents.js"
+    },
+    "./subagent/limits": {
+      "types": "./dist/subagent/limits.d.ts",
+      "default": "./dist/subagent/limits.js"
+    },
+    "./subagent/task-tool": {
+      "types": "./dist/subagent/task-tool.d.ts",
+      "default": "./dist/subagent/task-tool.js"
+    },
+    "./subagent/task-cancel": {
+      "types": "./dist/subagent/task-cancel.d.ts",
+      "default": "./dist/subagent/task-cancel.js"
+    },
+    "./skills/frontmatter": {
+      "types": "./dist/skills/frontmatter.d.ts",
+      "default": "./dist/skills/frontmatter.js"
+    },
+    "./skills/loader": {
+      "types": "./dist/skills/loader.d.ts",
+      "default": "./dist/skills/loader.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "default": "./dist/mcp/index.js"
+    }
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.74.2"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "//": "loom-core：会话/调度主干（T03 vendoring）",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}

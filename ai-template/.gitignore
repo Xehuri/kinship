@@ -1,0 +1,14 @@
+node_modules
+package.json
+bun.lock
+.gitignore
+.loom/
+data/twin/
+__pycache__/
+*.pyc
+memory/MEMORY-STATUS.json
+memory/anchors/*.jsonl
+memory/claims/*.bak*
+data/plan/master*.json
+data/plan/long-tasks/
+.memory-projection/

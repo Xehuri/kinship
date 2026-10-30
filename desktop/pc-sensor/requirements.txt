@@ -1,0 +1,16 @@
+# Axeuh PC 感知采集器依赖
+# pip install -r requirements.txt
+
+# Web 框架（本地配置页 + 状态接口）
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# 系统托盘图标
+pystray>=0.19
+
+# 托盘图标绘制
+Pillow>=10.0.0
+
+# 系统信息 / 进程检测（前台窗口进程名、锁屏检测）
+psutil>=5.9.0

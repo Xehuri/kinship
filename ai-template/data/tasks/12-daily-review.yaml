@@ -1,0 +1,14 @@
+name: 今日复盘
+schedule:
+  daily: "00:40"
+enabled: true
+prompt: |-
+  【今日复盘】 按复盘子智能体调度流程执行。
+
+  1. 运行: python {AI目录}/analysis/check_coverage.py {昨天日期}
+  2. 启动子智能体: task(subagent_type="reviewer", load_skills=[], prompt="请阅读 {AI目录}/agents/02-daily-review.md 执行。参数: date={昨天日期}")
+
+  注意：复盘的目标日期是昨天（不是今天）。
+  3. 子智能体自行验收复盘报告后运行 git add/commit
+  4. 主智能体验收复盘文件
+  5. 读取 {AI目录}/memory/MEMORY-STATUS.json；status=failed 时在验收结论中明确报告失败项

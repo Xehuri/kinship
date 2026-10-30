@@ -1,0 +1,10 @@
+node_modules/
+dist/
+release/
+release-fallback/
+resources/pc-sensor/
+.cache/
+test-results/
+playwright-report/
+*.log
+.vite/

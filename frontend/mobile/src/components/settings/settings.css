@@ -1,0 +1,767 @@
+/*
+ * Settings page styles (v2 shell). Scoped by the settings- prefix; colors and
+ * spacing come from tokens.css only. Sections are raised cards; rows and
+ * fields inside them are flat hairlines, and no surface carries a colored
+ * edge stripe.
+ */
+
+.settings-page {
+  gap: var(--density-section-gap);
+  padding-block-end: var(--space-8);
+}
+
+/* ==================== Groups ==================== */
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
+.settings-group__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+}
+
+.settings-group__label::after {
+  content: '';
+  flex: 1 1 auto;
+  block-size: 1px;
+  background: var(--hairline);
+}
+
+.settings-group__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+  min-inline-size: 0;
+}
+
+/* Device card auto-places into the second row of the data group. */
+@media (min-width: 1024px) {
+  .settings-group--account .settings-group__grid {
+    grid-template-columns: 0.75fr 1.25fr;
+    gap: var(--space-4);
+  }
+
+  .settings-group--data .settings-group__grid {
+    grid-template-columns: 1fr 1.15fr;
+    gap: var(--space-4);
+  }
+
+  .settings-group--system .settings-group__grid {
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+  }
+}
+
+/* ==================== Section card ==================== */
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-inline-size: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  container-type: inline-size;
+  container-name: settings-card;
+}
+
+@media (min-width: 768px) {
+  .settings-section {
+    gap: var(--space-5);
+    padding: var(--space-5);
+  }
+}
+
+.settings-section__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  min-inline-size: 0;
+}
+
+.settings-section__heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-inline-size: 0;
+}
+
+.settings-section__title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.settings-section__desc {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.settings-section__actions {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+.settings-section__body {
+  min-inline-size: 0;
+}
+
+/* ==================== Rows ==================== */
+
+/*
+ * Every in-page interactive selector is scoped under .settings-page so it
+ * outranks the shell reset `.ax-shell button` (0,1,1). The debug overlay is
+ * teleported to body, so its rules stay unscoped.
+ */
+.settings-page .settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: var(--tap);
+  padding: var(--density-row-pad) 0;
+  border: 0;
+  border-block-end: 1px solid var(--hairline);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+}
+
+.settings-row:last-child {
+  border-block-end: 0;
+}
+
+.settings-page button.settings-row {
+  cursor: pointer;
+}
+
+.settings-page button.settings-row:hover {
+  background: var(--inset);
+}
+
+.settings-page button.settings-row:focus-visible,
+.settings-page .settings-segmented__option:focus-visible,
+.settings-page .settings-accent-option:focus-visible,
+.settings-page .settings-button:focus-visible,
+.settings-page .settings-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.settings-page button.settings-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.settings-page .settings-row--active {
+  background: var(--accent-soft);
+}
+
+.settings-row__icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 20px;
+  block-size: 20px;
+  color: var(--muted);
+}
+
+.settings-row__text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.settings-row__title {
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.settings-row__hint {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.settings-row__value {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.settings-row__value--danger {
+  color: var(--danger);
+}
+
+.settings-row__check {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--accent);
+}
+
+.settings-row__chevron {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--muted);
+  transition: transform var(--motion-fast) ease;
+}
+
+.settings-row__chevron--open {
+  transform: rotate(180deg);
+}
+
+@media (max-width: 480px) {
+  .settings-row {
+    flex-wrap: wrap;
+  }
+
+  /* Long hints wrap inside the text column instead of forcing the icon and
+     value onto their own flex lines. */
+  .settings-row__text {
+    flex: 1 1 0;
+  }
+
+  .settings-row__value {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+.settings-nowrap {
+  white-space: nowrap;
+}
+
+/* ==================== Preference fields ==================== */
+
+.settings-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  min-inline-size: 0;
+}
+
+@container settings-card (min-width: 480px) {
+  .settings-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--space-4);
+    row-gap: var(--space-5);
+  }
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+}
+
+.settings-field--wide {
+  grid-column: 1 / -1;
+}
+
+.settings-field__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
+.settings-field__control {
+  padding-inline-start: 0;
+}
+
+.settings-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  inline-size: auto;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.settings-segmented--4 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-inline-size: 240px;
+}
+
+.settings-page .settings-segmented__option,
+.settings-page .settings-accent-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-inline-size: 0;
+  min-block-size: var(--tap);
+  padding: var(--space-1) calc(var(--space-1) + 2px);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-page .settings-segmented__option:hover,
+.settings-page .settings-accent-option:hover {
+  color: var(--ink);
+  background: var(--inset);
+}
+
+.settings-page .settings-segmented__option[aria-pressed="true"],
+.settings-page .settings-accent-option[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.settings-page .settings-segmented__option[aria-pressed="true"] .settings-segmented__check {
+  color: var(--accent);
+}
+
+.settings-segmented__check {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.settings-page .settings-accent-option {
+  flex-direction: column;
+  gap: 2px;
+  padding-block: var(--space-2);
+}
+
+.settings-accent-dot {
+  display: block;
+  inline-size: 14px;
+  block-size: 14px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.settings-accent-dot--ochre {
+  background: var(--accent-preview-ochre);
+}
+
+.settings-accent-dot--jade {
+  background: var(--accent-preview-jade);
+}
+
+.settings-accent-dot--indigo {
+  background: var(--accent-preview-indigo);
+}
+
+.settings-accent-dot--rose {
+  background: var(--accent-preview-rose);
+}
+
+.settings-accent-label {
+  font-size: 11.5px;
+}
+
+.settings-range-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
+.settings-range {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  accent-color: var(--accent);
+}
+
+/* ==================== Form ==================== */
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) 0 var(--space-4);
+  border-block-end: 1px solid var(--hairline);
+}
+
+.settings-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.settings-form__label {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.settings-input {
+  inline-size: 100%;
+  min-block-size: var(--tap);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.settings-input::placeholder {
+  color: var(--muted);
+}
+
+.settings-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* ==================== Buttons ==================== */
+
+.settings-page .settings-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-block-size: var(--tap);
+  padding-inline: var(--space-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.settings-page .settings-button:hover {
+  background: var(--inset);
+}
+
+.settings-page .settings-button--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.settings-page .settings-button--primary:hover {
+  background: color-mix(in srgb, var(--accent) 86%, var(--ink));
+}
+
+.settings-page .settings-button--compact {
+  min-block-size: 32px;
+  padding-inline: var(--space-3);
+  font-size: 12px;
+}
+
+.settings-page .settings-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* ==================== Messages and status ==================== */
+
+.settings-message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-message--error {
+  color: var(--danger);
+}
+
+.settings-message--success {
+  color: var(--success);
+}
+
+.settings-message--note {
+  color: var(--muted);
+}
+
+.settings-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.settings-status--ok {
+  color: var(--success);
+}
+
+.settings-status--degraded {
+  color: var(--warning);
+}
+
+.settings-status--stale {
+  color: var(--warning);
+}
+
+.settings-status--offline {
+  color: var(--danger);
+}
+
+.settings-status--unknown {
+  color: var(--muted);
+}
+
+/* ==================== Data sources ==================== */
+
+.settings-source-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-inline-size: 0;
+}
+
+.settings-source {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+  padding: var(--density-row-pad) 0;
+  border-block-end: 1px solid var(--hairline);
+}
+
+.settings-source:last-child {
+  border-block-end: 0;
+}
+
+@container settings-card (min-width: 480px) {
+  .settings-source-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .settings-source {
+    padding: var(--space-3);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+  }
+
+  .settings-source:last-child {
+    border-block-end: 1px solid var(--hairline);
+  }
+}
+
+.settings-source__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+
+.settings-source__meta {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+}
+
+.settings-source__detail {
+  font-family: var(--font-ui);
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  text-wrap: balance;
+}
+
+.settings-source__loading {
+  block-size: 12px;
+  inline-size: 100%;
+  max-inline-size: 420px;
+  border-radius: var(--radius-sm);
+}
+
+.settings-source__loading--short {
+  max-inline-size: 220px;
+}
+
+.settings-generated {
+  padding: var(--space-2) 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* ==================== About ==================== */
+
+.settings-about {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4) 0;
+  border-block-end: 1px solid var(--hairline);
+}
+
+.settings-about__name {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.settings-about__line {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.settings-footer {
+  padding-block: var(--space-3) 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* ==================== Debug overlay ==================== */
+
+.settings-debug-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  background: var(--overlay-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.settings-debug-overlay__header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(14px + var(--app-top-inset, 0px)) var(--space-4) 14px;
+  border-block-end: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.settings-debug-overlay__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-debug-overlay__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--tap);
+  min-block-size: var(--tap);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-debug-overlay__close:hover {
+  background: var(--inset);
+  color: var(--ink);
+}
+
+.settings-debug-overlay__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-4) calc(var(--space-8) + var(--space-4));
+}
+
+/* ==================== Expand transition ==================== */
+
+.settings-expand-enter-active,
+.settings-expand-leave-active {
+  overflow: hidden;
+  transition:
+    opacity var(--motion-fast) ease,
+    max-height var(--motion-slow) ease;
+}
+
+.settings-expand-enter-from,
+.settings-expand-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+
+.settings-expand-enter-to,
+.settings-expand-leave-from {
+  max-height: 520px;
+}
+
+.settings-fade-enter-active,
+.settings-fade-leave-active {
+  transition: opacity var(--motion-slow) ease;
+}
+
+.settings-fade-enter-from,
+.settings-fade-leave-to {
+  opacity: 0;
+}
+
+@media (max-width: 767.98px) {
+  .settings-page {
+    padding-block-end: calc(var(--space-8) + var(--space-4));
+  }
+}

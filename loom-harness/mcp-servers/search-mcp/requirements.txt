@@ -1,0 +1,6 @@
+# 聚合网络搜索 MCP server 依赖
+# 必须钉 mcp<2：2.x 改了 mcp.server.fastmcp 模块路径（参见 axeuh-health-monitor/backend/requirements.txt 同款注释）
+mcp<2
+httpx
+# 开发/测试
+pytest

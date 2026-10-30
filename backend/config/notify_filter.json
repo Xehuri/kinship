@@ -1,0 +1,4 @@
+{
+  "_comment": "通知上行敏感应用过滤配置。blocked_packages 为包名黑名单，命中时服务端仅保留 package/ts 等元数据，丢弃 title/text 并标记 redacted=true。默认空列表（不过滤任何应用）。",
+  "blocked_packages": []
+}

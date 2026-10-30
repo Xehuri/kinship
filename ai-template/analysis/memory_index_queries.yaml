@@ -1,0 +1,30 @@
+# Sample query set for memory_index_query.py.
+# Replace expected_paths with files that exist in your own {AI目录} instance.
+# match_kind: literal | token | alias | mixed; token/alias require non-empty aliases.
+- id: q01
+  query: 睡眠
+  match_kind: literal
+  expected_paths:
+    - ai/memory/profile/规律.md
+    - ai/memory/profile/semantic/健康基线.md
+  aliases: []
+  notes: "示例：字面命中作息规律或健康基线中的睡眠记录。"
+  min_hits: 1
+
+- id: q02
+  query: 偏好
+  match_kind: literal
+  expected_paths:
+    - ai/memory/profile/core-lite.md
+  aliases: []
+  notes: "示例：画像文件的偏好小节。"
+  min_hits: 1
+
+- id: q03
+  query: 项目
+  match_kind: token
+  expected_paths:
+    - ai/memory/topics/INDEX.md
+  aliases: [系统, 事项]
+  notes: "示例：token 模式用别名覆盖同义表达。"
+  min_hits: 1

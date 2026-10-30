@@ -1,0 +1,15 @@
+# Component metadata for license scanners and future packaging.
+# Runtime packaging currently uses the repository root pyproject.toml.
+[project]
+name = "kinship-backend"
+version = "1.7.0"
+description = "Kinship backend service (FastAPI)"
+requires-python = ">=3.10"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Xehuri" },
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

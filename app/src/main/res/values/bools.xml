@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 浅色主题下系统栏需要深色图标（WindowCompat 的 appearance light = true） -->
+    <bool name="kinship_web_light_bars">true</bool>
+</resources>

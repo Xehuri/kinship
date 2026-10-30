@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- 权限声明 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FLASHLIGHT" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- 未授予 RECORD_AUDIO 时的兜底前台类型（microphone 未授权会抛 SecurityException） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 刻意不声明 FOREGROUND_SERVICE_DATA_SYNC / _MEDIA_PROJECTION：
+         Android 15(targetSdk 35+) 起 dataSync 前台服务有 6h/24h 配额，常驻服务会被系统杀掉；
+         本项目也不再使用 MediaProjection。 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- 开机自启：用于 BOOT_COMPLETED 后恢复保活与采集服务 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- 敏感应用选择器需要枚举全部已安装应用（含无启动器入口的系统应用/后台服务），
+         仅靠下面 <queries> 的 LAUNCHER 过滤无法覆盖通知来源，故声明 QUERY_ALL_PACKAGES。
+         本应用为自用侧载（不走 Google Play 分发），该权限广度可接受。 -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- 包可见性（替代 QUERY_ALL_PACKAGES）：仅需解析带启动器入口的应用显示名称 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <!-- ADB 调试命令接收器的签名级权限：仅同签名应用可发送，防止第三方伪造命令 -->
+    <permission
+        android:name="com.axeuh.health.monitor.permission.ADB_COMMAND"
+        android:protectionLevel="signature" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AxeuhAssistant"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <!-- Activity 声明 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AxeuhAssistant.Splash">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".MobileActivity"
+            android:hardwareAccelerated="true"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true"
+            android:theme="@style/Theme.KinshipWeb" />
+
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="true"
+            android:theme="@style/Theme.KinshipSettings" />
+
+        <!-- 桌面组件配置页（exported=false，不进主导航、不动现有页面）：
+             WidgetConfigureActivity = 聚合卡 configure 形态（provider XML android:configure 引用）。
+             风险注记：launcher 跨进程启动配置页走宿主侧显式 intent，部分宿主对 exported=false
+             可能拒绝（官方配置指南样例为 exported=true + APPWIDGET_CONFIGURE filter）——
+             真机若配置页不弹按样例放开，功能语义不变。 -->
+        <activity
+            android:name=".widget.WidgetConfigureActivity"
+            android:exported="false" />
+
+        <!-- 通知历史全文页：通知卡整卡点击与设置页「桌面组件 → 通知历史」进入，不进 launcher -->
+        <activity
+            android:name=".NotificationHistoryActivity"
+            android:exported="false" />
+
+        <!-- Service 声明 -->
+        <service
+            android:name=".service.AxeuhAccessibilityService"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+
+        </service>
+
+        <service
+            android:name=".service.NotificationListenerService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- BroadcastReceiver 声明 -->
+        <receiver
+            android:name=".receiver.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receiver.AdbCommandReceiver"
+            android:exported="true"
+            android:permission="com.axeuh.health.monitor.permission.ADB_COMMAND">
+            <intent-filter>
+                <action android:name="com.axeuh.health.monitor.CMD" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 桌面组件 receiver：Glance 官方样例 exported=false——
+             APPWIDGET_UPDATE 属系统类广播、由系统定向投递，无需对外导出
+             （见 docs/archive/research/research-android-widget-2026-10-12.md §2.4）。零新增权限。 -->
+        <receiver
+            android:name=".widget.HealthSummaryWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/health_summary_widget" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.HeartRateMiniWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/hr_mini_widget" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.AiNotifyWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/ai_notify_widget" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.ReminderWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/reminder_widget" />
+        </receiver>
+
+        <!-- 前台类型刻意不含 dataSync：Android 15 起 dataSync 有 6h/24h 配额会杀掉常驻服务。
+             specialUse 仅作「未授予 RECORD_AUDIO」时的兜底（无时长上限，且未授权不抛异常）。 -->
+        <service
+            android:name=".service.DataCollectorService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="持续采集设备传感器与麦克风音频并上传至用户自建服务器；未授予录音权限时降级为纯传感器采集" />
+        </service>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+
+</manifest>

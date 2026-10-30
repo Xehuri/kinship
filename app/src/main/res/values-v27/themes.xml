@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- API 27+：新增 windowLightNavigationBar（该属性 minSdk 26 不支持），样式不跨限定符合并，故重复全部条目 -->
+    <style name="Theme.KinshipWeb" parent="@style/Theme.AxeuhAssistant">
+        <item name="android:windowBackground">@color/kinship_web_bg</item>
+        <item name="android:statusBarColor">@color/kinship_web_bg</item>
+        <item name="android:navigationBarColor">@color/kinship_web_bg</item>
+        <item name="android:windowLightStatusBar">@bool/kinship_web_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/kinship_web_light_bars</item>
+    </style>
+</resources>

@@ -1,0 +1,26 @@
+[Unit]
+Description=Kinship server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kinship
+WorkingDirectory=/opt/kinship/backend
+Environment=PYTHONUNBUFFERED=1
+Environment=AXEUH_ORCHESTRATOR=on
+Environment=AXEUH_LOOM_MODE=child
+Environment=CONFIG_PATH=/opt/kinship/config.yaml
+Environment=AXEUH_CONFIG_PATH=/opt/kinship/config.yaml
+Environment=AXEUH_PROJECT_ROOT=/opt/kinship
+Environment=AXEUH_DATA_ROOT=/opt/kinship/var
+Environment=AXEUH_MODELS_DIR=/opt/kinship/models
+Environment=AXEUH_AUTH_STATE_DIR=/opt/kinship/auth
+Environment=AXEUH_KERNEL_STATE_DIR=/opt/kinship/backend-data/kernel_state
+Environment=AXEUH_KERNEL_PYTHON=/opt/kinship/.venv-kernel/bin/python
+ExecStart=/opt/kinship/.venv/bin/python -m core.hot_server
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "axeuh-health-monitor"
+version = "0.1.0"
+description = "AI 驱动的健康监测系统 - Android 传感器数据采集 + FastAPI 后端 + AI 分析"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Xehuri" },
+]
+keywords = ["health-monitor", "ai", "fastapi", "android", "sensor"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+]
+
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "websockets>=12.0",
+    "pydantic>=2.5.3",
+    "python-multipart>=0.0.6",
+    "aiohttp>=3.9.1",
+    "httpx>=0.27.0",
+    "requests>=2.31.0",
+    "PyYAML>=6.0",
+    "bcrypt>=4.0.0",
+    "numpy>=1.26.0",
+    "filelock>=3.0.0",
+    # Wave C4（2026-09-25）：重 ML 依赖（torch/torchaudio/funasr/modelscope/
+    # pyannote.audio/silero-vad）随外层算法实现物理删除而整体出局——原
+    # [ml] extra 已删除。soundfile 为纯音频 IO（解码/封装），soxr 为重采样，
+    # 实测仍被保留代码 import，升入核心依赖。ML 依赖归 kernel 侧声明。
+    "soundfile>=0.12.0",
+    "soxr>=0.5.0",
+    # ffmpeg 二进制由 imageio-ffmpeg wheel 自带，首次使用时复制到 backend/bin/；
+    # 发行包不再内置/下载 ffmpeg.exe（wheel 31.2 MB，内含 87.6 MB 的 win64 v7.1）。
+    "imageio-ffmpeg>=0.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]

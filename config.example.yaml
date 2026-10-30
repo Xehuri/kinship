@@ -1,0 +1,432 @@
+# config.example.yaml — 模板配置文件，复制为 config.yaml 并填入真实值
+
+# 服务
+server:
+  host: 0.0.0.0
+  # 唯一入口端口；HTTP/HTTPS 共用，协议由下方 ssl.enabled 决定。
+  port: 8768
+
+# AI 助手后端：公开模板默认 Loom。
+# 首次引导会写入 Loom token_file；也可手动设置 loom.token 或环境变量 LOOM_TOKEN。
+ai_backend: loom
+
+# Loom（助手宿主；监听 127.0.0.1:5100）
+# Bearer token 优先级: loom.token > 环境变量 LOOM_TOKEN；
+# 真实值只进 gitignored 的 config.yaml 或环境文件，本模板永远留空。
+loom:
+  url: http://127.0.0.1:5100
+  token: ""
+  token_file: ""
+  credentials_file: ""
+  manage_config: false
+
+# 旧版助手客户端兼容键：仅为既有配置校验保留，新部署保持关闭。
+# 公开文档不提供该客户端的安装或切换说明。
+opencode:
+  enabled: false
+  default_agent: main-task
+  default_model: deepseek-flash
+  default_provider: deepseek
+
+# 音频压缩归档（关闭时完整保留所有原始 WAV）
+audio_compressor:
+  enabled: false                  # 是否启用每日自动压缩（凌晨把超过 keep_days 天的 WAV 合并为 M4A 归档并删除原文件）
+  keep_days: 3                    # 保留最近 N 天的原始 WAV
+  ffmpeg_threads: 0               # ffmpeg 编码线程上限（0=ffmpeg 自选；夹取 0..64）
+  nice: 0                         # ffmpeg 子进程 nice 优先级（0=不调整；POSIX 生效；夹取 -20..19）
+
+# SSL
+ssl:
+  enabled: false                  # 启用 HTTPS 前须填入真实证书与私钥路径（Android App 生产必需）
+  cert: ""
+  key: ""
+
+# 首次初始化认证
+auth:
+  setup_require_token: true       # 首次初始化必须携带 X-Setup-Token（防接管）；显式 false 可关闭
+
+# 首次引导（发行资产、前端自愈与模型下载策略）
+onboarding:
+  release_manifest_url: ""        # release manifest URL；空 = 内置默认
+  release_base_url: ""            # 发行资产下载根地址；空 = 使用清单内地址
+  frontend_autodownload: true     # dist 缺失时后台下载前端资产（不覆盖已有 dist）
+  kernel_release_tag: ""          # 内核发行标签；空 = 最新发行
+  allow_model_download: true      # 允许引导阶段下载内核模型
+  model_tiers: ["required", "recommended"]  # 引导默认下载的模型档位
+
+# API
+api:
+  mimo_key: YOUR_MIMO_API_KEY
+  baidu_map_ak: ""                # 百度地图 AK（前端反向地理编码；仅构建期注入，改后需重新构建前端）
+
+# 健康数据（架构文档第 8 节：源选择 / 主用户 / 小米云）
+health:
+  primary_user: Axeuh            # 主用户（其数据派生到 legacy 路径 daily/{date}/health.json）
+  source_mode: exclusive         # exclusive=仅主源可写(409) | merge=双源各写各分片
+  default_source: phone          # 每用户默认主数据源 phone | cloud（运行时可被 /api/health/source 覆盖）
+  cloud_poll_interval_min: 30    # 小米云自动拉取周期（分钟）
+  cloud:                         # 小米云凭据 —— 只填进 gitignored config.yaml，绝不提交真实值
+    enabled: false               # 部署默认开关；运行时开关优先（前端/CLI --enable 写 backend/data/health_cloud_state.json）
+    userid: ""                   # 小米账号 userId（字符串）
+    passtoken: ""                # 小米账号 passToken（账号级令牌，扫码一次即可长期使用）
+    region: cn                   # 区域：cn | ru | de | i2 | sg | us（非 cn 时区按 UTC 解释）
+    initial_lookback_days: 3     # 首次拉取回看天数（之后按水位增量）
+    overlap_days: 7              # 每次拉取向前重叠天数（吸收云端晚到/手环补发数据）
+    # 获取方式（推荐扫码，无需手抄 Cookie）：
+    #   python backend/scripts/mi_cloud_setup.py --qr
+    # 启用/停用自动拉取（运行时状态，无需重启）：
+    #   python backend/scripts/mi_cloud_setup.py --enable
+    #   python backend/scripts/mi_cloud_setup.py --disable
+    # 历史回填 / 滞后诊断：
+    #   python backend/scripts/mi_cloud_setup.py --backfill 110
+    #   python backend/scripts/mi_cloud_setup.py --latest
+    # 完整说明见 docs/数据源-小米健康云.md
+
+# 数据目录（默认相对于项目根目录，可用绝对路径覆盖）
+data:
+  # AI 单一根目录：AI 数据/配置/会话/上传均从这里派生，也是手机页文件浏览根。
+  # 空 = 由 data.dir 的父目录推导；data.dir 也为空时 = <项目根>/ai。
+  ai_root: ai
+  # AI 数据目录（perception/health/report）。空 = <data.ai_root>/data。
+  dir: ""
+  # 运行时数据根：secrets/run/logs 与 models 的父目录。空 = <项目根>/var。
+  # 建议放到数据盘：Linux 如 /mnt/data/kinship，Windows 如 D:\Kinship\Data，
+  # 避免模型与运行时文件占用系统盘。环境变量 AXEUH_DATA_ROOT 优先级更高。
+  # 注意：data.root / models.dir 独立于 ai_root，不随 AI 数据搬迁。
+  root: ""
+  # 以下路径留空 = 由 data.ai_root 派生（<ai_root>/data/...）；显式值优先。
+  sessions: ""
+  tasks: ""
+  voiceprints: ""
+
+# 模型根目录（引导下载的本地模型权重落在这里；空 = <data.root>/models）
+models:
+  # 相对路径按项目根解析；环境变量 AXEUH_MODELS_DIR 优先级更高。
+  # Windows 建议显式指向数据盘（如 D:\Kinship\Data\models），避免落到 C: 盘。
+  dir: ""
+
+# PC 采集端（Windows PC 状态采集器；设置页「设备」组提供下载入口）
+pc_sensor:
+  # exe 路径（相对项目根或绝对路径；也可用环境变量 PC_SENSOR_EXE_PATH 覆盖）
+  # 该文件由 desktop/pc-sensor/build.bat (PyInstaller) 构建，被 .gitignore 忽略（*.exe / dist/），
+  # 新部署环境需自行构建一次，否则下载端点返回 404。
+  exe_path: desktop/pc-sensor/dist/Kinship-PCSensor.exe
+
+# 日志
+log:
+  level: INFO
+
+# 语音识别/声纹
+# 注意：vad_threshold 与 cohort_max_samples 两个旧键已不再读取——VAD 阈值见
+# audio.vad.threshold，cohort 工作集上限见 audio.voiceprint.cohort.active_size。
+voiceprint:
+  min_snr: 15.0                # 语音最小信噪比(dB)
+  min_speech_ratio: 0.5        # 音频最小语音占比
+  min_duration: 3.0            # 声纹注册最小音频时长(秒)
+
+# ============ 音频内核（闭源 kernel/，spawn 注入）============
+kernel:
+  # torch 推理设备: cpu | gpu | auto（缺省 cpu = 不注入，内核历史纪律）。
+  # gpu: CUDA 可用则 torch 系模型（ASR/VAD/scene/aed/emotion/diar/声纹）上
+  #      cuda:0，不可用自动回退 cpu；sherpa-onnx KWS 恒 CPU 不受影响。
+  # 修改后需重启后端，且内核需重新 spawn 才生效（内核生命周期独立）。
+  device: cpu
+  # 内核子进程可见 GPU（spawn 注入 CUDA_VISIBLE_DEVICES；空 = 不注入）。
+  # torch cuda:0 不保证等于 nvidia-smi 0 号卡；gpu 模式下用它钉到空闲卡。
+  cuda_visible_devices: ""
+  # CPU 亲和（spawn 后 os.sched_setaffinity，仅 POSIX/Linux 生效，Windows 忽略）。
+  # 支持列表 [2,3,4] 或字符串 "2-4" / "2,3,4"；负数与非法值被过滤，
+  # 空列表 = 不限制（默认）。
+  cpu_affinity: []
+  # 进程 nice 优先级（spawn 后 os.setpriority，仅 POSIX/Linux 生效）：
+  # -20（最高）..19（最低），越界自动夹取，非法值按不调整处理。
+  # null = 不调整（默认）。
+  nice: null
+  # 现有 kernel venv 的 Python 解释器；空 = 自动探测（AXEUH_KERNEL_PYTHON / venv）。
+  python: ""
+  # 内核模型根目录；空 = 内核默认解析链。相对路径按项目根解析。
+  model_dir: ""
+  # torch 安装源（引导第 4 步建内核 venv 时使用）；空 = 自动判定：
+  # nvidia-smi 驱动 >=570 选 cu128、550-569 选 cu124（CUDA 轮子约 6.3 GB），
+  # 其余走 PyPI CPU 轮子。RTX 50 系等新卡可显式指定
+  # https://download.pytorch.org/whl/cu128。
+  torch_index_url: ""
+
+# ============ MOSS 深度音频（外部 vLLM 影子服务，可选） ============
+moss:
+  enabled: false                   # true = 启动 MOSS 分析链（文件订阅与深度分析；vLLM 由独立单元托管）
+  python: ""                       # watcher 解释器；空 = 自动探测 /opt/kinship/.venv-moss 或 .venv-moss
+  base_url: http://127.0.0.1:8100  # 外部 MOSS vLLM 服务基址（http:// 或 https://）
+  model: moss-audio-4b             # 服务模型名（非空）
+
+# ============ 客户端发行（引导页下载入口） ============
+clients:
+  android_url: ""                  # Android App 发行资产地址；空 = 走 manifest / GitHub 回退
+  android_sha256: ""               # Android App 资产校验和
+  desktop_url: ""                  # Windows 桌面端发行资产地址；空 = 走 manifest / GitHub 回退
+  desktop_sha256: ""               # Windows 桌面端资产校验和
+  github_release_tag: "onboarding-v1.0.0"  # GitHub 发行页标签；空 = releases/latest
+  github_release_base: "https://github.com/Xehuri/kinship"  # 发行页基址；空 = 禁用回退
+
+# ============ 音频子系统（backend/services/audio_config.py 读取）============
+# 说明：本节键全部可配；缺省时回落到 audio_config.py 的内置默认（等于历史硬编码值）。
+# 唯一有意的默认变化：声纹滑窗由 1000/750 统一为 1500/750。
+# 修改本节点后需重启后端（POST /api/screen/restart）才生效。
+audio:
+  # ---------- 存储格式（上传双档 wav|flac，2026-09-23） ----------
+  store:
+    # magic 嗅探未知时的落盘默认扩展名：wav | flac（非法值回退 wav）。
+    # 实际格式由客户端上传内容决定（后端 RIFF+WAVE / fLaC 魔数嗅探，
+    # 不信任 Content-Type）；本键只兜底无法嗅探的场景（如旧 JSON base64 路径）。
+    # App 侧格式选择在设置页「环境音频 → 上传格式」（audio_upload_format prefs 键），
+    # 每段采集现读、改完下一段生效，与此后端键互相独立。
+    upload_ext: wav
+
+  # ---------- 音频流切分与队列 ----------
+  stream:
+    sample_rate: 16000            # 采样率（Hz）
+    bytes_per_sample: 2           # 16bit = 2 字节/样本
+    channels: 1                   # 单声道
+    min_chunk_s: 10.0             # 最短块（除 flush 外不得更短）
+    silence_cut_s: 1.5            # 静音优先切分
+    force_cut_s: 60.0             # 硬上限强切
+    rms_threshold: 5.0            # 静音判定 RMS
+    frame_ms: 30                  # 逐帧判定
+    queue_maxsize: 32             # 分析队列上限
+    max_pending_minutes: 5        # 背压上限（分钟）
+    session_max_s: 300            # 背压上限（秒）
+    stitch_enabled: true          # 上传分段「无缝流」：时间连续的分段当作一条流分析，只在静音端点切分（防固定切分语义截断）
+    holdback_s: 90.0              # 当前流空闲多久（接收空闲超时，秒）后强制冲刷尾段；空闲或会话结束则 flush
+    min_flush_speech_ratio: 0.05  # 产出块的语音占比下限；低于此值视为纯静音残片，不产出 voice 条目
+    stitch:                       # 无缝流参数（仅上传分段路径 audio_ingest_session.py 生效）
+      tolerance_ms: 1000          # 时间连续性容差（ms）：B.start_ms <= A.end_ms + 容差 即视为同一条流。
+                                  # App 有 500ms 前滚重叠，不能要求首尾严格相等；1000ms 也远小于
+                                  # "整个文件丢失"（约 60s）。超容差则先冲刷当前流再开新流。
+      max_chunk_s: 120.0          # 单个分析段的硬上限（s）：防止连续流无限累积。默认 120 = 2 个上传
+                                  # 文件周期；正常情况静音端点会先切分，硬上限只在长静音缺失时兜底。
+      min_chunk_s: 10.0           # 静音端点切分前的最短累积（s），避免切出碎块
+      silence_cut_s: 1.5          # 静音端点持续时长（s），达到即优先在该处切分（可能在文件中间）
+    persist_perception: false     # 流式（唤醒）音频是否也写入按日增量数据 perception.jsonl。
+                                  # 默认 false = 流式隔离：流式音频只落 stream/{date}/audio（daily 之外），
+                                  # 分析侧按 origin="stream" 跳过 perception 写入，不污染 AI 按日数据。
+                                  # 置 true 仅供调试/回滚（会重新污染增量数据），改后需重启后端。
+
+  # ---------- VAD（pyannote） ----------
+  vad:
+    engine: pyannote              # pyannote | silero（替代 VAD_ENGINE 环境变量）
+    device: cuda:0                # 推理设备
+    model: pyannote/segmentation-3.0
+    threshold: 0.5                # 语音概率阈值（接线原 voiceprint.vad_threshold）
+    min_speech_ms: 200            # 最短语音段
+    min_silence_ms: 300           # 最短静音间隔
+    merge_gap_s: 0.3              # 二次合并间隙（独立于 min_silence）
+    reject_stationary_noise: true # 稳态噪声剔除
+    window_s: 10.0                # pyannote sliding duration
+    step_s: 0.5                   # pyannote sliding step
+    bucket_ms: 100                # 概率曲线聚合桶
+    min_audio_ms: 100             # 短于此时长直接判空
+    min_wav_samples: 1600         # 短于此样本数（0.1s @16k）直接判空
+    dyn_min: 3.0                  # 稳态噪声动态范围门
+    voiced_min: 0.08              # 稳态噪声有声占比门
+    stationary_noise:             # 稳态噪声判据
+      min_dynamic_db: 3.0
+      min_voiced_ratio: 0.08
+      frame_ms: 25
+      low_percentile: 15
+      high_percentile: 95
+      energy_floor: 1.0e-5
+      voiced_multiplier: 3.0
+      skip_below_s: 0.5           # 短于此段不做噪声判别
+
+  # ---------- 声纹 ----------
+  voiceprint:
+    verify_threshold: 0.55        # 验证默认阈值
+    identify_threshold: 0.45      # 识别默认阈值
+    embedding_dim: 192            # ERes2NetV2 输出维度
+    min_dur_sec: 2.0              # cohort 采集最短时长
+    max_dur_sec: 55.0             # cohort 采集最长（排 60s 整段）
+    min_rms: 0.008
+    collect_sim_max: 0.25         # 入池 raw sim 上限
+    dedup_min_dist: 0.01
+    max_per_day_src: 5
+    sim_max_internal: 0.60        # 多样性冗余上限
+    as_norm:
+      activate_min_cohort: 10     # 域切换门（<10 用 raw cos，>=10 用 tanh(AS-Norm/scale)）
+      scale: 3.0                  # tanh 缩放分母
+      eps: 1.0e-5                 # 数值稳定 epsilon
+    sliding:                      # 段级声纹滑窗趋势
+      window_ms: 1500             # 由 1000 改为 1500，与分析链路 two_step 对齐
+      hop_ms: 750
+      label_threshold: 0.5        # speaker 名标注阈值
+    tag:                          # 逐字/整段身份分档
+      registered_sim: 0.75        # 判为 registered 的最低分
+      mixed_sim: 0.30             # 判为 mixed 的最低分
+      self_pct: 0.90              # 整段判 self
+      mixed_pct: 0.20             # 整段判 mixed
+    segment:
+      min_speech_s: 0.5           # 进入声纹分析的最短段
+      max_s: 55.0                 # 候选区/建档时长上限
+      vad_coverage: 0.4           # VAD 覆盖不足回退整段的比例
+    cohort:
+      min_dur_s: 2.0              # 采集最短时长
+      max_dur_s: 55.0             # 采集最长（排 60s 整段）
+      collect_sim_max: 0.25       # 入池 raw sim 上限
+      min_rms: 0.008
+      dedup_min_dist: 0.01
+      max_per_day_src: 5
+      active_size: 500            # 工作集上限（取代旧 voiceprint.cohort_max_samples）
+      flush_batch: 100
+      compact_interval: 5
+      sim_max_internal: 0.60
+    enroll:                       # 注册质量门
+      min_seg_s: 1.0              # 逐段最小时长
+      min_seg_count: 2            # 最少合格段
+      min_seg_snr: 1.0            # 逐段 SNR 门
+      min_consistency: 0.55       # 段间一致性
+      trigger_count: 3            # 触发一致性过滤的段数
+
+  # ---------- 唤醒词（KWS + 录音状态机；默认关闭） ----------
+  wake_word:
+    enabled: false                # 默认关闭；启用需先放置 KWS 模型与词表
+    keywords_file: ""             # 空 = <data.ai_root>/data/wake_word/keywords.txt（每行一个词，由设置页 encode/keywords 同步）
+    model_dir: ""                 # 空 = <data.ai_root>/data/wake_word/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20
+    chunk: 8                      # 8=160ms / 16=320ms
+    num_threads: 1
+    keywords_score: 1.8           # 2026-09-14 标定；2.5 经全天实测否决
+    keywords_threshold: 0.25
+    pre_roll_ms: 1000             # 唤醒命中前的预滚缓冲（防指令开头被截）；端侧命中模式下实际保留 max(pre_roll_ms, sliding_window_ms)
+    entry_score_cohort_ready: 0.7   # 进门验证（cohort 就位）；2026-09-15 由 0.75 下调（audio_config.py 代码兜底仍为 0.75）
+    entry_score_no_cohort: 0.45     # 进门验证（cohort 未就位）；2026-09-15 由 0.5 下调（代码兜底仍为 0.5）
+    exit_threshold: 0.75            # 停止判定：声纹低分门
+    exit_hold_ms: 3750              # 声纹持续低分时长（约 5 窗 @750ms）
+    vad_silence_ms: 3000            # 停止判定：VAD 静音时长
+    hard_limit_ms: 1800000          # 硬上限 30 分钟（兜底）
+    min_record_ms: 2500             # 唤醒后最短录音时长（自进入录制态/提示音起算，防秒停）
+    weak_split:                     # 弱切分（防 ASR 长音频质量下降）
+      enabled: true
+      window_ms: 1500
+      low_energy_win_ms: 1500       # 找能量低谷的窗长
+      min_seg_ms: 2500              # 子段下限（低于不切/回并）
+      max_seg_ms: 12000             # 段长上限（超过强制切）
+
+  # ---------- 语音助手（历史服务，默认关闭） ----------
+  assistant:
+    enabled: false
+    sample_rate: 16000
+    channels: 1
+    bits_per_sample: 16
+    rms_threshold: 5.0              # 能量 VAD 阈值
+    min_speech_ms: 500              # 最短语音段
+    silence_timeout_ms: 3000        # 静音超时
+    voiceprint_window_ms: 1000      # 声纹滑窗粒度
+    voiceprint_history_ms: 3000     # 声纹历史窗口
+    voiceprint_threshold: 0.3       # 声纹低分阈值
+    min_segment_ms: 500             # 最短 ASR 段
+    max_buffer_seconds: 5           # 主缓冲上限（秒）
+
+# ============ TTS 设备路由 ============
+tts:
+  enabled: true                     # 总开关；false 退化为原有广播行为
+  device_channel_ttl_seconds: 3600  # 回传通道滑动 TTL（秒）
+  fallback_client_types: ["web"]    # 无定向目标时的回退客户端类型
+
+# ============ P2P 设备直连（实验功能，当前不可用） ============
+# P2P 目前处于实验阶段，不是正式功能，当前不可用；请保持 enabled: false。
+# 以下字段仅保留实验配置；不要启用，也不依赖其中任何接口。
+# 关闭时 /api/p2p/* 全部返回 404，且不建立任何信令后台连接。
+p2p:
+  enabled: false
+  server_id: home
+  room: ""                          # 空 = 回落 server_id
+  signal_url: ""                    # 启用时必填，如 wss://signal.example.com
+  signal_secret_env: P2P_SIGNAL_SECRET
+  signal_ticket_ttl_seconds: 600    # 60..900
+  allow_shared_token: false         # true = 设备 token 可代同用户其他设备取票据
+  auto_enroll_user_devices: true    # true = 用户 token 首次取票据时自动登记未知设备（设备 token 不适用）
+  # 设备可达端点；值必须 https（http 仅回环）。客户端按 IPv6 → WebRTC → frp 顺序尝试，不做 TURN。
+  endpoints:
+    ipv6: https://home.example.com:23443   # IPv6 直连（20000-60000 高位端口，TLS）
+    frp: https://frp.example.com:8768      # frp 兜底（现有 8768）
+  pairing_code_ttl_seconds: 300     # 60..900
+  pairing_max_attempts: 5
+  devices_path: backend/data/p2p/devices.json
+  webrtc:                           # Phase 2 可选数据面（需装 backend/requirements-p2p.txt）
+    enabled: false                  # true = 启动 aiortc peer；未装 aiortc 时 fail-open 保留信令
+    stun_servers: ["stun:stun.l.google.com:19302"]  # 只允许 stun:，不做 TURN
+    max_frame_bytes: 16384          # 1024..65536
+    max_message_bytes: 8388608      # 1 MiB..64 MiB
+    ack_timeout_seconds: 60         # 5..300
+
+# ============ QQ Gateway（单 WS 网关，默认关闭） ============
+qq_gateway:
+  enabled: false
+  mode: lifespan
+  account:
+    self_qq: ""
+    peer_allowlist: []
+    ws_url: ws://127.0.0.1:3001
+    ws_token_env: NAPCAT_WS_TOKEN
+    ws_token_file: ""
+  connection:
+    heartbeat_interval_sec: 20
+    heartbeat_timeout_sec: 90
+    action_timeout_sec: 15
+    reconnect_min_sec: 1
+    reconnect_max_sec: 30
+    max_msg_size_mb: 50
+  inbound:
+    enabled: true
+    deliver: true
+    shadow: false
+    private: true
+    groups: false
+    group_allowlist: []
+    require_at: true
+    self_messages: false
+    notices: true
+    requests: true
+  outbound:
+    enabled: true
+    dry_run: false
+    private: true
+    groups: false
+    group_allowlist: []
+    send_rate_per_min: 20
+    min_interval_ms: 300
+    max_upload_mb: 100
+  forward:
+    enabled: true
+    max_depth: 3
+    max_nodes: 200
+    max_chars: 8000
+    cache_ttl_sec: 3600
+    parse_mult_msg: false
+  media:
+    dir: ai/data/qq_gateway/media
+    max_mb: 100
+    keep_days: 7
+    gif_sniff: true
+  delivery:
+    session: main-task
+    max_retries: 5
+    retry_backoff_sec: 5
+    queue_limit: 1000
+    reconcile: true
+  # QQ 空间（QZone）工具。当前仅实现 http_sidecar（外部 sidecar 经 HTTP 操作）；
+  # mode: native / snowluma 为保留值，未实现，配置后不生效。
+  qzone:
+    enabled: false
+    mode: "off"          # 仅 http_sidecar 已实现；native / snowluma 保留未实现
+    allow_send: false    # 写入总闸：评论 / 回复 / 点赞
+    allow_delete: false  # 删除总闸：删除评论（qq_delete_qzone_comment）；需同时 outbound.enabled
+    allow_read: false    # 读取总闸：动态流 / 评论读取
+    rate_per_hour: 5     # 写入限速（次/小时）；读取另走内部 30 次/分上限，不受此键影响
+  mcp:
+    enabled: false
+    host: 127.0.0.1
+    port: 8770
+    token_env: QQ_GATEWAY_MCP_TOKEN
+    token_file: ""
+  logging:
+    level: INFO
+    log_payloads: false

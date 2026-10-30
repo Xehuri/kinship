@@ -1,0 +1,49 @@
+# Kinship - 后端依赖
+# 运行环境: conda env axeuh-multi-agent (Python 3.10+)
+#
+# 安装:
+#   conda activate axeuh-multi-agent
+#   pip install -r requirements.txt
+#
+# Wave C4 收口（2026-09-25）：外层算法实现（audio_processor / vad_processor /
+# sound_scene / sigh_detector / speaker_diarization / multimodal_audio_manager /
+# pyannote_segmenter / unknown_speaker 四层链 / voiceprint 本地打分与 Cohort）
+# 已物理删除，本文件声明的重 ML 依赖随之出局：
+#   pyannote.audio / silero-vad（torch / torchaudio / funasr / modelscope 原
+#   只在 pyproject [ml] extra 声明，extra 已整体删除；scikit-learn / sherpa-onnx
+#   从未声明）—— 均以"删除后全仓(含 tests 与保留脚本)实测 import 零引用"为据。
+#   音频算法由独立内核进程(kernel/)承载，ML 依赖归 kernel 侧 requirements。
+# 保留判据（实测仍被 import）：numpy（分析管线/唤醒服务/测试）、
+# soundfile（FLAC 解码/无缝流/分析链/压缩归档/预览台）、soxr（预览探针重采样）。
+
+# ============ Web 框架 ============
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+websockets>=12.0
+pydantic>=2.5.3
+python-multipart>=0.0.6
+
+# ============ HTTP 客户端 ============
+aiohttp>=3.9.1
+httpx>=0.27.0
+requests>=2.31.0
+
+# ============ 配置 ============
+PyYAML>=6.0
+
+# ============ 认证 ============
+bcrypt>=4.0.0
+
+# ============ 数据处理 ============
+numpy>=1.26.0
+filelock>=3.0.0
+
+# ============ 音频 IO（解码/封装，非 ML；Wave C4 保留判据见文件头） ============
+soundfile>=0.12.0
+soxr>=0.5.0
+# ffmpeg 二进制随 wheel 分发（首次使用复制到 backend/bin/），不单独内置。
+imageio-ffmpeg>=0.6.0
+
+# ============ AI MCP 服务（ai/mcp/ai_mcp.py） ============
+# ai_mcp.py 用 mcp.server.fastmcp，该模块在 mcp 2.x 已改名为 MCPServer，故必须钉 v1。
+mcp<2

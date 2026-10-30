@@ -1,0 +1,13 @@
+name: 计划复核
+schedule:
+  daily: "07:30"
+enabled: false
+prompt: |-
+  【系统通知·计划复核】07:30 到了。
+
+  按 Plan mode 执行：只读 + plan revise，不执行 care，不发用户通知。
+
+  1. plan read 今日计划。
+  2. 核对睡眠是否补齐、天气、课程/日程、用户是否醒着。
+  3. 有变化时 plan revise 并写 reason；无变化不动。
+  4. 不在聊天里播报计划表，不发用户手机通知。

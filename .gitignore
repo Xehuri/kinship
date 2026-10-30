@@ -1,0 +1,293 @@
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.kotlin/
+
+# 依赖
+node_modules/
+
+# 日志
+*.log
+
+# 临时文件
+*.tmp
+*.temp
+*.npy
+
+# Python
+__pycache__/
+backend/__pycache__/
+backend/routers/__pycache__/
+backend/services/__pycache__/
+*.pyc
+# 内核引导在本项目内创建的专用 venv（不入 git）
+.venv-kernel/
+
+# 运行时生成的文件
+ai/data/usersessions.json
+backend/config/auth.json
+backend/nul
+frontend/nul
+nul
+
+# 构建产物
+app/build/
+*.apk
+*.zip
+*.exe
+
+# ffmpeg 落地物（来自 imageio-ffmpeg wheel，运行时复制，不入 git）
+/backend/bin/ffmpeg*
+dist/
+build/
+*.spec
+# E2E / 原子构建产物（不覆盖生产 dist）
+dist-e2e/
+dist-*/
+
+# 内核分发物(保护后的分发产物不入 git;权重在源码树 kernel/axeuh_kernel/models/,构建时复制进 dist)
+kernel/dist/
+
+# Gradle build artifacts
+.gradle/
+app/.gradle/
+app/local.properties
+*.iml
+local.properties
+
+# 配置文件（含敏感信息，不提交）
+/config.yaml
+backend/config/config.yaml
+backend/config/config.local.yaml
+
+# 环境
+.env
+backend/.env
+
+# ChromaDB / 向量数据库
+**/chroma_db/
+*.sqlite3
+*.db
+
+# 运行时数据
+ai/data/**/事实-全天.md
+ai/data/**/perception.jsonl
+ai/data/**/health.json
+ai/data/**/profile.json
+# 健康分片存储（H4 迁移产物，运行时数据不入 git）
+ai/data/users/
+ai/data/**/*.wav
+ai/data/**/*.m4a
+ai/data/**/*.aac
+ai/data/**/*.opus
+ai/data/**/*.jpg
+ai/data/**/*.png
+ai/data/**/*.docx
+ai/data/voice_audio/
+ai/data/uploads/
+ai/data/maps/
+ai/data/browser/
+ai/data/截图归档/
+ai/data/voiceprints.json
+ai/data/gps_cache.json
+ai/data/task_executions.yaml
+
+# ML 模型文件（Wave C3 权重出库: backend/models/ 目录已整体删除,
+# Cnn14 权重归内核 %LOCALAPPDATA%/axeuh-kernel/models 私有目录, 标签 CSV 随内核包分发;
+# 整目录忽略兜底, 防运维误把权重拷回仓库入库）
+backend/models/
+ai/data/**/*.docx
+
+# 实验性项目
+multimodal-demo/
+
+# ai-template 运行时数据（模板仓库，排除音频/构建产物）
+ai-template/data/**/*.wav
+ai-template/data/**/perception.jsonl
+ai-template/data/**/health.json
+ai-template/data/**/profile.json
+ai-template/data/**/*.jpg
+ai-template/data/**/*.png
+ai-template/data/**/*.docx
+ai-template/.opencode/package-lock.json
+ai-template/.opencode/node_modules/
+
+# 声纹验证运行时数据（保留 .py 源码，排除音频 clip/报告/中间结果）
+validation/voiceprint/*.wav
+validation/voiceprint/**/*.wav
+validation/voiceprint/*.html
+validation/voiceprint/**/*.html
+validation/voiceprint/*.json
+validation/voiceprint/**/*.json
+validation/voiceprint/clips/
+validation/voiceprint/clips_v2/
+validation/voiceprint/enrollment_archive/
+validation/voiceprint/cohort_review/
+validation/voiceprint/review/clips/
+ai/data/cache/unknown_audio/harvest/
+
+# ===== 仓库整理补充 (2026-09-10) =====
+
+# 日志轮转（*.log 不匹配 backend.log.YYYY-MM-DD 形式）
+backend/logs/backend.log.*
+*.log.*
+
+# 后端路径错位产物（cwd=backend 运行时生成；真实数据在 ai/data/）
+backend/cohort_active.jsonl
+backend/cohort_audit.jsonl
+backend/usersessions.json
+backend/ai/
+backend/outputs/
+backend/*.jsonl
+
+# 根目录运行时/实验产物
+outputs/
+unk_audit_clips/
+hf/
+
+# 学习/社交资料图片（不在 ai/data/ 下，此前漏网）
+ai/study/**/*.jpg
+ai/study/**/*.jpeg
+ai/study/**/*.png
+ai/social/**/*.jpg
+ai/social/**/*.jpeg
+ai/social/**/*.png
+
+# 备份文件
+*.bak
+*.bak_*
+
+# 敏感文件
+ai/data/tasks/deepseek_key.txt
+*.key.txt
+
+# 运行时缓存（cohort / unknown 声纹）
+ai/data/cache/*.jsonl
+ai/data/cache/*.bak*
+ai/data/daily/*.bak*
+
+# 运行时目录（整体不入 git）
+ai/data/cache/
+backend/logs/
+
+# 编辑器/调度器运行时状态
+ai/.obsidian/workspace.json
+ai/data/tasks/.session_compactor_state.json
+ai/data/tasks/.xiaomi_cloud_health_state.json
+ai/data/tasks/.xiaomi_cloud_health_state.json.meta
+ai/data/tasks_state.json
+
+# validation 报告类产物
+validation/voiceprint/**/*.txt
+
+# 归档实验音频（保留磁盘，不入 git）
+archive/harvest/*.wav
+
+# CircuitJS1 插件（GPL-2.0，独立仓库，由 scripts/fetch-circuitjs.mjs 按需抓取）
+frontend/mobile/public/circuitjs1/
+
+# misc 截图（大文件，不入 git）
+ai/misc/screenshot_*.png
+
+# pc-sensor 运行时配置（含 token/密码，不入 git；模板见 *.example.json）
+desktop/pc-sensor/config.json
+desktop/pc-sensor/pc_sensor_config.json
+
+# 健康运行时数据（源选择 / 设备注册表，架构 §5.1）
+backend/data/health_source_selection.json
+backend/data/health_devices.json
+backend/data/mi_qr.png
+
+# Agent 工具产物（ulw-research 会话日志等，不入 git）
+.omo/
+*.bak-*
+
+# 音频理解基准运行产物（测量 jsonl/csv、快照与伴跑原始数据只留磁盘，裁决报告入 git）
+validation/audio_understanding_bench/runs/
+# 压缩音频原件不入 git（上传格式 FLAC 落盘在 ai/data/，基准 manifest 只引用路径）
+*.flac
+
+# audio-console 运行时状态（token/日志/进程登记/裁段临时件）不入 git
+tools/audio-console/state/
+
+# QQ Gateway 运行时状态（SQLite、媒体、收藏元数据）不入 git
+ai/data/qq_gateway/
+
+# ===== 仓库清理 2026-10-21 =====
+# 运行时数据目录（0 个已跟踪文件；体积大/进程状态，永不入 git）
+backend/data/
+/logs/
+.pytest_cache/
+
+# 运行时数据根默认位（data.root / models.dir 缺省为 <项目根>/var）
+/var/
+
+# MOSS 影子管线运行状态（raw / merged 旁路产物）
+tools/moss-shadow/state/
+
+# AI 运行时输入与归档
+ai/data/qq_inbox/
+ai/data/archive/
+ai/data/**/audio_deepdive*.jsonl
+ai/data/wake_word/sherpa-onnx-*/
+ai/data/*.lock
+ai/data/tasks/.wake_watch_state.json
+
+# 端侧 KWS 模型权重（keywords.txt / tokens.txt 仍跟踪）
+app/src/main/assets/kws/*.onnx
+
+# 验证实验运行态与单次日志（r6 的 vram-infer.* 仍跟踪）
+validation/semantic_ctx/**/state/
+validation/semantic_ctx/**/logs/gpu-final.txt
+
+# 工具冒烟产物与本地备份归档
+ai/toolsmoke/
+.sisyphus/backups/
+
+# 记忆收尾门状态（运行时生成，不入 git）
+ai/memory/MEMORY-STATUS.json
+
+# 根目录一次性产物（已归档至 .sisyphus/backups/root-20261021/）
+/selftest_output.json
+/sm75_probe.err
+backend/config/.setup_token
+
+# ===== 工作区清理 2026-10-29 =====
+# 本地运行/测试产物
+/frontend/mobile/playwright-report/
+/frontend/mobile/test-results/
+/frontend/mobile/undefined/
+/server.pid
+/tunnel.pid
+/config.yaml.lock
+/chk.ps1
+/cleanup.ps1
+/diag.ps1
+/pre.ps1
+
+# 本地验证/实验数据（体积大，不入 git；已跟踪文件不受影响）
+/validation/
+
+# agent 本地证据与报告
+/.sisyphus/evidence/
+/.sisyphus/reports/
+/.sisyphus/run-continuation/
+
+# Playwright 浏览器缓存
+/loom-harness/mcp-servers/.playwright-browsers/
+
+# AI 运行时临时/状态/二进制
+/ai/data/tmp/
+/ai/data/stickers/src/
+/ai/data/voice/
+/ai/data/tasks/.health_sync_state.json
+/ai/data/tasks/.night_checkin_state.json
+/ai/memory/self/chatlog_sessions.json
+/ai/memory/self/exec_log_tmp

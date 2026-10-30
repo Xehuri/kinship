@@ -1,0 +1,20 @@
+/* themes/light.css -- Light theme overrides */
+[data-theme="light"] {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --surface2: #f0f0f5;
+  --surface3: #e0e0e8;
+  --primary: #6c5ce7;
+  --primary-light: #8b7cf7;
+  --legacy-accent: #00a8a5;
+  --legacy-accent2: #e8658f;
+  --legacy-accent3: #e8a840;
+  --text: #2d2d3a;
+  --text2: #5c5c74;
+  --text3: #6f6f87;
+  --border: rgba(0, 0, 0, 0.08);
+  --overlay-bg: rgba(245, 247, 250, 0.92);
+  --radius: 14px;
+  --radius-sm: 10px;
+  --danger: #ff6b6b;
+}

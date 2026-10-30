@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PC 感知配置</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-secondary: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 22px; margin-bottom: 6px; }
+  .subtitle { color: var(--text-secondary); font-size: 14px; margin-bottom: 24px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .row:last-child { border-bottom: none; }
+  .label { font-size: 14px; }
+  .desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* Toggle Switch */
+  .toggle {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+  .toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .toggle .slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: #21262d;
+    border-radius: 24px;
+    transition: 0.2s;
+  }
+  .toggle .slider::before {
+    content: "";
+    position: absolute;
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    transition: 0.2s;
+  }
+  .toggle input:checked + .slider { background: var(--accent); }
+  .toggle input:checked + .slider::before {
+    transform: translateX(20px);
+    background: #fff;
+  }
+
+  /* Input */
+  input[type="text"],
+  input[type="number"] {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 10px;
+    font-size: 13px;
+    width: 200px;
+    outline: none;
+    transition: border 0.2s;
+  }
+  input[type="text"]:focus,
+  input[type="number"]:focus {
+    border-color: var(--accent);
+  }
+  textarea {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 12px;
+    width: 100%;
+    outline: none;
+    resize: vertical;
+    font-family: 'Consolas', 'Courier New', monospace;
+  }
+  textarea:focus { border-color: var(--accent); }
+
+  /* Button */
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-group { display: flex; gap: 8px; margin-top: 16px; }
+
+  /* Status */
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .status-dot.on { background: var(--green); }
+  .status-dot.off { background: var(--red); }
+  .status-dot.pending { background: var(--yellow); }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .stat-item {
+    background: #0d1117;
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+  }
+  .stat-value { font-size: 20px; font-weight: 600; }
+  .stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+  /* Events Table */
+  .events-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .events-table th {
+    text-align: left;
+    color: var(--text-secondary);
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+  .events-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 11px;
+  }
+  .events-table tr:hover { background: #0d1117; }
+  .event-type {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .event-type.window { background: #1f6feb33; color: #58a6ff; }
+  .event-type.idle { background: #d2992233; color: #d29922; }
+  .event-type.screen { background: #3fb95033; color: #3fb950; }
+
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    background: #0d1117;
+    border-radius: 8px;
+    padding: 4px;
+  }
+  .tab {
+    flex: 1;
+    text-align: center;
+    padding: 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary);
+    transition: 0.2s;
+  }
+  .tab.active {
+    background: var(--card);
+    color: var(--text);
+  }
+  .tab:hover { color: var(--text); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: var(--green);
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: var(--red); }
+
+  .section-sep {
+    border-top: 1px dashed var(--border);
+    margin: 16px 0;
+    padding-top: 12px;
+  }
+
+  /* ========== 图表 ========== */
+  input[type="date"] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 10px;
+    font-size: 13px;
+    outline: none;
+    transition: border 0.2s;
+    color-scheme: dark;
+  }
+  input[type="date"]:focus { border-color: var(--accent); }
+
+  .chart-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .chart-stats { grid-template-columns: repeat(3, 1fr); }
+
+  .chart-box {
+    position: relative;
+    height: 280px;
+  }
+  .chart-box-timeline {
+    height: auto;
+    min-height: 90px;
+  }
+  .chart-fallback {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    text-align: center;
+  }
+
+  /* 一天时间轴状态带 */
+  .band {
+    display: flex;
+    width: 100%;
+    height: 34px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+  .band-seg { height: 100%; min-width: 1px; }
+  .band-seg.active { background: var(--green); }
+  .band-seg.idle { background: var(--yellow); }
+  .band-seg.locked { background: var(--red); }
+  .band-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+  .band-ruler {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+  .band-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .band-legend .dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .band-legend .dot.active { background: var(--green); }
+  .band-legend .dot.idle { background: var(--yellow); }
+  .band-legend .dot.locked { background: var(--red); }
+
+  /* 运行日志 */
+  .log-view {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    max-height: 60vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .log-line { padding: 1px 0; }
+  .log-line.warn { color: var(--yellow); }
+  .log-line.error { color: var(--red); }
+  .log-meta { font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
+  .log-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 400;
+    font-size: 12px;
+  }
+  .log-toolbar label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    color: var(--text-secondary);
+  }
+</style>
+<script src="/static/vendor/chart.umd.min.js"></script>
+</head>
+<body>
+
+<h1>PC 感知配置</h1>
+<p class="subtitle">配置电脑数据采集，感知数据将上报到服务器</p>
+
+<div class="tab-bar">
+  <div class="tab active" data-tab="settings">设置</div>
+  <div class="tab" data-tab="status">状态</div>
+  <div class="tab" data-tab="events">事件日志</div>
+  <div class="tab" data-tab="charts">图表</div>
+  <div class="tab" data-tab="logs">运行日志</div>
+</div>
+
+<!-- ========== 设置面板 ========== -->
+<div class="tab-content active" id="tab-settings">
+  <div class="card">
+    <div class="card-title">全局开关</div>
+    <div class="row">
+      <div>
+        <div class="label">启用 PC 感知</div>
+        <div class="desc">开启后将采集窗口、无人和屏幕状态数据</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="enabled">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">设备身份</div>
+    <div class="row">
+      <div>
+        <div class="label">设备名称</div>
+        <div class="desc">显示名，随数据上报供后端识别本机；留空则使用计算机名</div>
+      </div>
+      <input type="text" id="agent_name" placeholder="例如：我的笔记本">
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">设备标识</div>
+        <div class="desc">agent_id，后端区分数据来源的唯一标识，多台电脑请勿重复</div>
+      </div>
+      <input type="text" id="agent_id" placeholder="default-agent">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">服务器连接</div>
+    <div class="row">
+      <div>
+        <div class="label">服务器地址</div>
+        <div class="desc">默认为 https://localhost:8767</div>
+      </div>
+      <input type="text" id="server_url" placeholder="https://localhost:8767">
+    </div>
+    <div style="padding:10px 0;border-bottom:1px solid var(--border);">
+      <div class="label">多端点候选</div>
+      <div class="desc">留空只用服务器地址；JSON 对象或数组，按 priority 探测 /health，IPv6 优先、frp 回退</div>
+      <textarea id="endpoint_candidates" rows="3" placeholder='{"ipv6": "https://home.example.com:23443", "frp": "https://agent.example.com:8768"}'></textarea>
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">后端 Token</div>
+        <div class="desc">推荐。长期有效的 Bearer Token，优先使用；已配置则留空</div>
+      </div>
+      <input type="password" id="backend_token" placeholder="粘贴后端 Token（可选）">
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">登录用户名</div>
+        <div class="desc">未配置 Token 时使用，后端的账号</div>
+      </div>
+      <input type="text" id="username" placeholder="输入用户名">
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">登录密码</div>
+        <div class="desc">勾选下方"记住密码"后加密保存并可自动登录；否则仅本次运行使用</div>
+      </div>
+      <input type="password" id="password" placeholder="输入密码（默认不落盘）">
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">记住密码</div>
+        <div class="desc">用 Windows 本机加密（DPAPI）保存密码，下次启动自动登录；仅本机本账户可解密</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="remember_password">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">设备配对</div>
+    <div class="row">
+      <div>
+        <div class="label">配对码</div>
+        <div class="desc">8 位数字，5 分钟内有效；配对成功后自动写入设备 Token 并更新端点</div>
+      </div>
+      <input type="text" id="pairing_code" inputmode="numeric" maxlength="8" placeholder="12345678" style="width:120px">
+    </div>
+    <div class="btn-group">
+      <button class="btn" onclick="pairDevice(this)">配对</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">采集设置</div>
+    <div class="row">
+      <div>
+        <div class="label">聚焦窗口</div>
+        <div class="desc">检测当前前台窗口变化</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="window_enabled">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">无人检测</div>
+        <div class="desc">无操作超过阈值后标记无人</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="idle_enabled">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">屏幕锁屏</div>
+        <div class="desc">检测屏幕锁定/解锁状态</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="screen_enabled">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">空闲阈值</div>
+        <div class="desc">无操作多少秒后判定为无人</div>
+      </div>
+      <input type="number" id="idle_threshold" min="30" max="3600" style="width:100px">
+    </div>
+  </div>
+
+  <div class="btn-group">
+    <button class="btn" onclick="saveConfig()">保存配置</button>
+    <button class="btn" style="background:var(--border);color:var(--text);" onclick="loadConfig()">刷新</button>
+  </div>
+</div>
+
+<!-- ========== 状态面板 ========== -->
+<div class="tab-content" id="tab-status">
+  <div class="card">
+    <div class="card-title">运行状态</div>
+    <div class="status-grid">
+      <div class="stat-item">
+        <div class="stat-value" id="s_running">--</div>
+        <div class="stat-label">采集器</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="s_window">--</div>
+        <div class="stat-label">窗口追踪</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="s_idle">--</div>
+        <div class="stat-label">无人检测</div>
+      </div>
+      <div class="stat-item">
+    <div class="stat-value" id="s_queue">--</div>
+    <div class="stat-label">队列待发</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" id="s_login">--</div>
+    <div class="stat-label">登录状态</div>
+  </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">当前上报端点</div>
+    <div id="s_endpoint" style="font-size:12px;color:var(--text-secondary);word-break:break-all;">--</div>
+  </div>
+  <div class="card">
+    <div class="card-title">当前窗口</div>
+    <div id="current_window" style="font-size:14px;color:var(--text-secondary);">
+      等待采集...
+    </div>
+  </div>
+</div>
+
+<!-- ========== 事件日志 ========== -->
+<div class="tab-content" id="tab-events">
+  <div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>最近事件</span>
+      <span style="font-weight:400;font-size:12px;cursor:pointer;color:var(--accent);" onclick="refreshEvents()">刷新</span>
+    </div>
+    <div id="events_list" style="color:var(--text-secondary);font-size:13px;">
+      暂无事件数据
+    </div>
+  </div>
+</div>
+
+<!-- ========== 图表 ========== -->
+<div class="tab-content" id="tab-charts">
+  <div class="card">
+    <div class="card-title">选择日期</div>
+    <div class="chart-toolbar">
+      <input type="date" id="chart_date">
+      <button class="btn" onclick="loadCharts()">刷新</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">时长统计</div>
+    <div class="status-grid chart-stats">
+      <div class="stat-item">
+        <div class="stat-value" id="c_active">--</div>
+        <div class="stat-label">活跃时长</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="c_idle">--</div>
+        <div class="stat-label">空闲时长</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="c_locked">--</div>
+        <div class="stat-label">锁屏时长</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">前台窗口驻留 Top 10</div>
+    <div class="chart-box"><canvas id="chart_top"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">每小时活跃分钟数</div>
+    <div class="chart-box"><canvas id="chart_hourly"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">一天时间轴</div>
+    <div class="chart-box chart-box-timeline">
+      <div class="band" id="chart_band"></div>
+      <div class="band-ruler">
+        <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
+      </div>
+      <div class="band-legend" id="chart_band_legend"></div>
+    </div>
+  </div>
+
+  <div id="chart_fallback" class="chart-fallback" style="display:none;"></div>
+</div>
+
+<!-- ========== 运行日志 ========== -->
+<div class="tab-content" id="tab-logs">
+  <div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>运行日志</span>
+      <span class="log-toolbar">
+        <label><input type="checkbox" id="log_auto"> 自动刷新</label>
+        <span style="cursor:pointer;color:var(--accent);" onclick="loadLogs()">刷新</span>
+      </span>
+    </div>
+    <div id="log_view" class="log-view">加载中...</div>
+    <div class="log-meta" id="log_meta"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============ API 调用 ============
+// 服务端在返回本页面时（<head> 内）注入了 window.__PC_AGENT_TOKEN__。
+// 此处每次请求动态读取，避免脚本执行时序导致 token 未就绪而漏带 Authorization 头。
+function authHeaders(base) {
+  const headers = Object.assign({}, base || {});
+  const token = window.__PC_AGENT_TOKEN__ || '';
+  if (token) {
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+  return headers;
+}
+
+async function apiGet(path) {
+  const resp = await fetch(path, { headers: authHeaders() });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
+async function apiPost(path, data) {
+  const resp = await fetch(path, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(data),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
+function showToast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ============ 配置 ============
+async function loadConfig() {
+  try {
+    const cfg = await apiGet('/pc-sensor/config');
+    document.getElementById('enabled').checked = cfg.enabled || false;
+    document.getElementById('agent_id').value = cfg.agent_id || 'default-agent';
+    document.getElementById('agent_name').value = cfg.agent_name || '';
+    document.getElementById('server_url').value = cfg.server_url || 'https://localhost:8767';
+    const endpoints = cfg.endpoint_candidates;
+    document.getElementById('endpoint_candidates').value =
+      endpoints && Object.keys(endpoints).length ? JSON.stringify(endpoints, null, 2) : '';
+    document.getElementById('username').value = cfg.username || '';
+    document.getElementById('backend_token').value = cfg.backend_token === '******' ? '' : (cfg.backend_token || '');
+    // PC-M7/M8：配置接口从不返回密码；"记住密码"仅回显开关状态
+    document.getElementById('password').value = '';
+    document.getElementById('remember_password').checked = cfg.remember_password === true;
+    document.getElementById('window_enabled').checked = cfg.window_enabled !== false;
+    document.getElementById('idle_enabled').checked = cfg.idle_enabled !== false;
+    document.getElementById('screen_enabled').checked = cfg.screen_enabled !== false;
+    document.getElementById('idle_threshold').value = cfg.idle_threshold || 300;
+  } catch (e) {
+    showToast('加载配置失败: ' + e.message, true);
+  }
+}
+
+async function saveConfig() {
+  const btn = document.querySelector('.btn');
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+  try {
+    const pwd = document.getElementById('password').value;
+    const token = document.getElementById('backend_token').value.trim();
+    const endpointText = document.getElementById('endpoint_candidates').value.trim();
+    const endpointCandidates = endpointText ? JSON.parse(endpointText) : [];
+    const data = {
+      enabled: document.getElementById('enabled').checked,
+      agent_id: document.getElementById('agent_id').value.trim() || 'default-agent',
+      agent_name: document.getElementById('agent_name').value.trim(),
+      server_url: document.getElementById('server_url').value.trim(),
+      endpoint_candidates: endpointCandidates,
+      username: document.getElementById('username').value.trim(),
+      idle_threshold: parseInt(document.getElementById('idle_threshold').value) || 300,
+      window_enabled: document.getElementById('window_enabled').checked,
+      idle_enabled: document.getElementById('idle_enabled').checked,
+      screen_enabled: document.getElementById('screen_enabled').checked,
+      // PC-M8：记住密码开关，与密码一同提交，由服务端 DPAPI 加密后落盘
+      remember_password: document.getElementById('remember_password').checked,
+    };
+    // PC-M7：Token 有输入才更新（留空表示保留已配置的值）
+    if (token) {
+      data.backend_token = token;
+    }
+    // PC-M7/M8：密码始终明文提交给本机服务端；仅当勾选"记住密码"时，
+    // 服务端才会用 DPAPI 加密后落盘，否则只保留在内存
+    if (pwd) {
+      data.password = pwd;
+    }
+    const result = await apiPost('/pc-sensor/config', data);
+    if (result.success) {
+      showToast('配置已保存');
+      loadStatus();
+    } else {
+      showToast('保存失败', true);
+    }
+  } catch (e) {
+    showToast('保存失败: ' + e.message, true);
+  }
+  btn.disabled = false;
+  btn.textContent = '保存配置';
+}
+
+// ============ 设备配对 ============
+async function pairDevice(btn) {
+  const code = document.getElementById('pairing_code').value.trim();
+  const serverUrl = document.getElementById('server_url').value.trim();
+  if (!/^\d{8}$/.test(code)) {
+    showToast('配对码应为 8 位数字', true);
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = '配对中...'; }
+  try {
+    const result = await apiPost('/pc-sensor/pair', {
+      pairing_code: code,
+      server_url: serverUrl,
+    });
+    if (result.success) {
+      document.getElementById('pairing_code').value = '';
+      showToast('配对成功');
+      await loadConfig();
+      loadStatus();
+    } else {
+      showToast('配对失败', true);
+    }
+  } catch (e) {
+    showToast('配对失败: ' + e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '配对'; }
+  }
+}
+
+// ============ 状态 ============
+function statusDot(on) {
+  return `<span class="status-dot ${on ? 'on' : 'off'}"></span>${on ? '运行中' : '已停止'}`;
+}
+
+async function loadStatus() {
+  try {
+    const st = await apiGet('/pc-sensor/status');
+    document.getElementById('s_running').innerHTML = statusDot(st.running);
+    document.getElementById('s_window').innerHTML = statusDot(st.window);
+    document.getElementById('s_idle').innerHTML = statusDot(st.idle);
+    document.getElementById('s_queue').textContent = st.queue_size || 0;
+    document.getElementById('s_login').innerHTML = st.logged_in ? '<span class="status-dot on"></span>已登录' : '<span class="status-dot off"></span>未登录';
+    document.getElementById('s_endpoint').textContent = st.current_endpoint || '（未配置）';
+
+    // 显示当前窗口（从最近事件中提取）
+    if (st.last_events && st.last_events.length > 0) {
+      const lastWin = st.last_events.slice().reverse().find(e => e.type === 'pc_window');
+      if (lastWin && lastWin.payload) {
+        document.getElementById('current_window').innerHTML =
+          `<strong style="color:var(--text)">${escapeHtml(lastWin.payload.process || '')}</strong>
+           <span style="color:var(--text-secondary)"> - ${escapeHtml(lastWin.payload.title || '')}</span>`;
+      }
+    }
+  } catch (e) {
+    showToast('获取状态失败', true);
+  }
+}
+
+// ============ 事件日志 ============
+function escapeHtml(s) {
+  if (!s) return '';
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function formatEvent(data) {
+  const type = data.type || 'unknown';
+  const payload = data.payload || {};
+  let cls = 'window';
+  if (type === 'pc_idle') cls = 'idle';
+  if (type === 'pc_screen') cls = 'screen';
+
+  let summary = '';
+  if (type === 'pc_window') {
+    summary = `${payload.process || '?'} - ${(payload.title || '').substring(0, 60)}`;
+  } else if (type === 'pc_idle') {
+    summary = payload.state === 'idle'
+      ? `空闲 (${payload.idle_seconds}s)`
+      : '恢复使用';
+  } else if (type === 'pc_screen') {
+    summary = payload.state === 'lock' ? '屏幕锁定' : '屏幕解锁';
+  } else {
+    summary = JSON.stringify(payload);
+  }
+
+  return `<tr>
+    <td><span class="event-type ${cls}">${type.replace('pc_', '')}</span></td>
+    <td>${escapeHtml(data.t || '')}</td>
+    <td>${escapeHtml(summary)}</td>
+  </tr>`;
+}
+
+async function refreshEvents() {
+  try {
+    const st = await apiGet('/pc-sensor/status');
+    const events = st.last_events || [];
+    const el = document.getElementById('events_list');
+
+    if (events.length === 0) {
+      el.innerHTML = '<div style="color:var(--text-secondary);text-align:center;padding:20px;">暂无事件数据</div>';
+      return;
+    }
+
+    const rows = events.slice().reverse().map(formatEvent).join('');
+    el.innerHTML = `<table class="events-table">
+      <thead><tr><th>类型</th><th>时间</th><th>内容</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  } catch (e) {
+    showToast('获取事件失败', true);
+  }
+}
+
+// ============ 运行日志 ============
+let logAutoTimer = null;
+
+function formatLogLine(line) {
+  let cls = '';
+  if (/ - ERROR - /.test(line)) cls = 'error';
+  else if (/ - WARNING - /.test(line)) cls = 'warn';
+  return `<div class="log-line ${cls}">${escapeHtml(line)}</div>`;
+}
+
+async function loadLogs() {
+  try {
+    const data = await apiGet('/pc-sensor/logs?lines=300');
+    const el = document.getElementById('log_view');
+    const lines = data.lines || [];
+    if (lines.length === 0) {
+      el.innerHTML = '<div style="color:var(--text-secondary);text-align:center;padding:20px;">暂无日志</div>';
+    } else {
+      el.innerHTML = lines.map(formatLogLine).join('');
+      el.scrollTop = el.scrollHeight;
+    }
+    const meta = document.getElementById('log_meta');
+    if (meta) meta.textContent = `共 ${lines.length} 行 · ${data.path || ''}`;
+  } catch (e) {
+    showToast('加载日志失败: ' + e.message, true);
+  }
+}
+
+// 自动刷新：勾选后每 3 秒拉取一次最新日志
+function setLogAutoRefresh(on) {
+  if (logAutoTimer) { clearInterval(logAutoTimer); logAutoTimer = null; }
+  if (on) {
+    loadLogs();
+    logAutoTimer = setInterval(loadLogs, 3000);
+  }
+}
+
+const logsTabBtn = document.querySelector('[data-tab="logs"]');
+if (logsTabBtn) {
+  logsTabBtn.addEventListener('click', loadLogs);
+}
+const logAutoEl = document.getElementById('log_auto');
+if (logAutoEl) {
+  logAutoEl.addEventListener('change', () => setLogAutoRefresh(logAutoEl.checked));
+}
+
+// ============ Tab 切换 ============
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ============ 定时刷新 ============
+// 状态面板每 5 秒自动刷新
+setInterval(() => {
+  const statusTab = document.querySelector('[data-tab="status"]');
+  if (statusTab && statusTab.classList.contains('active')) {
+    loadStatus();
+  }
+}, 5000);
+
+// 事件面板每 10 秒自动刷新
+setInterval(() => {
+  const eventsTab = document.querySelector('[data-tab="events"]');
+  if (eventsTab && eventsTab.classList.contains('active')) {
+    refreshEvents();
+  }
+}, 10000);
+
+// ============ 图表 ============
+// 保存 Chart.js 实例，切换日期时先销毁再重建，避免 canvas 泄漏
+const chartInstances = {};
+
+// 读取 CSS 变量，保证图表配色与页面主题一致
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function chartPalette() {
+  return {
+    text: cssVar('--text'),
+    secondary: cssVar('--text-secondary'),
+    border: cssVar('--border'),
+    accent: cssVar('--accent'),
+    green: cssVar('--green'),
+    red: cssVar('--red'),
+    yellow: cssVar('--yellow'),
+  };
+}
+
+function applyChartDefaults() {
+  if (!window.Chart) return;
+  const c = chartPalette();
+  Chart.defaults.color = c.secondary;
+  Chart.defaults.borderColor = c.border;
+  Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+}
+
+function destroyChart(key) {
+  if (chartInstances[key]) {
+    chartInstances[key].destroy();
+    chartInstances[key] = null;
+  }
+}
+
+// 秒 -> "Xh Ym"（不足 1 小时显示分钟，不足 1 分钟显示秒）
+function formatDuration(totalSeconds) {
+  const s = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${s}s`;
+}
+
+// 本地时区的今天，格式 YYYY-MM-DD
+function localToday() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+async function loadCharts() {
+  const fallback = document.getElementById('chart_fallback');
+  if (!window.Chart) {
+    fallback.style.display = 'block';
+    fallback.textContent = '图表库加载失败，请检查网络后刷新页面（需要访问 CDN）。';
+    return;
+  }
+  fallback.style.display = 'none';
+
+  const dateEl = document.getElementById('chart_date');
+  const date = (dateEl && dateEl.value) || localToday();
+  try {
+    const data = await apiGet(`/pc-sensor/charts?date=${encodeURIComponent(date)}`);
+    if (!data || data.ok === false) {
+      showToast('该日期暂无图表数据', true);
+      return;
+    }
+    applyChartDefaults();
+    renderChartStats(data.totals || {});
+    renderTopProcesses(data.top_processes || []);
+    renderHourlyActive(data.hourly_active_minutes || []);
+    renderTimeline(data.timeline || []);
+  } catch (e) {
+    showToast('加载图表失败: ' + e.message, true);
+  }
+}
+
+function renderChartStats(totals) {
+  document.getElementById('c_active').textContent = formatDuration(totals.active_seconds);
+  document.getElementById('c_idle').textContent = formatDuration(totals.idle_seconds);
+  document.getElementById('c_locked').textContent = formatDuration(totals.locked_seconds);
+}
+
+// 图 1：前台窗口驻留 Top 10（水平条形图）
+function renderTopProcesses(rows) {
+  destroyChart('top');
+  const c = chartPalette();
+  const top = rows.slice(0, 10);
+  const hasData = top.length > 0;
+  const labels = hasData ? top.map(r => r.process || r.title || '未知') : ['暂无数据'];
+  const values = hasData ? top.map(r => Math.round(r.seconds || 0)) : [0];
+
+  chartInstances.top = new Chart(document.getElementById('chart_top'), {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '驻留时长',
+        data: values,
+        backgroundColor: c.accent,
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => formatDuration(ctx.parsed.x) } },
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          grid: { color: c.border },
+          ticks: { callback: (v) => formatDuration(v) },
+        },
+        y: { grid: { display: false } },
+      },
+    },
+  });
+}
+
+// 图 2：每小时活跃分钟数（垂直条形图，0..23 时）
+function renderHourlyActive(arr) {
+  destroyChart('hourly');
+  const c = chartPalette();
+  const labels = [];
+  for (let i = 0; i < 24; i++) labels.push(String(i).padStart(2, '0'));
+  const values = labels.map((_, i) => Math.round((Number(arr[i]) || 0) * 10) / 10);
+
+  chartInstances.hourly = new Chart(document.getElementById('chart_hourly'), {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '活跃分钟',
+        data: values,
+        backgroundColor: c.green,
+        borderRadius: 3,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y} 分钟` } },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxRotation: 0, font: { size: 10 } } },
+        y: {
+          beginAtZero: true,
+          max: 60,
+          grid: { color: c.border },
+          ticks: { stepSize: 15, callback: (v) => `${v}m` },
+        },
+      },
+    },
+  });
+}
+
+// 图 3：一天时间轴（状态带，按时间顺序拼接 活跃/空闲/锁屏）
+function timelineState(entry) {
+  const type = entry.type;
+  const value = String(entry.value || '').toLowerCase();
+  if (type === 'screen') return value === 'lock' ? 'locked' : 'active';
+  if (type === 'idle') return value === 'idle' ? 'idle' : 'active';
+  return 'active'; // window 及其它事件视为活跃
+}
+
+function parseTimeToSeconds(t) {
+  const parts = String(t || '').split(':');
+  if (parts.length < 2) return null;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  const s = parts.length > 2 ? parseInt(parts[2], 10) : 0;
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 3600 + m * 60 + (isNaN(s) ? 0 : s);
+}
+
+function renderTimeline(timeline) {
+  const band = document.getElementById('chart_band');
+  const legend = document.getElementById('chart_band_legend');
+  const DAY = 86400;
+
+  const sorted = (timeline || [])
+    .map(e => ({ type: e.type, value: e.value, sec: parseTimeToSeconds(e.t) }))
+    .filter(e => e.sec !== null)
+    .sort((a, b) => a.sec - b.sec);
+
+  if (sorted.length === 0) {
+    band.innerHTML = '<div class="band-empty">暂无时间轴数据</div>';
+    legend.innerHTML = '';
+    return;
+  }
+
+  const segments = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const start = sorted[i].sec;
+    const end = i + 1 < sorted.length ? sorted[i + 1].sec : DAY;
+    const dur = end - start;
+    if (dur <= 0) continue;
+    segments.push({ state: timelineState(sorted[i]), dur: dur });
+  }
+
+  if (segments.length === 0) {
+    band.innerHTML = '<div class="band-empty">暂无时间轴数据</div>';
+    legend.innerHTML = '';
+    return;
+  }
+
+  band.innerHTML = segments.map(seg => {
+    const pct = (seg.dur / DAY) * 100;
+    const label = seg.state === 'active' ? '活跃' : (seg.state === 'idle' ? '空闲' : '锁屏');
+    return `<div class="band-seg ${seg.state}" style="width:${pct.toFixed(4)}%" title="${label} ${formatDuration(seg.dur)}"></div>`;
+  }).join('');
+
+  legend.innerHTML =
+    '<span><span class="dot active"></span>活跃</span>' +
+    '<span><span class="dot idle"></span>空闲</span>' +
+    '<span><span class="dot locked"></span>锁屏</span>';
+}
+
+// 图表 Tab：点击时自动加载；日期变更时重新加载
+const chartsTabBtn = document.querySelector('[data-tab="charts"]');
+if (chartsTabBtn) {
+  chartsTabBtn.addEventListener('click', loadCharts);
+}
+const chartDateEl = document.getElementById('chart_date');
+if (chartDateEl) {
+  chartDateEl.value = localToday();
+  chartDateEl.addEventListener('change', loadCharts);
+}
+
+// ============ 初始化 ============
+loadConfig();
+loadStatus();
+refreshEvents();
+applyChartDefaults();
+</script>
+</body>
+</html>

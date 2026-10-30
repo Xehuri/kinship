@@ -1,0 +1,13 @@
+name: 日计划
+schedule:
+  daily: "05:00"
+enabled: false
+prompt: |-
+  【系统通知·日计划】05:00 到了。
+
+  按 Plan mode 执行：只读 + plan commit，不执行 care，不发用户通知。
+
+  1. plan read 昨日；plan close 昨日：逐项收口 checkpoint / open loop，写 carry_over。
+  2. 读今日 brief 与数据：昨日复盘、最近 boundary、覆盖债、健康/睡眠、课程/日程、未闭环。
+  3. plan commit 今日计划：intent + care + notes + open_loops；coverage 自动注入。
+  4. 输出只落在 plan 文件，不在聊天里播报计划表，不发用户手机通知。

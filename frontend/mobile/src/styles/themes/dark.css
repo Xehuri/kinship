@@ -1,0 +1,20 @@
+/* themes/dark.css -- Default dark theme */
+[data-theme="dark"] {
+  --bg: #0d0d14;
+  --surface: #16161f;
+  --surface2: #1e1e2a;
+  --surface3: #282840;
+  --primary: #6c5ce7;
+  --primary-light: #a29bfe;
+  --legacy-accent: #00cec9;
+  --legacy-accent2: #fd79a8;
+  --legacy-accent3: #fdcb6e;
+  --text: #e8e8f0;
+  --text2: #a6a6be;
+  --text3: #8a8aa6;
+  --border: rgba(255, 255, 255, 0.06);
+  --overlay-bg: rgba(10, 10, 16, 0.88);
+  --radius: 14px;
+  --radius-sm: 10px;
+  --danger: #ff6b6b;
+}

@@ -1,0 +1,11 @@
+{
+  "//": "loom-adapters：jsonl-session-store / event-pump / SSE sink（T05 vendoring）",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [{ "path": "../core" }],
+  "include": ["src/**/*.ts"]
+}

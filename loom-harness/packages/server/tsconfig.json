@@ -1,0 +1,23 @@
+{
+  "//": "loom-server：CLI 与宿主服务入口（T01 占位骨架）",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../adapters"
+    },
+    {
+      "path": "../tools"
+    }
+  ],
+  "include": [
+    "src/**/*.ts"
+  ]
+}

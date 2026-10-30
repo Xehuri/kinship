@@ -1,0 +1,6 @@
+* text=auto
+
+# Windows 引导脚本必须保持 CRLF，否则 cmd.exe / PowerShell 在部分场景会解析异常
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf

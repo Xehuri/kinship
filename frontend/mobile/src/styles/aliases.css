@@ -1,0 +1,24 @@
+/*
+ * Legacy-name bridge for the staged design-token migration.
+ * Active from T2A1 onward: imported after the old theme files so the demo
+ * tokens win, while old component CSS keeps working through these aliases.
+ * Only names the demo token set does not own are mapped here; the demo
+ * tokens keep ownership of --bg, --surface, --accent, --radius, --danger.
+ */
+:root {
+  --text: var(--ink);
+  --text2: var(--muted);
+  --text3: color-mix(in srgb, var(--muted) 72%, transparent);
+  --text4: color-mix(in srgb, var(--muted) 55%, transparent);
+  --border: var(--hairline);
+  --surface2: var(--inset);
+  --surface3: var(--surface-raised);
+  --primary: var(--accent);
+  --primary-light: color-mix(in srgb, var(--accent) 70%, white);
+  --accent2: var(--danger);
+  --accent3: var(--warning);
+  --legacy-accent: var(--success);
+  --legacy-accent2: var(--danger);
+  --legacy-accent3: var(--warning);
+  --overlay-bg: color-mix(in srgb, var(--ink) 45%, transparent);
+}

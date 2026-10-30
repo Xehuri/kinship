@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2x1 心率单指标卡（HeartRateMiniWidgetReceiver）的 appwidget-provider 元数据。
+     尺寸档约定与 health_summary_widget.xml 一致：经典折算 110x40dp + targetCell 2x1（API 31+）；
+     updatePeriodMillis=0，更新交 DataCollectorService 主循环显式直更。 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:widgetCategory="home_screen" />

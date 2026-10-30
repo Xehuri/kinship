@@ -1,0 +1,21 @@
+/* themes/apple-dark.css -- Apple Health dark theme */
+:root,
+[data-theme="apple"] {
+  --bg: #000000;
+  --surface: #1c1c1e;
+  --surface2: #2c2c2e;
+  --surface3: #3a3a3c;
+  --primary: #0a84ff;
+  --primary-light: #409cff;
+  --legacy-accent: #30d158;
+  --legacy-accent2: #ff375f;
+  --legacy-accent3: #ff9f0a;
+  --text: #f5f5f7;
+  --text2: #a8a8ad;
+  --text3: #949499;
+  --border: rgba(255, 255, 255, 0.1);
+  --overlay-bg: rgba(10, 10, 14, 0.88);
+  --radius: 16px;
+  --radius-sm: 12px;
+  --danger: #ff453a;
+}

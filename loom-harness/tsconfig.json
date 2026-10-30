@@ -1,0 +1,10 @@
+{
+  "//": "根工程只做 tsc -b 的入口，聚合各 package（composite project references）",
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/tools" },
+    { "path": "packages/adapters" },
+    { "path": "packages/server" }
+  ]
+}

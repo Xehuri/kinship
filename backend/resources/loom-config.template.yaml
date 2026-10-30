@@ -1,0 +1,35 @@
+# Loom 最小配置模板（后端引导 T6 渲染用）。
+# 只包含 Loom 加载器认可的顶层键：server / workspace / providers / models /
+# pricing / credentials。占位符由 backend/services/loom_runtime.py 替换。
+# 凭据铁律：credentials 只允许 ${ENV_VAR} 引用，密钥本体由 Loom 进程环境注入。
+
+server:
+  port: {{PORT}}
+  hostname: "127.0.0.1"
+  convergenceEnforced: false
+  sourceContract: "off"
+  interruptOnSend: true
+
+workspace: {{WORKSPACE}}
+
+providers:
+  - provider: {{PROVIDER}}
+    baseUrl: {{BASE_URL}}
+
+models:
+  - id: {{MODEL}}
+    provider: {{PROVIDER}}
+    contextWindow: {{CONTEXT_WINDOW}}
+    maxOutput: {{MAX_OUTPUT}}
+    vision: {{VISION}}
+    timeout: {{TIMEOUT}}
+
+pricing:
+  {{PROVIDER}}:
+    input: {{PRICE_INPUT}}
+    output: {{PRICE_OUTPUT}}
+    cacheRead: {{PRICE_CACHE_READ}}
+    cacheWrite: {{PRICE_CACHE_WRITE}}
+
+credentials:
+  {{PROVIDER}}: {{CREDENTIAL_REF}}

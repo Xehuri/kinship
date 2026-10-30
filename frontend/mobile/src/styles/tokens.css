@@ -1,0 +1,152 @@
+/*
+ * Loom design tokens.
+ * Source of truth: DESIGN.md section 5 (palette), 6 (type), 7 (breakpoints).
+ * No hue outside this file. Components must consume variables only.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Warm paper palette. */
+  --bg: #f7f2e8;
+  --surface: #fcf8f0;
+  --surface-raised: #fffaf1;
+  --ink: #1f1c18;
+  --muted: #6f685d;
+  --hairline: #ddd5c7;
+  --accent: #a34b2b;
+  --accent-ink: #fffaf1;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  --accent-preview-ochre: #a34b2b;
+  --accent-preview-jade: #2f6b52;
+  --accent-preview-indigo: #3f4c8a;
+  --accent-preview-rose: #9b3f5e;
+  --inset: #efe8db;
+  --danger: #9b3a2e;
+  --success: #3f6b4f;
+  --warning: #8a5a1f;
+
+  /* DESIGN.md aliases; keep the contract names working. */
+  --paper: var(--bg);
+  --raised: var(--surface);
+  --oxide: var(--accent);
+  --font-brand: var(--font-display);
+
+  /* Dimensions. */
+  --tap: 44px;
+  --prose-measure: 78ch;
+  --chat-column: 748px;
+  --nav-w: 216px;
+  --rail-w: 72px;
+  --inspector-w: 320px;
+  --header-h: 52px;
+  --mobile-nav-h: 56px;
+  --composer-h: 96px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --radius: 8px;
+  --radius-sm: 6px;
+
+  /* Density and motion preferences (Settings page). */
+  --density-gap: var(--space-5);
+  --density-page-gap: var(--space-4);
+  --density-section-gap: var(--space-6);
+  --density-row-pad: var(--space-3);
+  --density-row-pad-sm: var(--space-2);
+  --motion-fast: 120ms;
+  --motion-slow: 180ms;
+
+  /* Type roles. */
+  --font-ui: "Geist Variable", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+  --font-display: "Noto Serif CJK SC", "Noto Serif SC", serif;
+  --font-mono: "JetBrains Mono", "Noto Sans Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Layering. */
+  --z-drawer: 900;
+  --z-sheet: 1000;
+  --z-toast: 1100;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Warm charcoal palette. */
+  --bg: #171512;
+  --surface: #1e1b17;
+  --surface-raised: #24201b;
+  --ink: #eee8dc;
+  --muted: #a29a8c;
+  --hairline: #332e27;
+  --accent: #d07a52;
+  --accent-ink: #171512;
+  --accent-preview-ochre: #d07a52;
+  --accent-preview-jade: #7fb79a;
+  --accent-preview-indigo: #9aa7e0;
+  --accent-preview-rose: #dfa0b4;
+  --inset: #211d18;
+  --danger: #d98a7a;
+  --success: #8fb49a;
+  --warning: #d3a15f;
+}
+
+/* Compact density tightens spacing without shrinking 44px hit targets. */
+:root[data-density="compact"] {
+  --density-gap: var(--space-3);
+  --density-page-gap: var(--space-2);
+  --density-section-gap: var(--space-4);
+  --density-row-pad: var(--space-1);
+  --density-row-pad-sm: var(--space-1);
+}
+
+/* The visible motion preference collapses transition and animation timing. */
+:root[data-motion="reduced"] {
+  --motion-fast: 1ms;
+  --motion-slow: 1ms;
+}
+
+/* Accent palettes: light values, then the dark override for each accent. */
+:root[data-accent="ochre"] {
+  --accent: #a34b2b;
+  --accent-ink: #fffaf1;
+}
+
+:root[data-theme="dark"][data-accent="ochre"] {
+  --accent: #d07a52;
+  --accent-ink: #171512;
+}
+
+:root[data-accent="jade"] {
+  --accent: #2f6b52;
+  --accent-ink: #fffaf1;
+}
+
+:root[data-theme="dark"][data-accent="jade"] {
+  --accent: #7fb79a;
+  --accent-ink: #171512;
+}
+
+:root[data-accent="indigo"] {
+  --accent: #3f4c8a;
+  --accent-ink: #fffaf1;
+}
+
+:root[data-theme="dark"][data-accent="indigo"] {
+  --accent: #9aa7e0;
+  --accent-ink: #171512;
+}
+
+:root[data-accent="rose"] {
+  --accent: #9b3f5e;
+  --accent-ink: #fffaf1;
+}
+
+:root[data-theme="dark"][data-accent="rose"] {
+  --accent: #dfa0b4;
+  --accent-ink: #171512;
+}

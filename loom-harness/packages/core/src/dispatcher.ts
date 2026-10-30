@@ -1,0 +1,662 @@
+/**
+ * HookDispatcher —— 按 hook 形态派发：
+ *   - Event     并行 `Promise.all`，再 merge
+ *   - Decision  顺序短路：只有 `decision` / `updatedInput` / `continue === false`
+ *               拿权。`additionalContext` / `systemMessage` 只累积、不短路。
+ *               throw / timeout 默认 fail-open；`failClosed` 视为 deny。
+ *   - Pipe      顺序链式 transform
+ *   - Around    `reduceRight` 洋葱；无 per-hook timeout（协作式 abort）
+ *
+ * 每条 hook（Around 除外）有按形态分的默认 timeout，失败进 `failureSink`。
+ *
+ * Event 的 `systemMessages` 是 `string[]`（kernel 逐条打 consoleSink）。
+ * Decision 把多条 `systemMessage` / `additionalContext` `join("\n")` 成一条。
+ * 按 sink 调用次数计数会看到两条路径不一致；按字节 / 行数则一致。
+ */
+
+import type { Tool, ToolCall } from "@earendil-works/pi-ai";
+import type {
+  ContextOverflowInput,
+  ContinuationCheckInput,
+  ErrorInput,
+  Hook,
+  HookContext,
+  HookResult,
+  LlmEndInput,
+  MergedHookResult,
+  OnAfterFlushInput,
+  OnAfterFlushResult,
+  OnSubagentEndInput,
+  OnSubagentStartInput,
+  PostToolUseInput,
+  PreToolUseInput,
+  SessionEndInput,
+  SessionStartInput,
+  SteerInput,
+  ToolExecResult,
+  TurnEndInput,
+  TurnStartInput,
+  UserPromptSubmitInput,
+} from "./hook.js";
+import type { Message } from "@earendil-works/pi-ai";
+import type { CompactionCheckpointPayload } from "./compaction-checkpoint.js";
+
+/* ────────────── 默认 timeout ────────────── */
+
+const DEFAULT_TIMEOUTS = {
+  event: 100,
+  decision: 200,
+  pipe: 500,
+} as const;
+
+type Category = keyof typeof DEFAULT_TIMEOUTS;
+
+const EVENT_METHODS = new Set([
+  "onSessionStart",
+  "onSessionEnd",
+  "onContinuationCheck",
+  "onTurnStart",
+  "onTurnEnd",
+  "onSteer",
+  "onLlmEnd",
+  "onContextOverflow",
+  "onPostToolUse",
+  "onError",
+  "onSubagentStart",
+  "onSubagentEnd",
+] as const);
+
+const DECISION_METHODS = new Set([
+  "onPreToolUse",
+  "onUserPromptSubmit",
+] as const);
+
+const PIPE_METHODS = new Set([
+  "transformSystemPromptBeforeLlm",
+  "transformMessagesBeforeLlm",
+  "transformToolsBeforeLlm",
+] as const);
+
+/* ────────────── Decision outcome ────────────── */
+
+/**
+ * `fireDecisionOutcome` 的返回类型。Caller 必须 switch `kind` 穷举三种情况——比
+ * nullable `HookResult` + 字段判更类型安全。详见 `fireDecisionOutcome` 文档。
+ */
+export type DecisionOutcome =
+  | { kind: "decided"; result: HookResult }
+  | { kind: "context-only"; additionalContext?: string; systemMessage?: string }
+  | { kind: "none" };
+
+/* ────────────── HookFailureSink ────────────── */
+
+export interface HookFailureInfo {
+  hookName: string;
+  method: string;
+  errorMessage: string;
+  timeoutMs?: number;
+  internal: boolean;
+  /** True 时表示该 decision hook 被 fail-closed 处理（视为 deny）。 */
+  failedClosed?: boolean;
+}
+
+export type HookFailureSink = (info: HookFailureInfo) => void;
+
+const defaultFailureSink: HookFailureSink = (info) => {
+  if (info.internal) return;
+  // eslint-disable-next-line no-console
+  console.error(
+    `[harness-pi] hook "${info.hookName}".${info.method} failed:`,
+    info.errorMessage,
+    info.timeoutMs ? `(timeout ${info.timeoutMs}ms)` : "",
+    info.failedClosed ? "[fail-closed: treated as deny]" : "",
+  );
+};
+
+/* ────────────── Dispatcher ────────────── */
+
+export interface EventInputMap {
+  onSessionStart: SessionStartInput;
+  onSessionEnd: SessionEndInput;
+  onContinuationCheck: ContinuationCheckInput;
+  onTurnStart: TurnStartInput;
+  onTurnEnd: TurnEndInput;
+  onSteer: SteerInput;
+  onLlmEnd: LlmEndInput;
+  onContextOverflow: ContextOverflowInput;
+  onPostToolUse: PostToolUseInput;
+  onSubagentStart: OnSubagentStartInput;
+  onSubagentEnd: OnSubagentEndInput;
+}
+
+export interface DecisionInputMap {
+  onPreToolUse: PreToolUseInput;
+  onUserPromptSubmit: UserPromptSubmitInput;
+}
+
+export class HookDispatcher {
+  constructor(
+    private readonly hooks: ReadonlyArray<
+      Hook<Message | CompactionCheckpointPayload>
+    >,
+    private readonly failureSink: HookFailureSink = defaultFailureSink,
+  ) {}
+
+  /* ────────────── Event: 并行 ────────────── */
+
+  async fireEvent<M extends keyof EventInputMap>(
+    method: M,
+    input: EventInputMap[M],
+    ctx: HookContext,
+  ): Promise<MergedHookResult> {
+    const matched = this.hooks.filter(
+      (h) => typeof h[method] === "function",
+    );
+    const results = await Promise.all(
+      matched.map((h) =>
+        this._invokeSafe<HookResult | void>(h, method, [input, ctx], "event"),
+      ),
+    );
+    return mergeResults(results.map((r) => r.value));
+  }
+
+  /** Special: onError 不返回值，just observe. */
+  async fireError(input: ErrorInput, ctx: HookContext): Promise<void> {
+    const matched = this.hooks.filter((h) => typeof h.onError === "function");
+    await Promise.all(
+      matched.map((h) =>
+        this._invokeSafe<void>(h, "onError", [input, ctx], "event"),
+      ),
+    );
+  }
+
+  /**
+   * Special: onAfterFlush —— **collect-return** 语义（C1）。并行问每个 hook（event 形态、per-hook
+   * timeout、fire-and-observe），把它们**返回**的 `compactionBoundary` 按注册顺序收集成数组交给内核。
+   * 数组元素既可能是 legacy 裸 `Message` summary，也可能是带信息性 checkpoint 元数据的
+   * `CompactionCheckpointPayload`；dispatcher 原样透传，不解释、不落盘。
+   *
+   * 关键不变量：dispatcher 只负责「拿到非超时/非抛错 hook 的返回值」，**不持有任何 store 写能力**。
+   * 超时的 hook 经 `_invokeSafe` 的 `Promise.race` 被丢弃（`error != null` / `value === undefined`），
+   * 其返回的 boundary 永远到不了这个数组 → 内核拿不到 → 不写。这是「超时绝不产生 detached store 写」的
+   * 机制根基（替换上一版给 hook detached 写能力的错误设计）。返回值的写入由内核 in-band、awaited、
+   * 串行执行（见 session.ts），dispatcher 不碰 store。
+   *
+   * timeout：默认走 event 类（100ms）；但 summarize 可调 LLM，挂此 hook 的 plugin 应自设较长 `timeout`。
+   */
+  async fireAfterFlush(
+    input: OnAfterFlushInput,
+    ctx: HookContext,
+  ): Promise<Array<Message | CompactionCheckpointPayload>> {
+    const matched = this.hooks.filter(
+      (h) => typeof h.onAfterFlush === "function",
+    );
+    const results = await Promise.all(
+      matched.map((h) =>
+        this._invokeSafe<OnAfterFlushResult | void>(
+          h,
+          "onAfterFlush",
+          [input, ctx],
+          "event",
+        ),
+      ),
+    );
+    const boundaries: Array<Message | CompactionCheckpointPayload> = [];
+    for (const r of results) {
+      // 超时 / 抛错的 hook：value === undefined（race 丢弃），其 boundary 永不入列。
+      if (r.value && r.value.compactionBoundary) {
+        boundaries.push(r.value.compactionBoundary);
+      }
+    }
+    return boundaries;
+  }
+
+  /* ────────────── Decision: 顺序 short-circuit ────────────── */
+
+  /**
+   * Decision 路径：顺序问每个 hook，**只在 decision / updatedInput / continue=false 上短路**。
+   * - additionalContext / systemMessage 累积，不算决断（关键修复：避免 context-injection hook 误屏蔽下游安全检查）。
+   * - failClosed=true 的 hook 失败时返回 deny。
+   *
+   * **类型表面**：返回 `HookResult | null`——caller 必须用 optional chain 判 decision/continue 字段。
+   * 新 caller 推荐用 `fireDecisionOutcome` 拿 discriminated union（必须 switch kind 穷举）。
+   */
+  async fireDecision<M extends keyof DecisionInputMap>(
+    method: M,
+    input: DecisionInputMap[M],
+    ctx: HookContext,
+  ): Promise<HookResult | null> {
+    const additionalContexts: string[] = [];
+    const systemMessages: string[] = [];
+
+    for (const h of this.hooks) {
+      if (typeof h[method] !== "function") continue;
+      const inv = await this._invokeSafe<HookResult | void>(
+        h,
+        method,
+        [input, ctx],
+        "decision",
+      );
+
+      // hook failed (throw/timeout): fail-closed 视为 deny
+      if (inv.error) {
+        if (h.failClosed) {
+          const denyResult: HookResult = {
+            decision: "deny",
+            reason: `hook "${h.name}" failed (${inv.error.message}); failClosed=true → denied`,
+          };
+          if (additionalContexts.length > 0) {
+            denyResult.additionalContext = additionalContexts.join("\n");
+          }
+          if (systemMessages.length > 0) {
+            denyResult.systemMessage = systemMessages.join("\n");
+          }
+          return denyResult;
+        }
+        // fail-open: 继续
+        continue;
+      }
+
+      const r = inv.value;
+      if (!r) continue;
+
+      // 聚合 transient context（永不短路）
+      if (r.additionalContext) additionalContexts.push(r.additionalContext);
+      if (r.systemMessage) systemMessages.push(r.systemMessage);
+
+      // 真正的决断：decision / updatedInput / continue=false
+      if (
+        r.decision !== undefined ||
+        r.updatedInput !== undefined ||
+        r.continue === false
+      ) {
+        const out: HookResult = { ...r };
+        if (additionalContexts.length > 0) {
+          out.additionalContext = additionalContexts.join("\n");
+        }
+        if (systemMessages.length > 0) {
+          out.systemMessage = systemMessages.join("\n");
+        }
+        return out;
+      }
+    }
+
+    // 没人决断：如果累积了 context，构造一个 non-decisive 结果交给 caller
+    if (additionalContexts.length > 0 || systemMessages.length > 0) {
+      const out: HookResult = {};
+      if (additionalContexts.length > 0) {
+        out.additionalContext = additionalContexts.join("\n");
+      }
+      if (systemMessages.length > 0) {
+        out.systemMessage = systemMessages.join("\n");
+      }
+      return out;
+    }
+    return null;
+  }
+
+  /**
+   * Phase 2 加：discriminated-union 形态的 decision 出口。caller 必须 switch `kind` 穷举
+   * 三种情况，编译器帮你拦下"忘判 context-only"那种 bug。
+   *
+   *   - kind === "decided"     真的有 hook 给出 decision / updatedInput / continue=false
+   *   - kind === "context-only" 没人 decide，但有人累积了 additionalContext / systemMessage
+   *   - kind === "none"         没人 decide，也没人发表意见
+   */
+  async fireDecisionOutcome<M extends keyof DecisionInputMap>(
+    method: M,
+    input: DecisionInputMap[M],
+    ctx: HookContext,
+  ): Promise<DecisionOutcome> {
+    const r = await this.fireDecision(method, input, ctx);
+    if (!r) return { kind: "none" };
+
+    const hasDecision =
+      r.decision !== undefined ||
+      r.updatedInput !== undefined ||
+      r.continue === false;
+    if (hasDecision) {
+      return { kind: "decided", result: r };
+    }
+    return {
+      kind: "context-only",
+      ...(r.additionalContext !== undefined
+        ? { additionalContext: r.additionalContext }
+        : {}),
+      ...(r.systemMessage !== undefined
+        ? { systemMessage: r.systemMessage }
+        : {}),
+    };
+  }
+
+  /* ────────────── Pipe: 顺序 transform ────────────── */
+
+  async firePipeSystemPrompt(
+    value: string,
+    ctx: HookContext,
+  ): Promise<string> {
+    let v = value;
+    for (const h of this.hooks) {
+      if (typeof h.transformSystemPromptBeforeLlm !== "function") continue;
+      const inv = await this._invokeSafe<string | void>(
+        h,
+        "transformSystemPromptBeforeLlm",
+        [v, ctx],
+        "pipe",
+      );
+      if (typeof inv.value === "string") v = inv.value;
+    }
+    return v;
+  }
+
+  async firePipeMessages(
+    value: Message[],
+    ctx: HookContext,
+  ): Promise<Message[]> {
+    let v = value;
+    for (const h of this.hooks) {
+      if (typeof h.transformMessagesBeforeLlm !== "function") continue;
+      const inv = await this._invokeSafe<Message[] | void>(
+        h,
+        "transformMessagesBeforeLlm",
+        [v, ctx],
+        "pipe",
+      );
+      if (Array.isArray(inv.value)) v = inv.value;
+    }
+    return v;
+  }
+
+  async firePipeTools(
+    value: Tool[],
+    ctx: HookContext,
+  ): Promise<Tool[]> {
+    let v = value;
+    for (const h of this.hooks) {
+      if (typeof h.transformToolsBeforeLlm !== "function") continue;
+      const inv = await this._invokeSafe<Tool[] | void>(
+        h,
+        "transformToolsBeforeLlm",
+        [v, ctx],
+        "pipe",
+      );
+      if (Array.isArray(inv.value)) v = inv.value;
+    }
+    return v;
+  }
+
+  /* ────────────── Around: 嵌套 ────────────── */
+
+  // ⚠️ around hook（wrapTurn / wrapToolExec）**故意不套 per-hook timeout**（docs/09 §3.7 杂项「around-hook
+  // 超时」的结论）。它们包裹 `next()`——而 next() 就是整个 turn / 单次 tool exec，时长本就合法地可变，硬
+  // race-timeout 要么误杀合法长任务、要么留下脱缰的悬空工作。正确的「太久了」机制是**协作式 abort**：
+  // ctx.abort(reason) → AbortController → signal 同时穿进 LLM stream（session 调 stream 传 signal）和
+  // tool.execute(args, ctx, signal)，让它们自己尽快停。「多久算太久」是策略，落在 watchdog 插件里
+  //（一个 wrapTurn，setTimeout 后 ctx.abort）——机制进内核、策略进插件。所以这里只做嵌套组合，不做超时。
+
+  buildWrapTurn(
+    ctx: HookContext,
+    inner: () => Promise<void>,
+  ): () => Promise<void> {
+    const matched = this.hooks.filter(
+      (h) => typeof h.wrapTurn === "function",
+    );
+    return matched.reduceRight<() => Promise<void>>(
+      (next, h) => () => h.wrapTurn!(ctx, next),
+      inner,
+    );
+  }
+
+  buildWrapToolExec(
+    call: ToolCall,
+    ctx: HookContext,
+    inner: () => Promise<ToolExecResult>,
+  ): () => Promise<ToolExecResult> {
+    const matched = this.hooks.filter(
+      (h) => typeof h.wrapToolExec === "function",
+    );
+    return matched.reduceRight<() => Promise<ToolExecResult>>(
+      (next, h) => () => h.wrapToolExec!(call, ctx, next),
+      inner,
+    );
+  }
+
+  /* ────────────── invoke with timeout + fail-open ────────────── */
+
+  /**
+   * 调一个 hook 方法，返回 { value, error }。caller 在调用点明确 R，避免 union 在下游
+   * 二次 typeof 鉴别。
+   *
+   * - R = HookResult | void：event / decision 路径
+   * - R = string：transformSystemPromptBeforeLlm
+   * - R = Message[]：transformMessagesBeforeLlm
+   * - around hook 走 buildWrapTurn / buildWrapToolExec，不经此路径
+   *
+   * error 为 null 表示成功；否则 caller 决定 fail-open / fail-closed。
+   */
+  private async _invokeSafe<R>(
+    h: Hook<Message | CompactionCheckpointPayload>,
+    method: string,
+    args: unknown[],
+    category: Category,
+  ): Promise<{ value: R | undefined; error: Error | null }> {
+    const fn = (h as unknown as Record<string, unknown>)[method];
+    if (typeof fn !== "function") return { value: undefined, error: null };
+
+    const timeoutMs = h.timeout ?? DEFAULT_TIMEOUTS[category];
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    try {
+      const value = await Promise.race<R | undefined>([
+        Promise.resolve((fn as (...a: unknown[]) => unknown).apply(h, args)) as Promise<
+          R | undefined
+        >,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new HookTimeoutError(h.name, method, timeoutMs));
+          }, timeoutMs);
+          if (typeof (timer as { unref?: () => void }).unref === "function") {
+            (timer as { unref: () => void }).unref();
+          }
+        }),
+      ]);
+      return { value, error: null };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      const info: HookFailureInfo = {
+        hookName: h.name,
+        method,
+        errorMessage: error.message,
+        internal: h.internal === true,
+      };
+      if (error instanceof HookTimeoutError) info.timeoutMs = timeoutMs;
+      if (h.failClosed && category === "decision") info.failedClosed = true;
+      this.failureSink(info);
+      return { value: undefined, error };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+}
+
+export class HookTimeoutError extends Error {
+  constructor(
+    public hookName: string,
+    public method: string,
+    public timeoutMs: number,
+  ) {
+    super(
+      `Hook "${hookName}" method "${method}" timed out after ${timeoutMs}ms`,
+    );
+    this.name = "HookTimeoutError";
+  }
+}
+
+/* ────────────── merge multi-hook results (Event 路径用) ────────────── */
+
+export function mergeResults(
+  results: ReadonlyArray<HookResult | string | Message[] | void | undefined>,
+): MergedHookResult {
+  const out: MergedHookResult = {
+    additionalContexts: [],
+    systemMessages: [],
+  };
+
+  for (const r of results) {
+    if (!r || typeof r === "string" || Array.isArray(r)) continue;
+    const hr = r as HookResult;
+
+    if (hr.continue === false) {
+      out.continue = false;
+      if (!out.stopReason && hr.stopReason) out.stopReason = hr.stopReason;
+    } else if (hr.continue === true && out.continue === undefined) {
+      out.continue = true;
+    }
+
+    if (hr.decision && out.decision === undefined) {
+      out.decision = hr.decision;
+      if (hr.reason) out.reason = hr.reason;
+    }
+
+    if (hr.updatedInput) out.updatedInput = hr.updatedInput;
+    if (hr.updatedToolOutput) out.updatedToolOutput = hr.updatedToolOutput;
+    if (hr.additionalContext) out.additionalContexts.push(hr.additionalContext);
+    if (hr.systemMessage) out.systemMessages.push(hr.systemMessage);
+    if (hr.initialUserMessage && !out.initialUserMessage) {
+      out.initialUserMessage = hr.initialUserMessage;
+    }
+  }
+
+  return out;
+}
+
+export function defaultTimeoutFor(method: string): number {
+  if ((EVENT_METHODS as Set<string>).has(method)) return DEFAULT_TIMEOUTS.event;
+  if ((DECISION_METHODS as Set<string>).has(method)) return DEFAULT_TIMEOUTS.decision;
+  if ((PIPE_METHODS as Set<string>).has(method)) return DEFAULT_TIMEOUTS.pipe;
+  throw new Error(`defaultTimeoutFor: unknown method "${method}" — not in EVENT/DECISION/PIPE sets`);
+}
+
+export { EVENT_METHODS, DECISION_METHODS, PIPE_METHODS };
+
+/* ────────────── Plugin dependency verification ────────────── */
+
+export interface HookDependencyWarning {
+  kind: "missing-required" | "required-after-self" | "conflict" | "duplicate-name";
+  hook: string;
+  /** missing-required / required-after-self: 被依赖的名字；conflict: 冲突的名字；duplicate-name: 重名 */
+  related: string;
+  message: string;
+}
+
+/**
+ * 校验 hook list 的 requires / conflictsWith 软依赖。返回 warnings 数组（空数组 = 无问题）。
+ * 由 caller 决定如何展示（session 构造期通过 consoleSink emit；plugin author 可在 test 里 assert）。
+ *
+ * 规则：
+ *   - duplicate-name：重名（多次注册同名 hook）警告，但不阻塞。
+ *   - missing-required：A.requires=["B"]，但 B 根本没在 list 里。
+ *   - required-after-self：A.requires=["B"]，B 在 A 之后才注册（顺序错）。
+ *   - conflict：A.conflictsWith=["B"] 且 B 在 list 里。
+ */
+export function verifyHookDependencies(
+  hooks: ReadonlyArray<Hook<Message | CompactionCheckpointPayload>>,
+): HookDependencyWarning[] {
+  const warnings: HookDependencyWarning[] = [];
+  const nameToIdxs = new Map<string, number[]>();
+
+  for (let i = 0; i < hooks.length; i++) {
+    const h = hooks[i];
+    if (!h) continue;
+    const arr = nameToIdxs.get(h.name) ?? [];
+    arr.push(i);
+    nameToIdxs.set(h.name, arr);
+  }
+
+  for (const [name, idxs] of nameToIdxs) {
+    if (idxs.length > 1) {
+      warnings.push({
+        kind: "duplicate-name",
+        hook: name,
+        related: name,
+        message: `hook "${name}" is registered ${idxs.length} times — names should be unique for log attribution`,
+      });
+    }
+  }
+
+  for (let i = 0; i < hooks.length; i++) {
+    const h = hooks[i];
+    if (!h) continue;
+    if (h.requires) {
+      for (const reqName of h.requires) {
+        const reqIdxs = nameToIdxs.get(reqName);
+        if (!reqIdxs || reqIdxs.length === 0) {
+          warnings.push({
+            kind: "missing-required",
+            hook: h.name,
+            related: reqName,
+            message: `hook "${h.name}" requires "${reqName}", but it is not registered`,
+          });
+        } else if (reqIdxs[0]! > i) {
+          warnings.push({
+            kind: "required-after-self",
+            hook: h.name,
+            related: reqName,
+            message: `hook "${h.name}" requires "${reqName}", but "${reqName}" is registered after it (idx ${reqIdxs[0]} > ${i}). Reorder so "${reqName}" comes first.`,
+          });
+        }
+      }
+    }
+    if (h.conflictsWith) {
+      for (const conflictName of h.conflictsWith) {
+        if (nameToIdxs.has(conflictName)) {
+          warnings.push({
+            kind: "conflict",
+            hook: h.name,
+            related: conflictName,
+            message: `hook "${h.name}" conflicts with "${conflictName}"; they should not be used together`,
+          });
+        }
+      }
+    }
+  }
+
+  return warnings;
+}
+
+/**
+ * Fail-closed 分类的注册期强制（docs/09 §3.7）。与 `verifyHookDependencies`（返回 warning、不阻塞）
+ * 不同，这是**硬校验、违例直接 throw**——安全关键 hook 配错不能只是个警告。
+ *
+ * 规则：`critical:true` 的 hook
+ *   1. 必须实现 decision 方法（onPreToolUse / onUserPromptSubmit）；否则 critical 是类别误用。
+ *   2. 必须显式声明 `failClosed`（true / false 皆可，但不能 undefined）；否则最该表态的 hook 会靠
+ *      "忘了设 → 默认 fail-open"静默放过本该拒绝的调用。
+ *
+ * 在 AgentSession 构造期调用，配错就拒绝构造（fail-loud，对齐 §3.7「让安全类无法静默 fail-open」）。
+ */
+export function assertCriticalDecisionHooks(
+  hooks: ReadonlyArray<Hook<Message | CompactionCheckpointPayload>>,
+): void {
+  for (const h of hooks) {
+    if (!h.critical) continue;
+    // 「是不是 decision hook」复用权威集合 DECISION_METHODS，而非内联写死方法名——
+    // 将来加第三个 decision 方法时，这里不会静默漏判 critical 校验。
+    const isDecisionHook = [...DECISION_METHODS].some(
+      (m) => typeof (h as unknown as Record<string, unknown>)[m] === "function",
+    );
+    if (!isDecisionHook) {
+      throw new Error(
+        `Hook "${h.name}" sets critical:true but implements no decision method ` +
+          `(onPreToolUse / onUserPromptSubmit). critical only applies to decision hooks.`,
+      );
+    }
+    if (h.failClosed === undefined) {
+      throw new Error(
+        `Critical decision hook "${h.name}" must declare failClosed explicitly ` +
+          `(true = deny on failure/timeout, false = allow on failure). ` +
+          `Refusing to default silently — a security-critical hook must take a stance (docs/09 §3.7).`,
+      );
+    }
+  }
+}

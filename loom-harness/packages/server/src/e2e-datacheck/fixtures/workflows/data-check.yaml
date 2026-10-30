@@ -1,0 +1,16 @@
+# T34 金径「数据检查批」最小 workflow 声明（形状对齐 fixture-workspace/data/tasks/*.yaml，
+# 供 core/trigger parseTriggerDefinition 真件消费；按本任务红线放 e2e-datacheck/fixtures/ 内，
+# 不写仓库根 fixture-workspace/）。
+name: data-check
+schedule:
+  daily: "12:00"
+enabled: true
+catchup: latest
+prompt: |-
+  【定时任务】数据检查批：date=2026-10-08 window=12:00~13:59 batch=12。
+  按会话工作区内 agents/01-data-check-lite.md 的身份与流程执行：
+  先经 check_data 跑数据检查脚本（script-host 挂载真跑 python，产出 事实-全天.md 与
+  check-report.json），再 read 精读事实文件本批行号范围，write 批次理解文件
+  （含 任务概要六字段 / 事件时间线 / 工作过程评价），bash 渲染 commit-body 文本，
+  最后正文+converge 同轮收束，pointers 声明本批全部产物。
+  marker=BATCH12-ONLY。

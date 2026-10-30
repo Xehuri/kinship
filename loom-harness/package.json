@@ -1,0 +1,25 @@
+{
+  "name": "axeuh-loom",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Loom harness monorepo (Wave 1 scaffold, T01)",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc -b",
+    "build": "tsc -b && node scripts/write-version.mjs",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.6",
+    "vitest": "^2",
+    "@types/node": "^20"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.74.2",
+    "yaml": "^2.9.1"
+  }
+}

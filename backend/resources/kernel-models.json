@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "product": "axeuh-kernel-models",
+  "version": "2026.10.26",
+  "default_source": "modelscope",
+  "models": [
+    {
+      "id": "eres2netv2",
+      "tier": "required",
+      "source": "modelscope",
+      "repo": "iic/speech_eres2netv2_sv_zh-cn_16k-common",
+      "target": "<kernel>/axeuh_kernel/models/speech_eres2netv2_sv_zh-cn_16k-common",
+      "kind": "directory",
+      "size_bytes": 74138036,
+      "sha256": null,
+      "md5": null,
+      "gated": false,
+      "required_files": [
+        "pretrained_eres2netv2.ckpt",
+        "configuration.json"
+      ],
+      "url": null,
+      "mirrors": [],
+      "notes": "声纹嵌入模型（ERes2NetV2，192 维）；权重不再随内核发行包分发（内核包不含 models/ 与 .ckpt），改由 ModelScope 下载到运行期内核目录。checkpoint pretrained_eres2netv2.ckpt 71,768,231 字节，sha256 0eb4057106b2573dd7b132cf0c36273ab29afd192c1610f80baa9c556dbb963c（见内核仓库 models.lock.json）。"
+    },
+    {
+      "id": "sensevoice",
+      "tier": "required",
+      "source": "modelscope",
+      "repo": "iic/SenseVoiceSmall",
+      "target": "~/.cache/modelscope/hub/models/iic/SenseVoiceSmall",
+      "kind": "directory",
+      "size_bytes": 940019376,
+      "sha256": null,
+      "md5": null,
+      "gated": false,
+      "required_files": [
+        "model.pt",
+        "config.yaml",
+        "tokens.json",
+        "am.mvn",
+        "configuration.json"
+      ],
+      "url": null,
+      "mirrors": [],
+      "notes": "ASR 主模型；ModelScope 公共仓库，约 897 MiB；sha256 未由上游发布，保持 null。"
+    },
+    {
+      "id": "fsmn-vad",
+      "tier": "required",
+      "source": "modelscope",
+      "repo": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+      "target": "~/.cache/modelscope/hub/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+      "kind": "directory",
+      "size_bytes": 4033603,
+      "sha256": null,
+      "md5": null,
+      "gated": false,
+      "required_files": [
+        "model.pt",
+        "config.yaml",
+        "am.mvn",
+        "configuration.json"
+      ],
+      "url": null,
+      "mirrors": [],
+      "notes": "FunASR FSMN-VAD；ModelScope 公共仓库，约 3.9 MiB。"
+    },
+    {
+      "id": "pyannote-segmentation",
+      "tier": "required",
+      "source": "modelscope",
+      "repo": "pyannote/segmentation-3.0",
+      "target": "~/.cache/huggingface/hub/models--pyannote--segmentation-3.0",
+      "kind": "directory",
+      "size_bytes": 11964742,
+      "sha256": null,
+      "md5": null,
+      "gated": false,
+      "required_files": [
+        "snapshots/*/config.yaml",
+        "snapshots/*/pytorch_model.bin"
+      ],
+      "url": null,
+      "mirrors": [],
+      "notes": "ModelScope 公共镜像已确认（MIT，2026-10-26）；落盘需按 HuggingFace cache 布局供 pyannote 读取。HF 原仓 pyannote/segmentation-3.0 仍为 gated，仅作回退且必须提供 HF_TOKEN。"
+    },
+    {
+      "id": "pyannote-diarization",
+      "tier": "required",
+      "source": "modelscope",
+      "repo": "pyannote/speaker-diarization-3.1",
+      "target": "~/.cache/huggingface/hub/models--pyannote--speaker-diarization-3.1",
+      "kind": "directory",
+      "size_bytes": 21854050,
+      "sha256": null,
+      "md5": null,
+      "gated": false,
+      "required_files": [
+        "snapshots/*/config.yaml"
+      ],
+      "url": null,
+      "mirrors": [],
+      "notes": "ModelScope 公共镜像已确认（MIT，2026-10-26）；落盘需按 HuggingFace cache 布局。pipeline 依赖 segmentation 与 wespeaker 两条独立缓存。"
+    },
+    {
+      "id": "wespeaker",
+      "tier": "required",
+      "source": "modelscope",
+      "repo": "pyannote/wespeaker-voxceleb-resnet34-LM",
+      "target": "~/.cache/huggingface/hub/models--pyannote--wespeaker-voxceleb-resnet34-LM",
+      "kind": "directory",
+      "size_bytes": 53300994,
+      "sha256": null,
+      "md5": null,
+      "gated": false,
+      "required_files": [
+        "snapshots/*/config.yaml",
+        "snapshots/*/pytorch_model.bin"
+      ],
+      "url": null,
+      "mirrors": [],
+      "notes": "ModelScope 公共镜像 pyannote/wespeaker-voxceleb-resnet34-LM（2026-10-26 验证）；权重 26,645,418 字节，sha256 366edf44f4c80889a3eb7a9d7bdf02c4aede3127f7dd15e274dcdb826b143c56，与生产 HF 缓存字节一致；落盘按 HuggingFace cache 布局。HF 原仓为 gated 回退。"
+    },
+    {
+      "id": "kws-zipformer",
+      "tier": "recommended",
+      "source": "upstream",
+      "repo": "k2-fsa/sherpa-onnx",
+      "target": "~/.cache/axeuh-kernel/models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20",
+      "kind": "directory",
+      "size_bytes": 40742732,
+      "sha256": "68447f4fbc67e70eee3a93961f36e81e98f47aef73ce7e7ca00885c6cd3616a6",
+      "md5": null,
+      "gated": false,
+      "required_files": [
+        "tokens.txt",
+        "en.phone",
+        "encoder-epoch-13-avg-2-chunk-16-left-64.onnx"
+      ],
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2",
+      "mirrors": [
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2",
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2"
+      ],
+      "notes": "服务端唤醒词模型；ModelScope 未检索到对应条目，优先尝试国内加速镜像（ghfast、gh-proxy），全部失败后回退 sherpa-onnx 官方 GitHub release；sha256 为 tar.bz2 归档哈希，size_bytes 为解压后大小。"
+    },
+    {
+      "id": "cnn14",
+      "tier": "optional",
+      "source": "upstream",
+      "repo": "panns/Cnn14_16k",
+      "target": "~/.cache/axeuh-kernel/models/Cnn14_16k_mAP=0.438.pth",
+      "kind": "file",
+      "size_bytes": 358668570,
+      "sha256": "e2ee543a27919542c2ea03eabaa70b24dcd4e6c8e05621de6b67a94e4c5058e6",
+      "md5": "362fc5ff18f1d6ad2f6d464b45893f2c",
+      "gated": false,
+      "required_files": [],
+      "url": "https://zenodo.org/api/records/3987831/files/Cnn14_16k_mAP%3D0.438.pth/content",
+      "mirrors": [
+        "https://hf-mirror.com/JaiDalmotra/Audioldm-mono-finetuned/resolve/main/Cnn14_16k_mAP%3D0.438.pth"
+      ],
+      "notes": "环境声/场景分类（PANNs Cnn14_16k）；ModelScope 未检索到对应条目，优先尝试 hf-mirror 镜像，全部失败后回退 Zenodo 上游；保留上游 MD5，sha256 为权重文件校验值。"
+    }
+  ]
+}

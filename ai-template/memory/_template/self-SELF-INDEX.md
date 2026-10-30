@@ -1,0 +1,59 @@
+---
+tags: [模板, 记忆, 索引]
+type: template
+date: {date}
+---
+# self/SELF-INDEX.md
+
+> 记忆体系关键词导航（查什么，去哪）。本文件不存正文、不存历史；导航只指向当前源文件，复盘收割后更新本表。
+
+## 查什么 | 去哪 | 备注
+
+| 查什么 | 去哪 | 备注 |
+|---|---|---|
+| 热快照（主线、任务、红线、状态） | `self/必读.md` | 会话开始必读，L0 投影层 |
+| 人格投影（怎么说话、怎么办事） | `self/persona-lite.md` + `self/身份.md` | 投影不是真值 |
+| 用户画像投影 | `profile/core-lite.md` + `profile/core.md` | 细节回 core 与 semantic |
+| 未成型的念头或草稿 | `self/scratch/{date}.md` | 临时层，7 天清 |
+| 某个话题讨论到哪了 | `topics/INDEX.md` + 同名话题卡 | 讨论脉络层 |
+| 身份、署名、通知语气 | `self/身份.md` | 发通知前参考 |
+| 红线、坑、禁忌 | `self/纠错.md` | 分析前扫一遍 |
+| 偏好、协作方式、去 AI 味 | `self/价值校准.md` | 正向行为准则 |
+| 观察中的假设 | `self/认知.md` | 有判据、验证、到期 |
+| 执行型待办与排班 | `self/任务.md` | 完成即销 |
+| 承诺、里程碑、态度变化 | `self/关系.md` | 关系对话前读 |
+| 领域职责与触发条件 | `self/tasks/{领域}.md` | 数据检查按条件挂载 |
+| 某日或某月发生了什么 | `fact/{月}.md` + `fact/总目录.md` | 复盘每日更新一行 |
+| 人物档案 | `profile/semantic/people/{人物}.md` | 歧义归属先登记 |
+| 事项编年史 | `profile/semantic/事项/{事项}.md` | 完结不删 |
+| 单次事件 | `profile/events/{事件}-{date}.md` | 不承载长期结论 |
+| 画像全景与当前状态 | `profile/core.md` + `profile/state.md` | 复盘收割更新 |
+| 当前成立的规律 | `profile/规律.md` + `profile/规律-摘要.md` | 摘要机载，ttl 72h |
+| 已归档旧账 | `archive/` | 几乎不读 |
+
+## 何时读 / 何时写（全记忆体系）
+
+| 文件 | 何时读 | 何时写 |
+|------|--------|--------|
+| `memory/self/身份.md` | 发通知前参考 | 改署名或语气时写 |
+| `memory/self/必读.md` | 会话开始 | 复盘每日刷新，主会话即时更新 |
+| `memory/self/persona-lite.md` | 主会话常驻 | 复盘从身份与价值校准刷新 |
+| `memory/profile/core-lite.md` | 主会话常驻 | 复盘从 core 与 semantic 刷新 |
+| `memory/profile/core.md` + `state.md` | 需要用户背景时 | 复盘收割更新，主会话即时写 |
+| `memory/profile/规律.md` | 批次与复盘开工 | 复盘每日核对 |
+| `memory/profile/规律-摘要.md` | 批次角色常驻 | 复盘生成，超过 ttl 重生成 |
+| `memory/profile/semantic/` | 分析遇具体人物、事项、偏好、健康存疑时 | 复盘收割 ADD/UPDATE |
+| `memory/profile/events/` | 需要单次事件细节时 | 复盘新建 |
+| `memory/self/任务.md` | 会话开始与执行前 | 主会话即时写，复盘补漏 |
+| `memory/self/纠错.md` + `价值校准.md` | 分析前扫红线 | 用户纠正或认可时写 |
+| `memory/self/认知.md` | 执行相关任务时 | 复盘收割，验证后升入 profile |
+| `memory/self/关系.md` | 关系相关对话前 | 里程碑、承诺、态度变化时写 |
+| `memory/self/chat-mode.md` | 可选，仅实例显式启用时注入 | 来源覆盖规则变化时写 |
+| `memory/self/scratch/{date}.md` | 复盘收割时 | 主会话、批次、复盘随手记 |
+| `memory/topics/` | 需要讨论脉络时 | 复盘每天 1 到 2 张卡 |
+| `memory/self/tasks/{领域}.md` | 数据检查挂载时 | 新增或修改领域职责时写 |
+| `memory/self/执行日志/{月}.md` | 追溯子智能体操作 | 每个子智能体收尾追加一行 |
+| `memory/fact/*.md` | 检索某日或某月 | 复盘每日更新一行 |
+| `memory/archive/` | 几乎不读 | 不写，或经用户指示 |
+
+> 记忆哲学：主会话是传感器与直接写入方；子智能体是执行轨迹记录者；复盘是每日收割器；周报与双周是清理者。一切按需，无增量零写入。值得记的信息，是会在凌晨压缩中消失且消失有害的信息。
