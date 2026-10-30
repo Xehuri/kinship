@@ -73,11 +73,15 @@ docs: 更新 README 中的 API 文档
 
 ## 项目结构
 
-完整目录树与子系统地图见 [docs/dev/PROJECT_MAP.md](docs/dev/PROJECT_MAP.md)。顶层包括 `backend/`、`kernel/`（闭源音频内核）、`app/`、`frontend/mobile/`、`desktop/`、`ai/`、`ai-template/`、`tools/`、`validation/`、`scripts/`、`docs/`、`archive/`。
+完整目录树与子系统地图见 [docs/dev/PROJECT_MAP.md](docs/dev/PROJECT_MAP.md)。公开树包含 `backend/`、`app/`、`frontend/mobile/`、`desktop/`、`loom-harness/`、`ai-template/`、`tools/`、`scripts/`、`docs/`；`kernel/`、`ai/`、`tools/moss-shadow/` 是私有或闭源组件，不在公开树中。
 
 ## 文档改动
 
-先改唯一真源（见 [docs/README.md](docs/README.md) 的真源矩阵），再改入口；历史文档归档到 `docs/archive/`，不直接删除。提交前运行 `python3 tools/docs-check/check_docs.py all`。
+先改唯一真源（见 [docs/README.md](docs/README.md) 的真源矩阵），再改入口；历史文档保留在私有仓，不随公开树发布。提交前运行 `python3 tools/docs-check/check_docs.py all`。
+
+## 测试范围
+
+公开树 CI 运行 backend 语法检查、frontend typecheck/unit/build、Android unit/debug build、Loom typecheck/build 和 docs-check。完整 backend/Loom 测试依赖私有 `ai/`、`kernel/` 与 `loom-harness/fixture-workspace`，不在公开 CI 中执行。
 
 ## 开发环境设置
 
