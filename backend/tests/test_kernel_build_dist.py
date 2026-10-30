@@ -6,9 +6,13 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 BUILD_DIST_PATH = (
     Path(__file__).resolve().parents[2] / "kernel" / "build_dist.py"
 )
+if not BUILD_DIST_PATH.is_file():
+    pytest.skip("private kernel/ is not part of the public tree", allow_module_level=True)
 _SPEC = importlib.util.spec_from_file_location(
     "kernel_build_dist_under_test", BUILD_DIST_PATH
 )

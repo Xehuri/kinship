@@ -16,6 +16,9 @@ SCRIPT = (
     / "qq_cli.py"
 )
 
+if not SCRIPT.is_file():
+    pytest.skip("private ai/ is not part of the public tree", allow_module_level=True)
+
 
 def _load_cli() -> ModuleType:
     spec = importlib.util.spec_from_file_location("qq_cli_test_module", SCRIPT)

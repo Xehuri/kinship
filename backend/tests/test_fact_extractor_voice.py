@@ -17,8 +17,13 @@ FX lane: ai/analysis/fact_extractor.py `_collect_voice` 恢复验证（TDD）
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FE_PATH = _REPO_ROOT / 'ai' / 'analysis' / 'fact_extractor.py'
+
+if not _FE_PATH.is_file():
+    pytest.skip('private ai/ is not part of the public tree', allow_module_level=True)
 
 _spec = importlib.util.spec_from_file_location('_fact_extractor_fx_under_test', _FE_PATH)
 if _spec is None or _spec.loader is None:
