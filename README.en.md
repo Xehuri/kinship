@@ -1,5 +1,7 @@
 # Kinship
 
+**Chinese meaning: 知己 (zhījǐ), a confidant who truly knows you.**
+
 **English** | [中文（默认）](README.md)
 
 A self-hosted AI personal data assistant. An Android app continuously collects sensor data from your phone and smart band (heart rate, steps, GPS, ambient audio, notifications, screen state, and more), uploads it to your private backend, where Loom periodically analyzes everything and generates insight reports.
