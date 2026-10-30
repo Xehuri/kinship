@@ -22,7 +22,7 @@ What makes it different:
 
 - It starts from a life stream, not a chat thread.
 - The interface is the filesystem: JSONL, Markdown, and daily shards, not an opaque data store.
-- Audio algorithms run in an isolated kernel; the business backend stays free of ML.
+- Audio algorithms run in an isolated, closed-source kernel that computes locally and uploads no data to an external service, including audio or user data; the business backend stays free of ML. See [the kernel data boundary](docs/kernel/README.md#data-boundary).
 - The assistant has a rhythm: scheduled checks, daily reviews, weekly summaries, and wake-ups.
 - The pipeline separates deterministic scripts, sub-agents, and the main agent.
 - The whole stack is self-hosted, while the model backend remains replaceable.
@@ -286,7 +286,7 @@ See [desktop/README.md](desktop/README.md) for architecture, first-run setup, TL
 | [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) | AI architecture: Loom, tasks, memory, MOSS, QQ |
 | [docs/dev/DATA_FORMAT.md](docs/dev/DATA_FORMAT.md) | Perception and health data format |
 | [docs/kernel-contract.md](docs/kernel-contract.md) | Closed-source audio kernel contract |
-| [docs/kernel/README.md](docs/kernel/README.md) | Kernel distribution, models, runtime path, and licenses |
+| [docs/kernel/README.md](docs/kernel/README.md) | Kernel distribution, data boundary, models, runtime path, and licenses |
 
 ## Deployment Notes
 

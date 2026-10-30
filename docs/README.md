@@ -53,7 +53,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [kernel/README.md](kernel/README.md) | 内核分发、安装位置、模型与许可 |
+| [kernel/README.md](kernel/README.md#data-boundary) | 内核分发、数据边界、安装位置、模型与许可 |
 | [kernel-contract.md](kernel-contract.md) | 闭源音频内核 API 契约（唯一真源） |
 | [kernel/EULA.md](kernel/EULA.md) | 内核最终用户许可协议 |
 | [kernel/COMMERCIAL.md](kernel/COMMERCIAL.md) | 商业许可说明 |

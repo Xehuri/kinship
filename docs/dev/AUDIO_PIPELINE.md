@@ -6,6 +6,8 @@
 
 Ambient audio and voice wake word are **two independent paths**. Ambient audio enters the incremental data (it is what the AI analyzes per day); wake audio does not. They must not be conflated when debugging.
 
+> **Data boundary.** In this document, "upload" means the App sending audio to your own backend. The audio kernel is a local compute step: the backend sends it audio over loopback and receives results. The kernel does not upload any data, including audio, transcripts, or voiceprints, to any external service. Model weights are fetched inbound from ModelScope/HuggingFace, either by onboarding or by an explicit opt-in kernel download; that traffic carries no audio and is not an upload. See [kernel/README.md](../kernel/README.md#data-boundary).
+
 > Wake-word transport and settings are documented in [Voice Wake Word](#voice-wake-word-optional).
 
 ### App side: segmentation decoupled from upload cadence

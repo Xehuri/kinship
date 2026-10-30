@@ -20,6 +20,7 @@ Kinship 不是“又一个健康手环 App”，也不是“套了健康数据�
 - 不把数据锁进黑盒数据库：核心接口是文件，可读、可备份、可迁移。
 - 不假装 AI 全知：音频、情绪、疲劳看不准的地方，会明确说看不准。
 - 不把音频算法塞进业务后端：音频由独立内核负责，后端保持轻量。
+- **不让音频内核上传数据：** ASR、VAD、声纹、KWS、场景和说话人切分都在你服务器上的独立内核里完成；内核只接收音频、返回结果，**不上传任何数据到外部服务，包括音频和用户数据**。音频由 App 上传到后端，后端负责接收、落盘与业务写入。见 [内核数据边界](docs/kernel/README.md#data-boundary)。
 
 ### 六个不一样的地方
 
@@ -148,7 +149,7 @@ sudo systemctl enable --now kinship
 | [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) | AI 架构：Loom、任务、记忆、MOSS、QQ |
 | [docs/dev/DATA_FORMAT.md](docs/dev/DATA_FORMAT.md) | 感知与健康数据格式 |
 | [docs/kernel-contract.md](docs/kernel-contract.md) | 闭源音频内核契约 |
-| [docs/kernel/README.md](docs/kernel/README.md) | 内核分发、模型、运行时路径与许可 |
+| [docs/kernel/README.md](docs/kernel/README.md) | 内核分发、数据边界、模型、运行时路径与许可 |
 
 部署排障与 Loom 运维等私有文档保留在私有仓 `docs/`，不随公开镜像同步。
 
