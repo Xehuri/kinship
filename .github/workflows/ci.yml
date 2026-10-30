@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  TZ: Asia/Shanghai
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -59,7 +62,6 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
-      - uses: android-actions/setup-android@v3
       - name: Run Android tests and build
         run: |
           chmod +x gradlew
