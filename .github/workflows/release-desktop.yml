@@ -1,0 +1,49 @@
+name: Build Windows desktop
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Make python3 available for the staging script
+        shell: pwsh
+        run: |
+          $python = (Get-Command python).Source
+          $shim = Join-Path $env:RUNNER_TEMP "python3.cmd"
+          Set-Content -Path $shim -Value "@echo off`r`n`"$python`" %*"
+          Add-Content -Path $env:GITHUB_PATH -Value $env:RUNNER_TEMP
+      - name: Install desktop dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build Windows installer
+        env:
+          PC_SENSOR_RUNTIME_SEED_DIR: ${{ runner.temp }}/pc-runtime-test
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kinship-desktop-windows
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.zip
+          if-no-files-found: error
