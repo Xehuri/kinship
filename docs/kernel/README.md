@@ -2,6 +2,17 @@
 
 The Kinship audio kernel (`axeuh_kernel`) is a closed-source Python process that performs all audio computation: ASR, VAD, voiceprint embedding and scoring, keyword spotting, scene classification, diarization, and unknown-speaker profiling. The backend only orchestrates it over HTTP and WebSocket on `127.0.0.1` with an ephemeral port.
 
+## Data boundary
+
+The kernel is a local compute process, not a data service. This section covers the kernel process only; other components have their own network behavior.
+
+- **No data uploads.** The kernel does not upload any data to an external service: no audio, transcripts, voiceprints, embeddings, telemetry, or other user data.
+- **Loopback in, results out.** It binds `127.0.0.1` and serves the backend over HTTP/WebSocket on an ephemeral port. Audio goes in; results come out. Local requests from the backend, including artifact uploads to `PUT /v1/artifacts`, stay on loopback.
+- **The backend owns persistence.** Audio ingestion, storage, and business writes happen in the backend (`perception.jsonl`, `daily/{date}/audio/`, health shards). The kernel keeps private local runtime state under `--state-dir` (jobs, artifacts, voiceprint and unknown-speaker state), and does not upload it.
+- **Model downloads are inbound.** Model weights are fetched inbound by the `kernel_models` onboarding step, or by an explicit opt-in kernel download when `AXEUH_KERNEL_ALLOW_MODEL_DOWNLOAD=1` is set. Both paths carry no audio or user content; neither is a data upload. See [Models](#models).
+
+An optional external AI provider (for example MiMo for multimodal audio understanding) is a separate, operator-configured integration, not part of the kernel.
+
 ## Distribution
 
 Kernel source is maintained in the private `kinship-kernel` repository and is not part of the public `kinship` tree. Users install a prebuilt release asset:
