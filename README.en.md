@@ -186,6 +186,13 @@ sequenceDiagram
 - **AI workflow (three layers).** The script layer preprocesses raw data and verifies coverage, the sub-agent layer writes understanding records and reviews, and the main agent layer orchestrates, verifies, and self-optimizes.
 - **Outputs.** `理解-{date}-批次-{HH}.md`, `复盘-{date}.md`, and `健康清单-{date}.md` under `ai/data/`; long-term memory under `ai/memory/`; results pushed to the phone as notifications.
 
+### Loom design notes
+
+- **Plan.** The `plan` tool provides `read` / `commit` / `revise` / `note` / `close` and stores the daily plan, coverage checkpoints, care items, and long tasks as versioned files with CAS checks. Daily plan and plan review runs use Plan mode: read-only, plus `plan commit` / `plan revise`, with no care execution and no user notification.
+- **Flow.** `flow_commit` / `flow_list` / `flow_get` maintain a resumable main thread with `active` / `waiting_user` / `waiting_event` / `closed` states, focus, `next_decision_at`, and close conditions. FlowGate is main-session only; `flowEnded` closes the turn, and wake-ups follow `next_decision_at`. The old converge path is disabled.
+- **Context diff.** Each session keeps its own context snapshot. `SessionContextWatcher` polls stat changes for injected sources and turns only the drift into budgeted unified-diff notices, so the next turn receives changed fragments instead of a full replay of memory and history.
+- **Context injection.** Assembly is stable prefix (`AGENTS.md` + memory + task prompt) -> boundary summary -> incremental tail. The stable prefix stays byte-identical for prompt-cache hits; memory Markdown is auto-scanned; missing or broken sources fail soft; compaction writes a boundary summary with ops/chat perspectives.
+
 See [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) for the full AI system architecture.
 
 ---
