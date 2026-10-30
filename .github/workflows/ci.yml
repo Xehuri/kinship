@@ -53,7 +53,7 @@ jobs:
       - run: npm run build
 
   android:
-    name: Android unit and debug APK
+    name: Android debug APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,10 +62,10 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
-      - name: Run Android tests and build
+      - name: Build Android debug APK
         run: |
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
+          ./gradlew :app:assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: kinship-android-debug

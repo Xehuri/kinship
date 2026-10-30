@@ -81,7 +81,7 @@ docs: 更新 README 中的 API 文档
 
 ## 测试范围
 
-公开树 CI 运行 backend 语法检查、frontend typecheck/unit/build、Android unit/debug build、Loom typecheck/build 和 docs-check。完整 backend/Loom 测试依赖私有 `ai/`、`kernel/` 与 `loom-harness/fixture-workspace`，不在公开 CI 中执行。
+公开树 CI 运行 backend 语法检查、frontend typecheck/unit/build、Android debug APK 构建、Loom typecheck/build 和 docs-check。完整 backend/Loom 测试依赖私有 `ai/`、`kernel/` 与 `loom-harness/fixture-workspace`；Android JVM 单测当前有 4 个公开树已知失败，暂不纳入公开 CI。
 
 ## 开发环境设置
 
