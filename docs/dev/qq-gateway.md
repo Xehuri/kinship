@@ -169,6 +169,22 @@ qq history --friend 1000000001 --unread --compact
 
 `--unread --compact` 会自动为图片/文件调用网关 `/v1/media`，把媒体下载到 `qq_gateway.media.dir`（默认 `data/qq_gateway/media/`），并在 `[图片]` / `[文件:name]` 后附本地绝对路径；`--json` 的每条消息额外带 `media` 路径数组。媒体下载失败只保留占位符，不影响文字历史。
 
+## 私聊提醒契约（2026-10-30）
+
+私聊不再把正文投给 Loom。relay 只发一条元数据提醒：
+
+```text
+【QQ私聊·提醒】<昵称>(<QQ>) <HH:MM>（N 条，仅补漏合并时出现）
+有新的私聊消息未看（这是提醒，不是聊天消息；必须先看再回）
+第一步（必须，先调用一次工具）：qq history --friend <QQ> --unread --compact
+第二步（必须）：qq send --friend <QQ> --text "..."
+只在网页回复视为未回复。
+```
+
+- 提醒不含正文、图片或文件；Loom 必须先调用 `qq history --friend <QQ> --unread --compact`，再用 `qq send` 回复。
+- 重连补漏按发送者合并为一条，带 `（N 条）`。
+- 图片/文件由 `qq history --unread --compact` 下载并返回本地绝对路径，规则同下节。
+
 ## 群聊提醒契约
 
 群消息不把正文投给 Loom。relay 命中 @我、引用我或文本含“小贺”时，只发一条元数据提醒：
@@ -184,14 +200,14 @@ qq history --friend 1000000001 --unread --compact
 - 提醒不含正文。Loom 收到后按提示命令拉未读，再决定读不读、回不回。
 - 图片/文件不随提醒发送；拉未读时由网关下载并返回本地绝对路径，Loom 可直接用 `read` 打开。
 
-## 当前运行态（2026-10-24）
+## 当前运行态（2026-10-30）
 
 - `enabled: true`
 - `inbound.shadow: true`：只连、只计数，不投递 Loom；`inbound.groups: false`
 - `outbound.enabled: true`、`outbound.private: true`、`outbound.groups: true`，群白名单 `["1000000002"]`
 - qq-mcp 已退役；23 个操作由 qq CLI 覆盖（`qq tools`）
 - QZone：`enabled: true`、`mode: http_sidecar`、`allow_read: true`、`allow_send: true`、`allow_delete: true`，写入 10 次/小时
-- relay 仍在跑并承担入站：私聊全量转发；群聊仅 @我/引用我/文本含“小贺”时发元数据提醒（不含正文）；water 模式按评分自动提醒（每群 60 秒），mute 不发；详见“群聊提醒契约”与“水群模式”
+- relay 仍在跑并承担入站：私聊仅发元数据提醒（`【QQ私聊·提醒】`，不含正文；Loom 调 `qq history --friend <QQ> --unread --compact` 后回复）；群聊仅 @我/引用我/文本含“小贺”时发元数据提醒（不含正文）；water 模式按评分自动提醒（每群 60 秒），mute 不发；详见“私聊提醒契约”“群聊提醒契约”与“水群模式”
 - `ss -tnp | grep :3001` 应只有两条：gateway + relay
 
 ## QQ 操作（23 个，qq CLI 覆盖）

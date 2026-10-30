@@ -299,3 +299,5 @@ def run(context):
 ## 可选 QQ 集成
 
 模板不随附 QQ 网关与 QQ 相关任务；需要 QQ 的部署自行添加网关配置与 `data/tasks/` 任务。QQ 号、token 与其他凭据只写本地 gitignored 配置，不提交仓库。
+
+若接入私聊提醒，relay 只发元数据（`【QQ私聊·提醒】`），不转发正文；Loom 必须先调用 `qq history --friend <QQ> --unread --compact`，再用 `qq send` 回复。
