@@ -60,7 +60,7 @@ SOFT_LINES = 300
 SOFT_BYTES = 20 * 1024
 
 # 膨胀扫描范围 (相对 AI 根), archive/ 排除 (归档区不参与治理)
-MEM_SCAN_DIRS = ['agents', 'memory/self', 'memory/profile', 'memory/fact', 'data/tasks']
+MEM_SCAN_DIRS = ['agents', 'memory/self', 'memory/profile', 'data/tasks']
 
 # 数据检查排班窗口（小时）：与 data/tasks/data_check_scheduler.py 的 7 窗一致。
 SCHED_WINDOWS = [0, 6, 8, 12, 16, 20, 22]

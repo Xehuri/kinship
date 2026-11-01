@@ -358,18 +358,17 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ### 步骤 2b：自主探索与学习
 
-见 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」，按其执行（探索所得只写 `{AI目录}/memory/self/认知.md` 草稿，不直接改 profile/fact）。
+见 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」，按其执行（探索所得只写 `{AI目录}/memory/self/认知.md` 草稿，不直接改 profile/）。
 
 ### 步骤 2c：记忆深掘与画像深度修正（03 专属，每期必做）
 
-双周回顾是 **profile 深度修正 + fact 月度主线** 的责任方。在分析完成后执行正式收割（此步骤是 03 唯一可直接改写 profile/fact 的环节）：
+双周回顾是 **profile 深度修正** 的责任方。在分析完成后执行正式收割（此步骤是 03 唯一可直接改写 profile 的环节）：
 
-> 写入协议统一见 `{AI目录}/agents/公共-操作规范.md` §3（ADD/UPDATE/NOOP，先 `grep -rn` 查重）；本步骤只保留深掘对象与 profile/fact 目标。
+> 写入协议统一见 `{AI目录}/agents/公共-操作规范.md` §3（ADD/UPDATE/NOOP，先 `grep -rn` 查重）；本步骤只保留深掘对象与 profile 目标。
 
 1. **深掘对象**：本期跨日成立的稳定事实/属性（人物关系、常去地点、行为规律、健康基线、事项主线）、被证伪或需升级的既有条目，以及 02 逐日收割沉淀在 `{AI目录}/memory/self/认知.md` 中等待升格的观察条目
 2. **写入 profile**：确认稳定的增量按三态决策（ADD/UPDATE/NOOP，先 `grep -rn` 查重）写入 `{AI目录}/memory/profile/semantic/`（people/、事项/、属性四文件）与 `{AI目录}/memory/profile/state.md`；与 02 相同，画像条目写"浓缩真值 + `[MM-DD]` + → [[复盘-YYYY-MM-DD]] 指针"，不复制证据链
-3. **写本月主线**：在 `{AI目录}/memory/fact/总目录.md` 对应 `{YYYY-MM}` 行的「本月主线」列补/更新一句话（去除"待双周提炼"占位）
-4. **自洽约束**：本步骤可正式改写 profile/fact；自主探索（步骤 2b）仍**只写 `{AI目录}/memory/self/认知.md` 草稿，不得直接改 profile/fact**，两者不得混淆
+3. **自洽约束**：本步骤可正式改写 profile；自主探索（步骤 2b）仍**只写 `{AI目录}/memory/self/认知.md` 草稿，不得直接改 profile**，两者不得混淆
 
 ### 步骤 3：系统改进建议
 
@@ -473,7 +472,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 - [ ] 数据质量：每个日期有明确的数据完整性评分，至少3个系统缺陷有根因分析
 - [ ] 学习行为：学习量、科目偏好、工具使用频次已量化统计
 - [ ] 步骤 2b 自主探索已完成（按 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」执行；洞察候选写入 `{AI目录}/memory/self/认知.md`）
-- [ ] 步骤 2c 记忆深掘已完成（profile/fact 已按三态协议收割，本月主线已更新）
+- [ ] 步骤 2c 记忆深掘已完成（profile 已按三态协议收割）
 
 ### 交叉验证检查
 

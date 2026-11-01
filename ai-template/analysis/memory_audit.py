@@ -74,7 +74,6 @@ TAG_REQUIRED = '记忆'
 
 CJK_RE = re.compile(r'[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]')
 FRONTMATTER_RE = re.compile(r'^---\r?\n(.*?)\r?\n---(?:\r?\n|$)', re.S)
-WRITER_HINT_RE = re.compile(r'writer|写入方|写入者|谁写', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -195,7 +194,7 @@ def _memory_category(rel: Path) -> str:
         if parts[1] == 'semantic':
             return 'memory/profile/semantic' if len(parts) == 3 else f'memory/profile/semantic/{parts[2]}'
         return f'memory/profile/{parts[1]}'
-    if parts[0] in ('fact', 'topics'):
+    if parts[0] == 'topics':
         return f'memory/{parts[0]}'
     return 'memory/root'
 
@@ -484,22 +483,6 @@ def _structural_memory_checks(root: Path, memory_dir: Path, checks: list[Check])
             '旧路径 self/执行日志.md 仍存在（新路径 self/执行日志/{YYYY-MM}.md）',
             _display_path(root, legacy_log),
         ))
-
-    events_dir = memory_dir / 'profile' / 'events'
-    if not events_dir.is_dir():
-        checks.append(Check(WARNING, 'memory.events.missing', 'profile/events/ 不存在', _display_path(root, events_dir)))
-    elif not (events_dir / 'README.md').is_file():
-        writer_note = False
-        for candidate in events_dir.rglob('*.md'):
-            if WRITER_HINT_RE.search(_read(candidate)):
-                writer_note = True
-                break
-        if not writer_note:
-            checks.append(Check(
-                WARNING, 'memory.events.no_writer',
-                'profile/events/ 无 README.md 或 writer 说明（无明确写入方）',
-                _display_path(root, events_dir),
-            ))
 
     archive_dir = memory_dir / 'archive'
     if not archive_dir.is_dir():

@@ -58,7 +58,7 @@ date: {date}
 ## 当下（动态层）
 
 - [[memory/profile/state|当前状态快照]]
-- 历史检索 → [[memory/fact/总目录]]
+- 事件检索 → `analysis/query_catalog.py`；旧日期回 `data/daily/` 的复盘/理解
 
 ## 档案地图（目录导航）
 

@@ -10,7 +10,7 @@
 |----|------|--------|--------|
 | **L0 热快照** | `self/必读.md`（<3KB，投影层） | 会话开始必读 | 复盘每日刷新，主会话即时更新 |
 | **L1 全景** | `profile/core.md`（画像树 + 细节摘要 + 导航）、`profile/state.md`（状态快照）、`profile/规律.md`（当前规律） | 需要用户背景或判断规律时 | 复盘收割更新，主会话确认新事实即时写 |
-| **L2 主题档案** | `profile/semantic/`、`self/*.md`、`topics/`、`fact/*.md` | 按需（人物、事项、红线、检索） | 复盘 ADD/UPDATE，主会话直写 |
+| **L2 主题档案** | `profile/semantic/`、`self/*.md`、`topics/` | 按需（人物、事项、红线） | 复盘 ADD/UPDATE，主会话直写 |
 
 > 投影不是真值：`self/persona-lite.md` 来自 `self/身份.md` + `self/价值校准.md`；`profile/core-lite.md` 来自 `profile/core.md` + `profile/semantic/`；`profile/规律-摘要.md` 是 `profile/规律.md` 的机载摘要，ttl 72h。
 
@@ -33,25 +33,28 @@
 4. `profile/core-lite.md`
 5. `topics/INDEX.md`
 
-`SELF-INDEX`、`纠错`、`认知`、`任务`、`关系`、`core`、`fact`、`semantic` 不自动注入，按 `SELF-INDEX` 检索。`profile/规律-摘要.md` 只在需要规律判断时按需读取，不占 core 名额。
+`SELF-INDEX`、`纠错`、`认知`、`任务`、`关系`、`core`、`semantic` 不自动注入，按 `SELF-INDEX` 检索。`profile/规律-摘要.md` 只在需要规律判断时按需读取，不占 core 名额。
 
 `chat-mode` 是可选项，不是默认常驻文件。可选骨架为 `_template/self-chat-mode.md`；实例确有需要时自行复制为 `self/chat-mode.md`，并在注入清单里显式加入，模板不预置 live 文件。若实例已把 Chat 模式并入 `persona-lite`，可不使用该骨架。
 
-## 侧车：claims 与 anchors
+## 事件检索与记忆的边界
 
-> 以下两项为可选实验侧车，默认不参与注入；未启用时不影响主链。
+- 记忆层回答“我是谁、他是什么样、现在什么状态、以后怎么做”。
+- 事件层回答“哪天发生了什么、上次某行为是什么时候、金额/关系/原文在哪”。
+- 事件检索走 `analysis/query_catalog.py`（blocks/cards/relations + 原文行号回指）；旧日期没有索引时回 `data/daily/{date}/` 的复盘/理解。
+- 不把每日流水、月度事实摘要、事件卡复制进记忆层；记忆只存稳定结论、决定、偏好、关系和待办。
 
-- **claims/**：断言侧车，只做只读校验，不参与任何注入，也不改写现有记忆文件。`claims.jsonl` 为追加式 JSONL，初始为空文件；字段、枚举与校验规则见 `claims/README.md`。`projection-policy.json` 只描述投影策略占位，默认 `mode: legacy`、`claims_hash` 为空。
-- **anchors/**：锚点侧车目录，运行时由流程写入 `anchors.jsonl`；模板只保留目录占位，不预置内容。侧车同样不注入。
-- **不自动裁决**：矛盾不会自动消解，`superseded` 必须由人工或显式流程写入，并且要有新的带来源断言。
-- **不生成投影**：`projection_targets` 只是建议性字符串，侧车不创建、不改写任何投影文件；不使用向量、FTS5 或索引库。
-- **运行期产物边界**：`memory/MEMORY-STATUS.json`、`memory/anchors/*.jsonl`、`memory/claims/*.bak*`、`data/plan/master*.json`、`data/plan/long-tasks/` 与 `.memory-projection/` 属于运行期产物，不进 git，也不参与注入。
+## 侧车：anchors
+
+- **anchors/**：锚点侧车目录，运行时由流程写入 `anchors.jsonl`；模板只保留目录占位，不预置内容。
+- **不注入**：anchors 只用于引文定位/校验，不参与主会话注入。
+- **运行期产物边界**：`memory/MEMORY-STATUS.json`、`memory/anchors/*.jsonl`、`data/plan/master*.json`、`data/plan/long-tasks/` 属于运行期产物，不进 git，也不参与注入。
 
 ## 目录结构
 
 ```text
 memory/
-├── _template/          ← 记忆文件骨架（21 个）
+├── _template/          ← 记忆文件骨架
 ├── self/               ← AI 工作台
 │   ├── 必读.md          ← L0 热快照（投影层）
 │   ├── persona-lite.md  ← 人格投影（身份 + 价值校准）
@@ -67,14 +70,8 @@ memory/
 │   ├── state.md        ← 当前状态快照
 │   ├── 规律.md          ← 当前成立的规律
 │   ├── 规律-摘要.md     ← 规律机载摘要
-│   ├── events/         ← 单次事件记录
 │   └── semantic/       ← L2 主题档案（people/、事项/、属性四文件）
 ├── topics/             ← 话题卡与索引
-├── fact/               ← 事实检索（总目录 + 按月）
-├── claims/             ← 断言侧车（只读校验，不注入）
-│   ├── README.md
-│   ├── claims.jsonl    ← 追加式断言行，初始为空
-│   └── projection-policy.json
 ├── anchors/            ← 锚点侧车目录（运行时生成，不注入）
 │   └── .gitkeep
 └── archive/            ← 旧体系归档（几乎不读）
@@ -86,7 +83,8 @@ memory/
 - `analysis/memory_retrieve.py`：只读词法检索，返回带行号片段与 UTF-8 字节预算。
 - `analysis/memory_audit.py`：只读体检，核对注入清单、预算与禁注入项。
 - `analysis/memory_consolidate.py`：离线巩固，默认 dry-run；daily 清理已收割草稿，weekly 只做体检。
-- `analysis/memory_claims.py`：可选断言校验脚本，按实例决定是否配置；校验口径见 `claims/README.md`。
+- `analysis/query_catalog.py`：只读事件检索，按概念/日期/槽位/关系/金额查 blocks 与 cards。
+- `analysis/validate_catalog.py`：只读校验事件索引的结构、来源哈希与回指。
 
 > 未替换 `{date}` 占位符时，`memory_audit.py check` 会报 `projection.missing_updated`，属预期；替换并刷新投影后应为 0 errors。`daily.no_dates` 在还没有数据目录时也是预期 warning。
 
@@ -102,20 +100,20 @@ memory/
 ## 首次初始化（新用户）
 
 1. **清空示例**：带 `{}` 的文件是示例，按需重命名或复制。
-2. **替换占位符**：把 `{主智能体名称}`、`{用户称呼}`、`{项目名称}`、`{AI目录}`、`{人物}`、`{事项}`、`{领域}`、`{事件}`、`{date}`、`{月}`、`{年}` 换成本项目实际值。
+2. **替换占位符**：把 `{主智能体名称}`、`{用户称呼}`、`{项目名称}`、`{AI目录}`、`{人物}`、`{事项}`、`{领域}`、`{date}`、`{月}`、`{年}` 换成本项目实际值。
 3. **建立画像**：把用户背景写入 `profile/core.md` 与 `profile/state.md`。
-4. **建立档案**：稳定事实写入 `profile/semantic/`，单次事件写入 `profile/events/`。
-5. **建立索引**：在 `fact/总目录.md` 与 `fact/{月}.md` 建立检索条目。
+4. **建立档案**：稳定事实写入 `profile/semantic/`。
+5. **建立事件索引**：用 `analysis/build_blocks.py` 切块，用 `analysis/card_admin.py` 建卡并挂概念/关系。
 6. **建立红线与身份**：纠正写入 `self/纠错.md`，认可写入 `self/价值校准.md`，承诺写入 `self/关系.md`，署名与语气写入 `self/身份.md`。
 7. **刷新投影**：由复盘生成 `self/persona-lite.md`、`profile/core-lite.md`、`profile/规律-摘要.md`。
-8. **侧车按需启用**：`claims/claims.jsonl` 保持空文件起步；确需可选 `chat-mode` 时，从 `_template/self-chat-mode.md` 复制出 `self/chat-mode.md` 并显式加入注入清单。
+8. **按需启用可选骨架**：确需 `chat-mode` 时，从 `_template/self-chat-mode.md` 复制出 `self/chat-mode.md` 并显式加入注入清单。
 
 ## 管理原则
 
 - **只写本地文件**，不写入编辑器的 Auto Memory。
 - **每条记录标注时间与来源**：`[{date} 来源]`，来源可以是理解文件、会话、复盘。
 - **条目 = 浓缩事实 + 日期 + 指针**，不复制正文，细节留在当日复盘。
-- **一事一议**：人物、事项各建独立档案，新增档案后同步 `profile/core.md` 与 `fact/`。
+- **一事一议**：人物、事项各建独立档案，新增档案后同步 `profile/core.md`。
 - **按需增删，无增量零写入**：不值得记的不写。
 - **归档而非删除**：旧内容移入 `archive/`，保留历史可追溯。
 - **防膨胀**：新收集类文件先定分片键、单文件上限、索引位置。

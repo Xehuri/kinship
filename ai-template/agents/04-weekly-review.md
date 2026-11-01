@@ -271,7 +271,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ### 步骤 3b：自主探索与学习
 
-见 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」，按其执行（探索所得只写 `{AI目录}/memory/self/认知.md` 草稿，不直接改 profile/fact）。
+见 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」，按其执行（探索所得只写 `{AI目录}/memory/self/认知.md` 草稿，不直接改 profile/）。
 
 ---
 

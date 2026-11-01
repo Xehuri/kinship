@@ -196,7 +196,7 @@ python {AI目录}/analysis/fact_extractor.py {date} --hours {start}~{end}
 - 用户新提到的**软件/硬件/术语/项目名**
 - ASR 里的**地名/机构/事件**，缺背景就判断不了行为含义
 - **与历史数据矛盾**、需外部知识才能解释的点
-动作：优先翻历史（`read`/`grep -rn` 查 `{AI目录}/memory/fact/`、`{AI目录}/memory/profile/semantic/`、过往复盘/批次文件）；联网查证（**仅当本会话确有 `websearch`/`webfetch` 工具时**，外部信息**必标来源 URL**）；查不到标 `未查证`，**不编造**。
+动作：优先翻历史（`query_catalog.py` 查事件、`{AI目录}/memory/profile/semantic/`、过往复盘/批次文件）；联网查证（**仅当本会话确有 `websearch`/`webfetch` 工具时**，外部信息**必标来源 URL**）；查不到标 `未查证`，**不编造**。
 
 **3. 产出：就地落笔，不另起产物**
 - 校验结论与查证结果**直接写回本批次文件**对应时段（标注 `[校验修正: <依据>]` / `[查证: <来源>]`）
@@ -474,7 +474,7 @@ git 提交完成后，从本轮写入的理解内容中提取反馈聚焦点。*
 
 #### 中心层（memory，本批涉及的记忆）
 - 相关记忆: 如本批涉及用户画像/经验/事项，引用 [[memory/profile/semantic/xxx]] 或 [[memory/self/xxx]]，无则省略本小节
-- 事实检索: [[memory/fact/{当月}|{当月} 月事实]]（仅跨日事件需回溯时）
+- 事件检索: `query_catalog.py`（跨日事件需回溯时）
 
 #### 基础信息层（daily）
 - 当日摘要: [[当日摘要-{date}.md|当日进度摘要]]（程序维护）

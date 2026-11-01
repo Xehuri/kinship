@@ -33,7 +33,7 @@
 
 ### 记忆与服务边界
 
-- 记忆按读取频率分层：`AGENTS.md` → `memory/self/` → `profile/` → `fact/` 与 `daily/`；详情只存一处，覆盖更新，用前先验。
+- 记忆按读取频率分层：`AGENTS.md` → `memory/self/` → `profile/` → `daily/`；事件检索走 `{AI目录}/analysis/query_catalog.py`；详情只存一处，覆盖更新，用前先验。
 - 后端只做接收 / 存储 / 调度，不做 AI 分析；AI 不自建服务、不读项目代码。调度靠 `{AI目录}/data/tasks/*.yaml|py` 文件声明，改任务＝改文件。
 
 ---

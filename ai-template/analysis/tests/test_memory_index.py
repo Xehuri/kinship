@@ -33,8 +33,8 @@ def _fixture(tmp_path: Path) -> Path:
     repo = tmp_path / 'repo'
     _write(repo, 'ai/memory/README.md', '# 记忆系统\n\n根索引。\n')
     _write(repo, 'ai/memory/self/README.md', '# self 索引\n')
-    _write(repo, 'ai/memory/fact/2026-09.md',
-           '---\ntags: [记忆, fact索引]\ndate: 2026-09-01\n---\n# 2026-09 索引\n')
+    _write(repo, 'ai/memory/self/2026-09.md',
+           '---\ntags: [记忆, 索引]\ndate: 2026-09-01\n---\n# 2026-09 索引\n')
     _write(repo, 'ai/memory/self/执行日志/2026-09.md', '# 执行日志 2026-09\n')
     _write(repo, 'ai/memory/profile/core.md', '# 用户画像\n')
     _write(repo, 'ai/memory/profile/core-lite.md',

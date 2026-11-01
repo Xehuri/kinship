@@ -1,6 +1,6 @@
 # 分析脚本目录
 
-> 位置：`{AI目录}/analysis/`。Markdown 与 JSONL 是唯一数据接口，脚本只读源数据、把产物写回 `{AI目录}/data/`。除 `health_source.py`、`memory_claims_lib.py`、`memory_index_lib.py` 等库模块外，其余脚本都带 CLI；带日期的脚本统一用 `YYYY-MM-DD`。
+> 位置：`{AI目录}/analysis/`。Markdown 与 JSONL 是唯一数据接口，脚本只读源数据、把产物写回 `{AI目录}/data/`。除 `health_source.py`、`memory_index_lib.py` 等库模块外，其余脚本都带 CLI；带日期的脚本统一用 `YYYY-MM-DD`。
 
 ## 数据管道
 
@@ -43,7 +43,7 @@
 
 ## 记忆工具
 
-> 核心流水线只依赖 `memory_write` / `memory_retrieve` / `memory_audit` / `memory_consolidate` / `memory_finalize`；`memory_claims*` / `memory_index*` / `memory_project` / `memory_projection_switch` 是可选实验侧车，默认不参与注入，不应视为当前生产主链。
+> 核心流水线只依赖 `memory_write` / `memory_retrieve` / `memory_audit` / `memory_consolidate` / `memory_finalize`；`memory_index*` 是可选实验侧车，默认不参与注入，不应视为当前生产主链。
 
 | 脚本 | 功能 |
 |------|------|
@@ -51,15 +51,11 @@
 | `memory_retrieve.py --query <词> [--budget 6000]` | 只读词法检索，返回带行号片段；辅助定位，命中后必须回读验证 |
 | `memory_audit.py <scan\|report\|check>` | 只读体检：注入清单、预算、禁注入项、投影新鲜度与标签 |
 | `memory_consolidate.py [--apply]` | 离线巩固，默认 dry-run；daily 清理已收割草稿，weekly 只做体检 |
-| `memory_claims.py check --root . [--claims 路径]` 或 `list [--json]` | 校验并列出追加式断言侧车；只读，不参与注入 |
-| `memory_claims_lib.py` | 断言侧车校验库，无 CLI |
 | `memory_index.py [--dry-run] [--out 目录] [--dates 日期1,日期2]` | 构建只读记忆索引，产物为 `entities.jsonl` / `links.jsonl` / `manifest.json` / `status.json` |
 | `memory_index_lib.py` | 记忆索引构建库，无 CLI |
 | `memory_index_query.py --index 目录 [--queries YAML] [--out 目录] [--top-k N]` | 在冻结查询集上评估索引排序，输出 `query-report.json` 与 `query-report.md` |
 | `memory_index_queries.yaml` | 冻结查询样例；模板只带通用示例查询，`expected_paths` 需按实例改写 |
-| `memory_project.py --out 目录 [--claims 路径]` | 从 claims 生成投影候选，只写 `--out` 目录，无 `--apply`，不直接改记忆 |
 | `memory_finalize.py [files...] [--root .] [--changed-from git] [--projection-status 路径] [--json]` | 记忆收尾门：断链、日期、PII、投影新鲜度等硬检查加软警告，只写 `memory/MEMORY-STATUS.json` |
-| `memory_projection_switch.py status` 或 `set --mode claims\|legacy` 或 `rollback` | 注入投影切换开关；切到 claims 前校验投影状态与哈希，切前自动快照，可回滚 |
 
 > `memory_index_queries.yaml` 随模板提供的只是通用样例查询；正式评估前把 `expected_paths` 换成实例内真实存在的文件。
 

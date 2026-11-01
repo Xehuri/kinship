@@ -23,10 +23,9 @@ date: {date}
 | 执行型待办与排班 | `self/任务.md` | 完成即销 |
 | 承诺、里程碑、态度变化 | `self/关系.md` | 关系对话前读 |
 | 领域职责与触发条件 | `self/tasks/{领域}.md` | 数据检查按条件挂载 |
-| 某日或某月发生了什么 | `fact/{月}.md` + `fact/总目录.md` | 复盘每日更新一行 |
+| 某日或某月发生了什么 | `analysis/query_catalog.py` + `data/daily/` | 事件检索走索引层；旧日期回 daily/复盘 |
 | 人物档案 | `profile/semantic/people/{人物}.md` | 歧义归属先登记 |
 | 事项编年史 | `profile/semantic/事项/{事项}.md` | 完结不删 |
-| 单次事件 | `profile/events/{事件}-{date}.md` | 不承载长期结论 |
 | 画像全景与当前状态 | `profile/core.md` + `profile/state.md` | 复盘收割更新 |
 | 当前成立的规律 | `profile/规律.md` + `profile/规律-摘要.md` | 摘要机载，ttl 72h |
 | 已归档旧账 | `archive/` | 几乎不读 |
@@ -43,7 +42,6 @@ date: {date}
 | `memory/profile/规律.md` | 批次与复盘开工 | 复盘每日核对 |
 | `memory/profile/规律-摘要.md` | 批次角色常驻 | 复盘生成，超过 ttl 重生成 |
 | `memory/profile/semantic/` | 分析遇具体人物、事项、偏好、健康存疑时 | 复盘收割 ADD/UPDATE |
-| `memory/profile/events/` | 需要单次事件细节时 | 复盘新建 |
 | `memory/self/任务.md` | 会话开始与执行前 | 主会话即时写，复盘补漏 |
 | `memory/self/纠错.md` + `价值校准.md` | 分析前扫红线 | 用户纠正或认可时写 |
 | `memory/self/认知.md` | 执行相关任务时 | 复盘收割，验证后升入 profile |
@@ -53,7 +51,6 @@ date: {date}
 | `memory/topics/` | 需要讨论脉络时 | 复盘每天 1 到 2 张卡 |
 | `memory/self/tasks/{领域}.md` | 数据检查挂载时 | 新增或修改领域职责时写 |
 | `memory/self/执行日志/{月}.md` | 追溯子智能体操作 | 每个子智能体收尾追加一行 |
-| `memory/fact/*.md` | 检索某日或某月 | 复盘每日更新一行 |
 | `memory/archive/` | 几乎不读 | 不写，或经用户指示 |
 
 > 记忆哲学：主会话是传感器与直接写入方；子智能体是执行轨迹记录者；复盘是每日收割器；周报与双周是清理者。一切按需，无增量零写入。值得记的信息，是会在凌晨压缩中消失且消失有害的信息。

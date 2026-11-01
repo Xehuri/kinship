@@ -79,7 +79,6 @@ def _make_tree(tmp_path: Path) -> Path:
     _write(memory / 'profile' / '规律-摘要.md', '# 规律摘要\n')
     _write(memory / 'topics' / 'INDEX.md', '# 话题索引\n')
     _write(memory / 'archive' / 'README.md', '# archive\n')
-    _write(memory / 'profile' / 'events' / 'README.md', '# events\n')
 
     daily = ai / 'data' / 'daily' / DATE
     _write(daily / f'当日摘要-{DATE}.md', '<!-- summary-v2 -->\n# 摘要\n- 一条\n')
