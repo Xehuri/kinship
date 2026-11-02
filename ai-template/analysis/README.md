@@ -67,7 +67,7 @@
 
 ### JSON 请求模式（AI 首选）
 
-AI 传一个 JSON 对象；请求成功或发生已处理的请求/参数/数据层错误时，stdout 是单个严格 JSON 文档（UTF-8；拒绝 NaN/Infinity、非 UTF-8、超深嵌套），不需要拼参数或解析表格：
+AI 传一个 JSON 对象，stdout 始终是单个 JSON 文档，不需要拼参数或解析表格：
 
 ```bash
 python3 {AI目录}/analysis/query.py --request '{"scope":["event","observation"],"from":"2026-10-01","to":"2026-10-31","grep":"修电脑"}'
@@ -77,10 +77,8 @@ python3 {AI目录}/analysis/query.py --request @request.json
 
 请求键：`scope`/`scopes`、`from`/`to`、`grep`、`concept`、`kind`、`slot`/`slots`、`report_type`、`report_layer`、`order`、`asc`/`desc`、`group_by`、`limit`、`limit_per_scope`、`budget`、`resolve`、`follow`、`include_linked_evidence`、`include_undated_memory`、`block_source`、`include_children`、`backend_port`、`as_of`、`allow_full_scan`、`root`、`index_dir`。
 
-类型约定：`scope`/`scopes`、`block_source` 支持字符串或数组；`slot`/`slots` 必须是对象；布尔和整数键使用 JSON 原生类型，不接受字符串化数字。
-
 - 成功：`{"ok": true, ...现有 schema...}`。
-- 错误：`{"schema_version": 1, "ok": false, "error": {"type": "InvalidRequest|UsageError|DataUnavailable", "message": "...", "exit_code": 2|1, "details": {...}}}`；stderr 不写文本。
+- 错误：`{"ok": false, "error": {"type": "InvalidRequest|UsageError|DataUnavailable", ...}}`，exit 2 或 1；stderr 不写文本。
 - 请求模式不能混用其他查询参数（`--format json` 可留）；`root`/`index_dir` 写在 JSON 里。
 - 普通 CLI 默认仍是 table；人类显式 `--format table`，老脚本 `--format json` 的 schema 不变。
 
