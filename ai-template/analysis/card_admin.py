@@ -324,6 +324,138 @@ def load_payload(path: str) -> list[dict]:
     raise SystemExit("error: input must be one card object or an array of cards")
 
 
+TEXT_ALIASES = {
+    "concept": "concept_id",
+    "concept_id": "concept_id",
+    "block": "block_ids",
+    "blocks": "block_ids",
+    "block_ids": "block_ids",
+    "slot": "slots",
+    "slots": "slots",
+    "relation": "relations",
+    "relations": "relations",
+}
+TEXT_SCALARS = {
+    "card_id", "kind", "title", "statement", "concept_id", "date", "time",
+    "end_time", "period_start", "period_end", "confidence", "status", "version",
+}
+
+
+def _text_error(section: int, lineno: int, message: str) -> SystemExit:
+    return SystemExit(f"error: text card {section} line {lineno}: {message}")
+
+
+def _text_value(value: str, section: int, lineno: int) -> str:
+    value = value.strip()
+    if not value:
+        raise _text_error(section, lineno, "empty value")
+    return value
+
+
+def _parse_text_section(lines: list[tuple[int, str]], section: int) -> dict:
+    card: dict = {}
+    slots: dict = {}
+    relations: list[dict] = []
+    current: str | None = None
+    for lineno, raw in lines:
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if line.lstrip().startswith("#"):
+            continue
+        if line[0] in " \t" and current is not None:
+            if current in TEXT_SCALARS:
+                card[current] = f"{card[current]} {line.strip()}".strip()
+                continue
+            raise _text_error(section, lineno, "indented value is only allowed for scalar fields")
+        if ":" not in line:
+            raise _text_error(section, lineno, "expected 'field: value'")
+        key, value = line.split(":", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        canonical = TEXT_ALIASES.get(key, key)
+        if canonical not in TEXT_SCALARS and canonical not in ("slots", "block_ids", "relations"):
+            raise _text_error(section, lineno, f"unknown field {key!r}")
+        current = canonical
+        if canonical == "block_ids":
+            if not value:
+                raise _text_error(section, lineno, "block list must not be empty")
+            parts = [part for part in re.split(r"[,\s]+", value) if part]
+            card.setdefault("block_ids", []).extend(parts)
+        elif canonical == "slots":
+            if "=" not in value:
+                raise _text_error(section, lineno, "slot must be key=value")
+            slot_key, slot_value = value.split("=", 1)
+            slot_key = slot_key.strip()
+            slot_value = slot_value.strip()
+            if not slot_key or not slot_value:
+                raise _text_error(section, lineno, "slot must be key=value")
+            if slot_key == "derived_from":
+                slots[slot_key] = [part for part in re.split(r"[,\s]+", slot_value) if part]
+            else:
+                slots[slot_key] = slot_value
+        elif canonical == "relations":
+            relation: dict = {}
+            for part in value.split(","):
+                if "=" not in part:
+                    raise _text_error(section, lineno, "relation must be key=value pairs")
+                relation_key, relation_value = part.split("=", 1)
+                relation[relation_key.strip()] = relation_value.strip()
+            relations.append(relation)
+        elif canonical == "version":
+            try:
+                card[canonical] = int(value)
+            except ValueError as exc:
+                raise _text_error(section, lineno, "version must be an integer") from exc
+        else:
+            card[canonical] = _text_value(value, section, lineno)
+    if slots:
+        card["slots"] = slots
+    if relations:
+        card["relations"] = relations
+    if not card.get("card_id"):
+        raise _text_error(section, 1, "card_id is required")
+    return card
+
+
+def parse_text_cards(text: str) -> list[dict]:
+    text = text.lstrip("\ufeff")
+    sections: list[list[tuple[int, str]]] = []
+    current: list[tuple[int, str]] = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if line.strip() == "---":
+            if any(raw.strip() for _, raw in current):
+                sections.append(current)
+            current = []
+            continue
+        current.append((lineno, line))
+    if any(raw.strip() for _, raw in current):
+        sections.append(current)
+    if not sections:
+        raise SystemExit("error: text input contains no cards")
+    cards: list[dict] = []
+    for index, lines in enumerate(sections, 1):
+        cards.append(_parse_text_section(lines, index))
+    return cards
+
+
+def load_text_payload(spec: str) -> list[dict]:
+    if spec == "-":
+        text = sys.stdin.read()
+    elif spec.startswith("@"):
+        try:
+            text = Path(spec[1:]).read_text(encoding="utf-8")
+        except OSError as exc:
+            raise SystemExit(f"error: cannot read text input: {exc}") from exc
+    else:
+        path = Path(spec)
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+        else:
+            text = spec
+    return parse_text_cards(text)
+
+
 def resolve_index(args: argparse.Namespace) -> Path:
     root = Path(args.root).resolve()
     return Path(args.index_dir).resolve() if args.index_dir else root / "data" / "index"
@@ -370,17 +502,9 @@ def add_cards(index_dir: Path, payload: list[dict], dry_run: bool) -> int:
         return 1
 
     if dry_run:
-        print(
-            json.dumps(
-                {
-                    "dry_run": True,
-                    "validated": len(normalized),
-                    "card_ids": [card["card_id"] for card in normalized],
-                    "wrote": 0,
-                },
-                ensure_ascii=False,
-            )
-        )
+        print(f"dry-run: validated {len(normalized)} card(s); wrote 0")
+        for card in normalized:
+            print(f"- {card['card_id']}")
         return 0
 
     cards = dedupe(cards_rows + normalized, ("card_id",))
@@ -423,18 +547,10 @@ def add_cards(index_dir: Path, payload: list[dict], dry_run: bool) -> int:
     atomic_write_jsonl(index_dir / TABLE_CARD_CONCEPTS, concepts_out)
     atomic_write_jsonl(index_dir / TABLE_CARD_BLOCKS, blocks_out)
     atomic_write_jsonl(index_dir / TABLE_CARD_RELATIONS, relations_out)
-    print(
-        json.dumps(
-            {
-                "dry_run": False,
-                "validated": len(normalized),
-                "card_ids": [card["card_id"] for card in normalized],
-                "wrote": len(normalized),
-                "tables": [TABLE_CARDS, TABLE_CARD_CONCEPTS, TABLE_CARD_BLOCKS, TABLE_CARD_RELATIONS],
-            },
-            ensure_ascii=False,
-        )
-    )
+    print(f"wrote {len(normalized)} card(s)")
+    for card in normalized:
+        print(f"- {card['card_id']}")
+    print("tables: cards, card_concepts, card_blocks, card_relations")
     return 0
 
 
@@ -461,7 +577,7 @@ def add_relation(index_dir: Path, from_card: str, to_card: str, relation: str, n
             print(f"error: {message}", file=sys.stderr)
         return 1
     if dry_run:
-        print(json.dumps({"dry_run": True, "relation": key, "wrote": 0}, ensure_ascii=False))
+        print(f"dry-run: {from_card} --{relation}--> {to_card}; wrote 0")
         return 0
     relation_rows.append({"from_card": from_card, "to_card": to_card, "relation": relation, "note": note})
     relation_rows = dedupe(relation_rows, ("from_card", "to_card", "relation"))
@@ -473,7 +589,7 @@ def add_relation(index_dir: Path, from_card: str, to_card: str, relation: str, n
         )
     )
     atomic_write_jsonl(index_dir / TABLE_CARD_RELATIONS, relation_rows)
-    print(json.dumps({"dry_run": False, "relation": key, "wrote": 1}, ensure_ascii=False))
+    print(f"wrote relation: {from_card} --{relation}--> {to_card}")
     return 0
 
 
@@ -488,22 +604,12 @@ def deprecate_card(index_dir: Path, card_id: str, status: str, dry_run: bool) ->
         return 1
     changed = target.get("status") != status
     if dry_run:
-        print(
-            json.dumps(
-                {"dry_run": True, "card_id": card_id, "status": status, "changed": changed, "wrote": 0},
-                ensure_ascii=False,
-            )
-        )
+        print(f"dry-run: {card_id} -> {status}; changed={str(changed).lower()}; wrote 0")
         return 0
     target["status"] = status
     cards_rows.sort(key=lambda row: str(row.get("card_id") or ""))
     atomic_write_jsonl(index_dir / TABLE_CARDS, cards_rows)
-    print(
-        json.dumps(
-            {"dry_run": False, "card_id": card_id, "status": status, "changed": changed, "wrote": 1},
-            ensure_ascii=False,
-        )
-    )
+    print(f"wrote: {card_id} -> {status}; changed={str(changed).lower()}")
     return 0
 
 
@@ -518,10 +624,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Administer index-layer cards.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    add = subparsers.add_parser("add-card", help="validate and append one card or an array")
+    add = subparsers.add_parser("add-card", help="validate and append text cards")
     add.add_argument("--root", default=str(Path(__file__).resolve().parents[1]))
     add.add_argument("--index-dir", default=None)
-    add.add_argument("--json", dest="json_path", required=True, help="JSON file, or - for stdin")
+    source = add.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--text", dest="text_spec",
+        help="text cards: inline, file, @file, or - for stdin (preferred)",
+    )
+    source.add_argument("--json", dest="json_path", help="legacy JSON file, or - for stdin")
     add.add_argument("--dry-run", action="store_true")
 
     relation = subparsers.add_parser("add-relation", help="append one card relation")
@@ -544,7 +655,11 @@ def main(argv: list[str] | None = None) -> int:
     index_dir = resolve_index(args)
 
     if args.command == "add-card":
-        payload = load_payload(args.json_path)
+        payload = (
+            load_text_payload(args.text_spec)
+            if args.text_spec is not None
+            else load_payload(args.json_path)
+        )
         return run_locked(index_dir, args.dry_run, lambda: add_cards(index_dir, payload, args.dry_run))
     if args.command == "add-relation":
         return run_locked(
