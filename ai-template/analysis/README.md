@@ -50,7 +50,7 @@
 | `build_report_relations.py` | 生成报告→卡片、周报→日报、双周→周报、全程→报告的 `report_relations.jsonl` |
 | `build_relations.py` | 生成同日事件顺序、观察/发现回指事件卡的 `card_relations.jsonl` |
 | `card_admin.py {add-card|add-relation|deprecate-card}` | 写入卡片与卡片关系 |
-| `query.py [--scope ...] [--from/--to] [--grep ...]` | 规范化多角度检索入口：event/observation/report/evidence/memory/chat/all 单层或复合查询，自动分组、排序、去重；证据层默认随卡片折叠，`--include-linked-evidence` 才展开。`query_catalog.py` / `query_reports.py` 保留为专用回退 |
+| `query.py [--request JSON\|@file\|-] [--scope ...] [--from/--to] [--grep ...]` | 规范化多角度检索入口：event/observation/report/evidence/memory/chat/all 单层或复合查询，自动分组、排序、去重；AI 优先 `--request` JSON 进/JSON 出；证据层默认随卡片折叠，`--include-linked-evidence` 才展开。`query_catalog.py` / `query_reports.py` 保留为专用回退 |
 | `query_catalog.py` | 按概念/日期/时段/文本/金额查询卡片，可回指块 |
 | `query_reports.py [--type ...] [--layer ...] [--follow]` | 查询报告索引与报告关系 |
 | `validate_catalog.py` | 校验八张表、源文件、哈希、报告层和关系引用 |
@@ -64,6 +64,23 @@
 - 去重：卡片按 card_id，报告按 report_id，块按 block_id 与 file:line:sha，记忆按 path:line:sha，对话按 session:message；跨层文本哈希重复保留高层并记 related_ids。
 - 限制：先 `--limit-per-scope`，再按层轮转取 `--limit`，最后按 `--budget` 字节截断；JSON 返回 groups/items/counts，table 按组打印。
 - `--scope all` 默认不返回 evidence；证据被卡片引用时折叠，`--include-linked-evidence` 才展开。
+
+### JSON 请求模式（AI 首选）
+
+AI 传一个 JSON 对象，stdout 始终是单个 JSON 文档，不需要拼参数或解析表格：
+
+```bash
+python3 {AI目录}/analysis/query.py --request '{"scope":["event","observation"],"from":"2026-10-01","to":"2026-10-31","grep":"修电脑"}'
+printf '%s' '{"scope":"event","allow_full_scan":true}' | python3 {AI目录}/analysis/query.py --request -
+python3 {AI目录}/analysis/query.py --request @request.json
+```
+
+请求键：`scope`/`scopes`、`from`/`to`、`grep`、`concept`、`kind`、`slot`/`slots`、`report_type`、`report_layer`、`order`、`asc`/`desc`、`group_by`、`limit`、`limit_per_scope`、`budget`、`resolve`、`follow`、`include_linked_evidence`、`include_undated_memory`、`block_source`、`include_children`、`backend_port`、`as_of`、`allow_full_scan`、`root`、`index_dir`。
+
+- 成功：`{"ok": true, ...现有 schema...}`。
+- 错误：`{"ok": false, "error": {"type": "InvalidRequest|UsageError|DataUnavailable", ...}}`，exit 2 或 1；stderr 不写文本。
+- 请求模式不能混用其他查询参数（`--format json` 可留）；`root`/`index_dir` 写在 JSON 里。
+- 普通 CLI 默认仍是 table；人类显式 `--format table`，老脚本 `--format json` 的 schema 不变。
 
 ## 记忆工具
 
