@@ -10,19 +10,24 @@ import {
   LOOM_PLUGIN_API_VERSION,
   definePlugin,
   type LoomFeaturePlugin,
+  type LoomPluginManifest,
 } from "@axeuh/loom-plugin-sdk";
 
+/** todo 的 Manifest 真源：静态元数据插件与 P1 工具工厂共用同一份。 */
+export const TODO_MANIFEST: LoomPluginManifest = {
+  id: "todo",
+  name: "Todo",
+  version: "0.0.0",
+  apiVersion: LOOM_PLUGIN_API_VERSION,
+  permissions: ["tools:register", "storage:own", "config:own"],
+  source: "builtin",
+  trust: "builtin",
+  critical: true,
+};
+
+/** P0 元数据面（空 setup）：boot 中会被 createTodoPlugin 工厂替换。 */
 const todoPlugin = definePlugin({
-  manifest: {
-    id: "todo",
-    name: "Todo",
-    version: "0.0.0",
-    apiVersion: LOOM_PLUGIN_API_VERSION,
-    permissions: ["tools:register", "storage:own", "config:own"],
-    source: "builtin",
-    trust: "builtin",
-    critical: true,
-  },
+  manifest: TODO_MANIFEST,
   setup: () => ({}),
 });
 

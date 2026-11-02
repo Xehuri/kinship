@@ -62,6 +62,7 @@ import { InboxJournalStore } from "../inbox/journal-store.js";
 import { createInboxPolicyEngine, registerInboxRoutes } from "../inbox/routes.js";
 import { createInboxTools } from "../inbox/tools.js";
 import { registerOpsRoutes } from "../ops-api/index.js";
+import { createTodoPlugin } from "../features/todo/plugin.js";
 import { BUILTIN_PLUGINS } from "../plugin-host/builtins.js";
 import { PluginHost, toPluginStatusReport } from "../plugin-host/index.js";
 import {
@@ -227,8 +228,8 @@ export interface LoomApp {
   /** L6 flow 真源（flow.enabled=false 时 undefined：零 store、零 flow 面）。 */
   readonly flowStore: JsonFlowStore | undefined;
   /**
-   * Feature Plugin P0 Host（五个 builtin 元数据已登记并 start）。
-   * P0 只承载状态与生命周期，不接管 feature 构造；`contributions()` 恒为空。
+   * Feature Plugin Host（五个 builtin 已登记并 start）。
+   * P1 起 todo 贡献 todowrite；其余四项仍只承载状态与生命周期（P0 元数据面）。
    */
   readonly pluginHost: PluginHost;
   /** 停机扩展点：外部持有资源关停（当前 = MCP 子进程收尸；boot 停机序列消费，幂等）。 */
@@ -293,18 +294,6 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   // 块整体上移：tool 装配（childSessionStore 注入）先于引擎/registry 需要 store 句柄。
   const layout = new StateLayout({ root: options.stateRoot });
   layout.ensureDirs();
-  // Feature Plugin P0：Host 只登记/启动 builtin 元数据，五个 feature 的构造仍在下方
-  // 原路径（P1 才迁移）；start() 抛错 = critical builtin 失败，boot 随之失败。
-  const pluginHost = new PluginHost({
-    dataRoot: join(options.stateRoot, "plugins"),
-    config: options.config.plugins ?? {},
-    log: (level, msg, fields) => log(level, msg, fields ?? {}),
-  });
-  for (const plugin of BUILTIN_PLUGINS) {
-    const enabled = options.config.plugins?.[plugin.manifest.id]?.enabled ?? true;
-    pluginHost.register(plugin, { enabled });
-  }
-  await pluginHost.start();
   // L6 flow 真源：段在场且 enabled=true 才构造（关机 = 零扫描零文件，旧行为逐字节）；
   // 构造即水合 stateRoot/session/{sid}/flow 下的主体文件，坏文件装配期响亮抛。
   const flowEnabled = options.config.flow?.enabled === true;
@@ -382,6 +371,22 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   const onTodoUpdated: TodoUpdatedSink = (sessionID, todos) => {
     registry.hubOf(sessionID)?.publish("todo.updated", sessionID, { todos });
   };
+
+  // Feature Plugin P1：todo 的 setup 需要上面的 sink 闭包，故 Host 构造移到这里；
+  // 其余四个 feature 仍是 P0 元数据面（构造在下方原路径）。start() 抛错 = critical 失败。
+  const pluginHost = new PluginHost({
+    dataRoot: join(options.stateRoot, "plugins"),
+    config: options.config.plugins ?? {},
+    log: (level, msg, fields) => log(level, msg, fields ?? {}),
+  });
+  const plugins = BUILTIN_PLUGINS.map((plugin) =>
+    plugin.manifest.id === "todo" ? createTodoPlugin({ onUpdated: onTodoUpdated }) : plugin,
+  );
+  for (const plugin of plugins) {
+    const enabled = options.config.plugins?.[plugin.manifest.id]?.enabled ?? true;
+    pluginHost.register(plugin, { enabled });
+  }
+  await pluginHost.start();
 
   // trace 观测面收尾（T21 生产调用方）：run 开跑/催办/盖棺三类行 + 死信分片落盘。
   // W9 切片 2 上移（决策）：SpawnKernel 先于 toolWiring 构造（task 门面装配期要挂在飞册
@@ -775,8 +780,6 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     // W11a3：task_fetch 取件面（读侧速行版）——与 childSessionStore 同一实例，写读成对；
     // 主/副/子会话共用同一只读取件口（trace.wrapAll 自动包痕，见 tool-wiring.ts）。
     taskFetchStore: loomSessionsStore,
-    // W11b：todowrite 计划面（整表替换 + todo.updated 事件，见 todo-tool.ts 文件头决策）。
-    onTodoUpdated,
     // pty 退出通知：双惰性箭头指 registry.deliverWake（registry 构造在下方；
     // 绑定前 no-op 安全）。durable 队列路径：空闲 → 立即起轮；忙 → 当前轮收尾后起新轮。
     onPtyExit: (ownerSessionId, line) => ptyNotifySink.deliver?.(ownerSessionId, line),
@@ -824,6 +827,8 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       ? {}
       : { subagentMaxTurns: options.config.subagent.maxTurns }),
     extraTools: [
+      // P1：插件工具贡献（当前只有 todo 的 todowrite；其余四项仍是 P0 元数据）。
+      ...pluginHost.contributions().tools,
       compactContextTool,
       ...(skillsWiring === undefined ? [] : [skillsWiring.tool]),
       ...mcpWiring.tools,

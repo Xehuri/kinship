@@ -126,11 +126,16 @@ describe("plugin host boot", () => {
         state: "running",
       });
     }
+    const contributions = booted.app.pluginHost.contributions();
+    expect(contributions.tools.map((tool) => tool.name)).toEqual(["todowrite"]);
+    expect(contributions.hooks).toEqual([]);
+    expect(contributions.routes).toEqual([]);
   }, 40_000);
 
-  it("plugins.todo.enabled=false：todo disabled，其余 running，工具面与缺省 boot 一致", async () => {
+  it("plugins.todo.enabled=false：todo disabled，其余 running，工具面仅少 todowrite", async () => {
     const baseline = await boot(tempWork());
     const baselineNames = baseline.app.tools.map((tool) => tool.name);
+    expect(baselineNames).toContain("todowrite");
     await baseline.close();
 
     const booted = await boot(tempWork(), "plugins:\n  todo:\n    enabled: false");
@@ -144,14 +149,16 @@ describe("plugin host boot", () => {
     for (const plugin of plugins.filter((candidate) => candidate["id"] !== "todo")) {
       expect(plugin).toMatchObject({ enabled: true, state: "running" });
     }
-    expect(booted.app.tools.map((tool) => tool.name)).toEqual(baselineNames);
+    expect(booted.app.tools.map((tool) => tool.name)).toEqual(
+      baselineNames.filter((name) => name !== "todowrite"),
+    );
   }, 60_000);
 
-  it("P0 contributions 为空：工具/Hook/路由均未被 Host 接管", async () => {
+  it("P1 contributions：仅 todo 提供 todowrite 工具，Hook/路由仍为空", async () => {
     const booted = await boot(tempWork());
     expect(booted.app.tools.length).toBeGreaterThan(0);
     const contributions = booted.app.pluginHost.contributions();
-    expect(contributions.tools).toEqual([]);
+    expect(contributions.tools.map((tool) => tool.name)).toEqual(["todowrite"]);
     expect(contributions.hooks).toEqual([]);
     expect(contributions.routes).toEqual([]);
   }, 40_000);

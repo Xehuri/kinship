@@ -60,7 +60,6 @@ import {
 
 import { createServeToolTrace, type ServeToolTrace } from "./tool-trace.js";
 import { createTaskFetchTool } from "./task-fetch.js";
-import { createTodoWriteTool, type TodoUpdatedSink } from "./todo-tool.js";
 import { createPlanTool } from "./plan-tool.js";
 import { createLongTaskTool } from "./long-task-tool.js";
 import { JsonPlanStore } from "../plan/json-plan-store.js";
@@ -137,13 +136,6 @@ export interface ServeToolWiringOptions {
     * 只是旁路多喂一份给事件面。缺省 = 不包（测试/离线旧面逐字节不变）。
     */
   readonly onToolOutput?: ToolOutputSink;
-  /**
-   * W11b todowrite 挂面：boot 注入 todo.updated 上抛缝（双惰性箭头指 registry，
-   * 与 onToolOutput 同构——wiring 早于 registry 构造）。给了才挂面；工具进共用数组
-   * = 主/副/子会话同一份（per-session 存储在 ctx.state，天然隔离；trace.wrapAll
-   * 既有包痕自动覆盖）。缺省 = 不挂（直调测试旧面不变）。
-   */
-  readonly onTodoUpdated?: TodoUpdatedSink;
   /**
    * W9 切片 2：task 横向闸的在飞账池（= SpawnKernel.asFanout() 视图，boot 注入）。
    * 缺省 = 不挂（task-tool 走旧局部计数面，直调测试逐字节不变）；给了 = 主/副/子
@@ -565,11 +557,6 @@ export async function createServeToolWiring(
           }),
         ];
 
-  // W11b：todowrite 计划工具（见 todo-tool.ts）——给了上抛缝才挂面；同一 wrapAll 数组
-  // = 主/副/子会话共用同一份工具实例（存储在各会话自己的 ctx.state，互不串写）。
-  const todoTools: HarnessTool[] =
-    opts.onTodoUpdated === undefined ? [] : [createTodoWriteTool({ onUpdated: opts.onTodoUpdated })];
-
   // W37：task_cancel 中止工具（见 core/subagent/task-cancel.ts）——给了账本适配器才挂面；
   // 进同一 wrapAll 包痕数组 = 主/副/子共用同一取消口（task/task_fetch 同款双门面纪律）。
   const taskCancelTools: HarnessTool[] =
@@ -585,7 +572,7 @@ export async function createServeToolWiring(
           createLongTaskTool({ store: new JsonLongTaskStore({ planRoot: opts.planRoot }) }),
         ];
 
-  const wrapped = trace.wrapAll([...base, taskHandle.tool, ...taskFetchTools, ...taskCancelTools, ...todoTools, ...ptyTools, ...planTools, ...filterExtraTools(base, opts.extraTools ?? [], log)]);
+  const wrapped = trace.wrapAll([...base, taskHandle.tool, ...taskFetchTools, ...taskCancelTools, ...ptyTools, ...planTools, ...filterExtraTools(base, opts.extraTools ?? [], log)]);
   childFace.push(...wrapped);
   const mainOnlyWrapped = trace.wrapAll([...(opts.mainOnlyTools ?? [])]);
 

@@ -28,6 +28,7 @@ import {
 } from "../events/index.js";
 import { registerSessionRoutes, SessionRegistry } from "../session-api/index.js";
 import { createServeToolWiring, type ServeToolWiring } from "./tool-wiring.js";
+import { createTodoWriteTool } from "./todo-tool.js";
 
 const TOKEN = "tok-w11b-todo";
 const READ_BUDGET_MS = 30_000;
@@ -67,9 +68,13 @@ beforeEach(async () => {
     onToolOutput: (site, chunk) => {
       stream.onOutput(site, chunk);
     },
-    onTodoUpdated: (sessionID, todos) => {
-      registry.hubOf(sessionID)?.publish("todo.updated", sessionID, { todos });
-    },
+    extraTools: [
+      createTodoWriteTool({
+        onUpdated: (sessionID, todos) => {
+          registry.hubOf(sessionID)?.publish("todo.updated", sessionID, { todos });
+        },
+      }),
+    ],
   });
   stream = createToolOutputStream({
     resolveHub: (sessionId) => registry.hubOf(sessionId),
