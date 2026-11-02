@@ -78,7 +78,7 @@
 | 业务（memory 内，区别于 data/tasks 定时任务） | `{AI目录}/memory/self/tasks/{领域}.md` |
 | 用户画像热投影 / 当前状态 | `{AI目录}/memory/profile/core-lite.md`、`{AI目录}/memory/profile/state.md`；细节查 `{AI目录}/memory/profile/core.md` + `{AI目录}/memory/profile/semantic/` |
 | 主会话人格投影 | `{AI目录}/memory/self/persona-lite.md`；真源 `{AI目录}/memory/self/身份.md` + `{AI目录}/memory/self/价值校准.md` |
-| 多角度检索：事件/观察/报告/证据/记忆/对话 | `{AI目录}/analysis/query.py`（统一入口；AI 优先 `--request '<json>'|@file|-`，JSON 进 JSON 出；`--scope event/observation/report/evidence/memory/chat/all`，`--group-by` 分层/按日、`--order relevance` 按相关度，自动分组排序去重；证据层默认随卡片折叠，`--include-linked-evidence` 才展开；旧查询工具保留为专用回退） |
+| 多角度检索：事件/观察/报告/证据/记忆/对话 | `{AI目录}/analysis/query.py`（统一入口；`--scope event/observation/report/evidence/memory/chat/all`，`--group-by` 分层/按日、`--order relevance` 按相关度，自动分组排序去重；证据层默认随卡片折叠，`--include-linked-evidence` 才展开；旧查询工具保留为专用回退） |
 | 过去对话 / 历史聊天（按时间窗） | `{AI目录}/analysis/query_chatlog.py`（问"昨天聊了什么/之前说好的事"先查） |
 | 我们聊过什么 / 最近决定 / 未决 | `{AI目录}/memory/topics/INDEX.md` + 同名话题卡 |
 | 按关键词检索记忆片段（带行号+预算） | `{AI目录}/analysis/memory_retrieve.py --query "<实体>" --budget 6000` |
