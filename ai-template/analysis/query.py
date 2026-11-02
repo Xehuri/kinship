@@ -52,6 +52,14 @@ class UsageError(Exception):
     """Bad CLI arguments or conflicting filters (exit 2)."""
 
 
+class InvalidRequest(UsageError):
+    """Malformed or unsupported JSON request object (exit 2)."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.details = details or {}
+
+
 class DataUnavailable(Exception):
     """A requested data layer is missing or unreachable (exit 1)."""
 
@@ -810,7 +818,12 @@ def _scope_values(value: str) -> list[str]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read-only normalized retrieval across index/memory/chat layers.")
+        description="Read-only normalized retrieval across index/memory/chat layers.",
+        epilog=(
+            "AI request mode: --request '<json>' | @file | - (forces JSON output; "
+            "see analysis/README.md for the request schema)."
+        ),
+    )
     parser.add_argument("--root", default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument("--index-dir", default=None)
     parser.add_argument(
@@ -843,6 +856,243 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-full-scan", action="store_true")
     parser.add_argument("--format", choices=("table", "json"), default="table")
     return parser
+
+
+REQUEST_KEYS = {
+    "scope", "scopes", "from", "to", "grep", "concept", "kind",
+    "slot", "slots", "report_type", "report_layer", "order", "asc", "desc",
+    "group_by", "limit", "limit_per_scope", "budget", "resolve", "follow",
+    "include_linked_evidence", "include_undated_memory", "block_source",
+    "include_children", "backend_port", "as_of", "allow_full_scan",
+    "root", "index_dir",
+}
+
+
+def _request_spec(argv: Sequence[str]) -> str | None:
+    """Extract --request while rejecting any non-request CLI option."""
+    has_request = any(
+        token == "--request" or token.startswith("--request=") for token in argv
+    )
+    if not has_request:
+        return None
+    spec: str | None = None
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token == "--request":
+            if index + 1 >= len(argv):
+                raise UsageError("--request requires a JSON value")
+            if spec is not None:
+                raise UsageError("--request may appear only once")
+            spec = argv[index + 1]
+            index += 2
+        elif token.startswith("--request="):
+            if spec is not None:
+                raise UsageError("--request may appear only once")
+            spec = token.split("=", 1)[1]
+            index += 1
+        elif token == "--format":
+            if index + 1 >= len(argv) or argv[index + 1] != "json":
+                raise UsageError("request mode only supports --format json")
+            index += 2
+        elif token.startswith("--format="):
+            if token.split("=", 1)[1] != "json":
+                raise UsageError("request mode only supports --format json")
+            index += 1
+        else:
+            raise UsageError(f"request mode does not accept {token}")
+    if spec is None:
+        raise UsageError("--request requires a JSON value")
+    return spec
+
+
+def _read_request_text(spec: str) -> str:
+    if spec == "-":
+        text = sys.stdin.read()
+    elif spec.startswith("@"):
+        path = Path(spec[1:])
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise InvalidRequest(f"cannot read request file: {exc}") from exc
+    else:
+        text = spec
+    text = text.lstrip("\ufeff").strip()
+    if not text:
+        raise InvalidRequest("request must not be empty")
+    return text
+
+
+def _load_request_object(spec: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(_read_request_text(spec))
+    except json.JSONDecodeError as exc:
+        raise InvalidRequest(f"invalid JSON request: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise InvalidRequest("request must be a JSON object")
+    return payload
+
+
+def _request_error(message: str, key: str, value: Any) -> InvalidRequest:
+    return InvalidRequest(f"{key}: {message}", {"key": key, "value": value})
+
+
+def _request_scopes(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw = [value]
+    elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+        raw = value
+    else:
+        raise _request_error("expected a string or array of strings", "scope", value)
+    tokens: list[str] = []
+    allowed = (*LAYER_ORDER, "all")
+    for item in raw:
+        parts = [part for part in re.split(r"[,/]", item) if part]
+        if not parts:
+            raise _request_error("scope must not be empty", "scope", value)
+        for part in parts:
+            if part not in allowed:
+                raise _request_error(
+                    f"unknown scope {part!r}; choose from {', '.join(allowed)}",
+                    "scope", part,
+                )
+            tokens.append(part)
+    if not tokens:
+        raise _request_error("scope must not be empty", "scope", value)
+    return tokens
+
+
+def _request_slots(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        raise _request_error("expected an object", "slots", value)
+    slots: list[str] = []
+    for key, item in value.items():
+        if not isinstance(key, str) or not key.strip():
+            raise _request_error("slot names must be non-empty strings", "slots", value)
+        if item is None or isinstance(item, (list, dict)):
+            raise _request_error(f"slot {key!r} must be a scalar", "slots", value)
+        if isinstance(item, bool):
+            text = "true" if item else "false"
+        elif isinstance(item, (str, int, float)):
+            text = str(item)
+        else:
+            raise _request_error(f"slot {key!r} must be a scalar", "slots", value)
+        slots.append(f"{key}={text}")
+    return slots
+
+
+def _request_block_source(value: Any) -> str:
+    if isinstance(value, str):
+        raw = value
+    elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+        raw = ",".join(value)
+    else:
+        raise _request_error("expected a string or array of strings", "block_source", value)
+    parts = [part for part in re.split(r"[,/]", raw) if part]
+    allowed = {"batch", "legacy", "review", "all"}
+    if not parts or any(part not in allowed for part in parts):
+        raise _request_error("invalid block_source", "block_source", value)
+    return ",".join(parts)
+
+
+def _request_bool(value: Any, key: str) -> bool:
+    if not isinstance(value, bool):
+        raise _request_error("expected a boolean", key, value)
+    return value
+
+
+def _request_int(value: Any, key: str, minimum: int = 0) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise _request_error(f"expected an integer >= {minimum}", key, value)
+    return value
+
+
+def _request_string(value: Any, key: str) -> str:
+    if not isinstance(value, str):
+        raise _request_error("expected a string", key, value)
+    return value
+
+
+def _request_namespace(spec: str) -> argparse.Namespace:
+    payload = _load_request_object(spec)
+    unknown = sorted(set(payload) - REQUEST_KEYS)
+    if unknown:
+        raise InvalidRequest(
+            f"unknown request key(s): {', '.join(unknown)}",
+            {"unknown_keys": unknown},
+        )
+    if "scope" in payload and "scopes" in payload:
+        raise InvalidRequest("scope and scopes are mutually exclusive")
+    if "slot" in payload and "slots" in payload:
+        raise InvalidRequest("slot and slots are mutually exclusive")
+    if payload.get("asc") is True and payload.get("desc") is True:
+        raise InvalidRequest("asc and desc are mutually exclusive")
+    for key, value in payload.items():
+        if value is None:
+            raise _request_error("null is not allowed; omit the key", key, value)
+
+    args = _build_parser().parse_args([])
+    args.format = "json"
+    args.request_mode = True
+    if "root" in payload:
+        args.root = _request_string(payload["root"], "root")
+    if "index_dir" in payload:
+        args.index_dir = _request_string(payload["index_dir"], "index_dir")
+    scope_value = payload.get("scope", payload.get("scopes"))
+    args.scope = _request_scopes(scope_value) if scope_value is not None else ["all"]
+    if "from" in payload:
+        args.start = _request_string(payload["from"], "from")
+    if "to" in payload:
+        args.end = _request_string(payload["to"], "to")
+    for key in ("grep", "concept", "kind", "report_type", "report_layer", "as_of"):
+        if key in payload:
+            setattr(args, {"report_type": "report_type", "report_layer": "report_layer"}.get(key, key), _request_string(payload[key], key))
+    if "order" in payload:
+        order = _request_string(payload["order"], "order")
+        if order not in ("chrono", "relevance"):
+            raise _request_error("invalid order", "order", order)
+        args.order = order
+    if "group_by" in payload:
+        group_by = _request_string(payload["group_by"], "group_by")
+        if group_by not in ("layer", "date", "none"):
+            raise _request_error("invalid group_by", "group_by", group_by)
+        args.group_by = group_by
+    if "asc" in payload:
+        args.asc = _request_bool(payload["asc"], "asc")
+    if "desc" in payload:
+        args.desc = _request_bool(payload["desc"], "desc")
+    for key in ("limit", "limit_per_scope", "budget", "backend_port"):
+        if key in payload:
+            setattr(args, key, _request_int(payload[key], key))
+    for key in (
+        "resolve", "follow", "include_linked_evidence",
+        "include_undated_memory", "include_children", "allow_full_scan",
+    ):
+        if key in payload:
+            setattr(args, key, _request_bool(payload[key], key))
+    slot_value = payload.get("slot", payload.get("slots"))
+    if slot_value is not None:
+        args.slot = _request_slots(slot_value)
+    if "block_source" in payload:
+        args.block_source = _request_block_source(payload["block_source"])
+    return args
+
+
+def _request_error_payload(exc: Exception, exit_code: int) -> dict[str, Any]:
+    error: dict[str, Any] = {
+        "type": type(exc).__name__,
+        "message": str(exc),
+        "exit_code": exit_code,
+    }
+    details = getattr(exc, "details", None)
+    if details:
+        error["details"] = details
+    return {"schema_version": SCHEMA_VERSION, "ok": False, "error": error}
+
+
+def _emit_request_error(exc: Exception, exit_code: int) -> int:
+    print(json.dumps(_request_error_payload(exc, exit_code), ensure_ascii=False, indent=2))
+    return exit_code
 
 
 def _validate_args(args: argparse.Namespace, requested: Sequence[str]) -> bool:
@@ -1019,6 +1269,8 @@ def _run(args: argparse.Namespace, requested: Sequence[str]) -> int:
     }
 
     if args.format == "json":
+        if getattr(args, "request_mode", False):
+            payload = {"ok": True, **payload}
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     _render_table(groups, args.resolve, args.follow)
@@ -1026,7 +1278,22 @@ def _run(args: argparse.Namespace, requested: Sequence[str]) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    raw = list(argv if argv is not None else sys.argv[1:])
+    has_request = any(
+        token == "--request" or token.startswith("--request=") for token in raw
+    )
+    if has_request:
+        try:
+            spec = _request_spec(raw)
+            args = _request_namespace(spec)
+            return _run(args, tuple(args.scope or ("all",)))
+        except InvalidRequest as exc:
+            return _emit_request_error(exc, 2)
+        except UsageError as exc:
+            return _emit_request_error(exc, 2)
+        except DataUnavailable as exc:
+            return _emit_request_error(exc, 1)
+    args = _build_parser().parse_args(raw)
     requested = tuple(args.scope or ("all",))
     try:
         return _run(args, requested)
