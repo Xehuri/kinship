@@ -1,5 +1,5 @@
 /**
- * 唤醒动作词表验收：14 个动作每个都有覆盖/静默裁决，来源兜底完整，
+ * 唤醒动作词表验收：15 个动作每个都有覆盖/静默裁决，来源兜底完整，
  * 新源码不出现旧入口措辞，也不使用类型逃逸。
  */
 
@@ -34,6 +34,7 @@ const EXPECTED_COVERAGE: Readonly<Record<WakeAction, boolean>> = {
   "longterm.due": false,
   "flow.check": false,
   "special.continue": false,
+  "inbox.digest": false,
 };
 
 const EXPECTED_SILENT: Readonly<Record<WakeAction, boolean>> = {
@@ -51,6 +52,7 @@ const EXPECTED_SILENT: Readonly<Record<WakeAction, boolean>> = {
   "longterm.due": false,
   "flow.check": true,
   "special.continue": false,
+  "inbox.digest": true,
 };
 
 const EXPECTED_SOURCE_DEFAULTS: Readonly<Record<WakeSource, WakeAction>> = {
@@ -59,6 +61,7 @@ const EXPECTED_SOURCE_DEFAULTS: Readonly<Record<WakeSource, WakeAction>> = {
   long_term: "longterm.due",
   flow: "flow.check",
   special: "special.continue",
+  inbox: "inbox.digest",
 };
 
 /** 拆开拼写，避免测试文件自己留下被禁词。 */
@@ -72,7 +75,7 @@ function sourceText(name: string): string {
 
 describe("wake action vocabulary", () => {
   it("lists each action exactly once", () => {
-    expect(WAKE_ACTIONS).toHaveLength(14);
+    expect(WAKE_ACTIONS).toHaveLength(15);
     expect(new Set(WAKE_ACTIONS).size).toBe(WAKE_ACTIONS.length);
   });
 

@@ -235,6 +235,11 @@ export interface ServeToolWiringOptions {
    * 真正派发时再由 modelByAgent 响亮拒绝）。键缺席 = 不巡检（直调测试旧面逐字节不变）。
    */
   readonly knownModelIds?: readonly string[];
+  /**
+   * T4 仅主会话可见的工具面（收件箱 pull tools）。只进 mainTools，绝不进 tools/childFace：
+   * 子会话/副会话拿不到这些工具定义。缺省 = 空表（旧装配面逐字节不变）。
+   */
+  readonly mainOnlyTools?: readonly HarnessTool[];
 }
 
 /**
@@ -255,6 +260,11 @@ export class UnknownAgentModelError extends Error {
 export interface ServeToolWiring {
   /** 主会话与副会话共用的工具集（同一数组、同一缝、同一边界；converge 不在此列）。 */
   readonly tools: readonly HarnessTool[];
+  /**
+   * 主会话工具面 = tools + mainOnlyTools（同一 trace.wrapAll 包痕）。
+   * 只交给 SessionRegistry（主会话）；side/child 面仍用 tools。
+   */
+  readonly mainTools: readonly HarnessTool[];
   /** D7 单缝本体（bash 咽喉点已接此；测试/运维可直接驱动断言口径）。 */
   readonly executor: ToolExecutor;
   /** 缝审计快照（allow/deny 双态，FIFO 有界）。 */
@@ -577,9 +587,11 @@ export async function createServeToolWiring(
 
   const wrapped = trace.wrapAll([...base, taskHandle.tool, ...taskFetchTools, ...taskCancelTools, ...todoTools, ...ptyTools, ...planTools, ...filterExtraTools(base, opts.extraTools ?? [], log)]);
   childFace.push(...wrapped);
+  const mainOnlyWrapped = trace.wrapAll([...(opts.mainOnlyTools ?? [])]);
 
   return {
     tools: wrapped,
+    mainTools: [...wrapped, ...mainOnlyWrapped],
     executor,
     seamAudit: () => audit.slice(),
     trace,

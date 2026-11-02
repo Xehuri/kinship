@@ -30,7 +30,7 @@ import {
   type WorkerOutcome,
 } from "@axeuh/loom-core";
 import { JsonlSessionStore } from "@axeuh/loom-adapters";
-import type { FakeAssistantResponse } from "@axeuh/loom-core/testing";
+import type { FakeAssistantResponse, FakeModel } from "@axeuh/loom-core/testing";
 
 import { parseLoomConfig } from "../config/loom-config.js";
 import { createFakeModelFromConfig, FAKE_PROVIDER } from "../fake-model/index.js";
@@ -2622,4 +2622,215 @@ describe("POST /sessions/:sessionID/compact —— 重启会话先 hydrate 再�
       model.teardown();
     }
   }, 30_000);
+
+
+
+describe("Loom inbox 表征测试：send/deliverWake 当前契约（不改行为，仅冻结）", () => {
+  function makeBareRegistry(
+    script: readonly FakeAssistantResponse[],
+    opts: { interruptOnSend?: boolean } = {},
+  ): { registry: SessionRegistry; model: FakeModel; teardown: () => void } {
+    const cfg = parseLoomConfig(FAKE_YAML, "test:FAKE_YAML", { env: {} });
+    const model = createFakeModelFromConfig(cfg.models[0]!, [...script]);
+    const registry = new SessionRegistry({
+      model,
+      store: new MemorySessionStore(),
+      stateRoot,
+      ...(opts.interruptOnSend === undefined ? {} : { interruptOnSend: opts.interruptOnSend }),
+    });
+    return { registry, model, teardown: () => model.teardown() };
+  }
+
+  function textOfMsg(m: Message): string {
+    if (typeof m.content === "string") return m.content;
+    if (Array.isArray(m.content)) {
+      return m.content
+        .map((b) => (typeof b === "object" && b !== null && "text" in b ? String((b as { text: unknown }).text) : ""))
+        .join("");
+    }
+    return "";
+  }
+
+  async function waitBusy(registry: SessionRegistry, sessionID: string): Promise<void> {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      if (registry.get(sessionID)?.running !== null) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("会话未在预算内变 busy");
+  }
+
+  // running 非空只代表 run 已创建；首请求真正在途后 steer 才会 park 到 turn 边界（否则会被
+  // 折进当前轮 prompt，排队消息随本轮落盘而队列清空、后续 run 永不出现）。
+  async function waitFirstModelCall(model: FakeModel): Promise<void> {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      if (model.getCalls().length >= 1) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("假模型首请求未在预算内起飞");
+  }
+
+  async function waitIdleView(
+    registry: SessionRegistry,
+    sessionID: string,
+    want: { status: "idle" | "busy"; turns?: number },
+  ): Promise<void> {
+    // 对齐既有 W16-F1 用例：只等 status + turns（不额外门 queueLength===0）。
+    // 表征 send/deliverWake 当前契约——排队项的摘队时序由既有 W16-F1 套件覆盖，本块不重测。
+    const deadline = Date.now() + 60_000;
+    for (;;) {
+      const view = registry.statusView(sessionID);
+      if (
+        view !== undefined &&
+        view.status === want.status &&
+        (want.turns === undefined || view.turns === want.turns)
+      ) {
+        return;
+      }
+      if (Date.now() > deadline) throw new Error(`statusView 未满足 ${JSON.stringify(want)}`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
+  async function userTextCountBare(registry: SessionRegistry, sessionID: string, text: string): Promise<number> {
+    const page = await registry.history(sessionID, { limit: 200 });
+    return page.messages.filter(
+      (m) => m.role === "user" && (typeof m.content === "string" ? m.content : "") === text,
+    ).length;
+  }
+
+  it("idle accept：send 返回 accepted 无 queued/interrupted，1 轮收束", async () => {
+    const { registry, teardown } = makeBareRegistry([convergeTurn("收束", ["x"])]);
+    try {
+      const rec = registry.create();
+      const out = registry.send(rec.sessionID, "正文");
+      expect(out.accepted).toBe(true);
+      expect("queued" in out).toBe(false);
+      expect("interrupted" in out).toBe(false);
+      const deadline = Date.now() + 30_000;
+      while (registry.get(rec.sessionID)?.running !== null) {
+        if (Date.now() > deadline) throw new Error("未在预算内 idle");
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      expect(registry.statusView(rec.sessionID)?.turns).toBe(1);
+    } finally {
+      teardown();
+    }
+  }, 30_000);
+
+  it("busy interrupt：interruptOnSend=true → interrupted:true 且当前轮被 abort（后续恰 2 轮）", async () => {
+    const { registry, teardown } = makeBareRegistry(
+      [
+        { content: [{ type: "text", text: "慢跑" }], delayMs: 3000 },
+        convergeTurn("下一轮", ["x"]),
+      ],
+      { interruptOnSend: true },
+    );
+    try {
+      const rec = registry.create();
+      registry.send(rec.sessionID, "第一句");
+      await waitBusy(registry, rec.sessionID);
+      const out = registry.send(rec.sessionID, "第二句");
+      expect(out.accepted).toBe(true);
+      expect("interrupted" in out && (out as { interrupted: true }).interrupted).toBe(true);
+      await waitIdleView(registry, rec.sessionID, { status: "idle", turns: 2 });
+      expect(await userTextCountBare(registry, rec.sessionID, "第二句")).toBe(1);
+    } finally {
+      teardown();
+    }
+  }, 30_000);
+
+  it("busy FIFO：普通 send（interruptOnSend 缺省）→ queued:true，按入队序合并进一个后续 run", async () => {
+    // 对齐既有 W16-F1：首轮必须带 converge 工具调用，否则该轮不收束、排队消息等不到后续 run。
+    const currentTurn: FakeAssistantResponse = {
+      content: [
+        { type: "text", text: "当前轮慢收束" },
+        { type: "toolCall", name: "converge", arguments: { ...MAIN_OK } },
+      ],
+      delayMs: 1200,
+    };
+    const { registry, model, teardown } = makeBareRegistry([
+      currentTurn,
+      convergeTurn("合并轮收束", ["排队A", "排队B"]),
+    ]);
+    try {
+      const rec = registry.create();
+      registry.send(rec.sessionID, "正文");
+      await waitBusy(registry, rec.sessionID);
+      await waitFirstModelCall(model);
+      const qa = registry.send(rec.sessionID, "排队A");
+      const qb = registry.send(rec.sessionID, "排队B");
+      expect(qa.accepted && "queued" in qa && (qa as { queued: true }).queued).toBe(true);
+      expect(qb.accepted && "queued" in qb && (qb as { queued: true }).queued).toBe(true);
+      await waitIdleView(registry, rec.sessionID, { status: "idle", turns: 2 });
+      const page = await registry.history(rec.sessionID, { limit: 200 });
+      const userTexts = page.messages
+        .filter((m) => m.role === "user")
+        .map(textOfMsg)
+        .slice(0, 3);
+      expect(userTexts).toEqual(["正文", "排队A", "排队B"]);
+    } finally {
+      teardown();
+    }
+  }, 60_000);
+
+  it("busy 上限 409：第 11 条被回压（SEND_QUEUE_CAP=10），abort 不清队列", async () => {
+    // 对齐既有 W16-F1 上限用例：首轮慢跑（不 converge）被 abort 掐断，排队 10 条合并进后续 run。
+    const { registry, model, teardown } = makeBareRegistry([
+      { content: [{ type: "text", text: "慢跑中" }], delayMs: 2000 },
+      convergeTurn("合并收束", ["x"]),
+    ]);
+    try {
+      const rec = registry.create();
+      registry.send(rec.sessionID, "当前轮");
+      await waitBusy(registry, rec.sessionID);
+      await waitFirstModelCall(model);
+      for (let i = 0; i < 10; i++) {
+        const r = registry.send(rec.sessionID, `队列${String(i)}`);
+        expect(r.accepted && "queued" in r && (r as { queued: true }).queued).toBe(true);
+      }
+      const overflow = registry.send(rec.sessionID, "第11条");
+      expect(overflow.accepted).toBe(false);
+      expect(registry.statusView(rec.sessionID)?.queueLength).toBe(10);
+      registry.abort(rec.sessionID);
+      await waitIdleView(registry, rec.sessionID, { status: "idle", turns: 2 });
+    } finally {
+      teardown();
+    }
+  }, 60_000);
+
+  it("deliverWake idle：在册空闲会话 → 即起一轮（durable 入队，running===null 走 #drainQueue）", async () => {
+    const { registry, teardown } = makeBareRegistry([convergeTurn("唤醒收束", ["x"])]);
+    try {
+      const rec = registry.create();
+      registry.deliverWake(rec.sessionID, "【唤醒】到点事项");
+      await waitIdleView(registry, rec.sessionID, { status: "idle", turns: 1 });
+      expect(await userTextCountBare(registry, rec.sessionID, "【唤醒】到点事项")).toBe(1);
+    } finally {
+      teardown();
+    }
+  }, 30_000);
+
+  it("deliverWake busy：在册忙会话 → 入队但不 abort（当前轮收尾后由 #drainQueue 起新轮）", async () => {
+    const { registry, teardown } = makeBareRegistry([
+      { content: [{ type: "text", text: "慢跑" }], delayMs: 1200 },
+      convergeTurn("唤醒收束", ["x"]),
+    ]);
+    try {
+      const rec = registry.create();
+      registry.send(rec.sessionID, "正文");
+      await waitBusy(registry, rec.sessionID);
+      registry.deliverWake(rec.sessionID, "【唤醒】忙时也进队列");
+      expect(registry.get(rec.sessionID)?.running !== null).toBe(true);
+      await waitIdleView(registry, rec.sessionID, { status: "idle", turns: 2 });
+      expect(await userTextCountBare(registry, rec.sessionID, "【唤醒】忙时也进队列")).toBe(1);
+    } finally {
+      teardown();
+    }
+  }, 30_000);
+});
+
+
+
 });

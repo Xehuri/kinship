@@ -666,3 +666,89 @@ class TestHealthCheck:
         assert result["data"]["version"] == "d399298"
         assert calls[0]["method"] == "GET"
         assert calls[0]["path"] == "/health"
+
+
+class TestInboxLetters:
+    """T3 收件箱客户端：POST /inbox/letters 的 202/200-duplicate/4xx/5xx/传输异常。"""
+
+    LETTER = {
+        "source": "qq",
+        "kind": "system_note",
+        "class": "notify",
+        "trust": "external",
+        "principal": "qq:12345",
+        "title": "群消息",
+        "body": "有人在群里叫你",
+    }
+
+    def test_202_is_success_and_forwards_body(self, monkeypatch):
+        client, calls = _make_client(
+            monkeypatch,
+            lambda m, p, q, b: (202, {"accepted": True, "letter_id": "l1",
+                                      "class": "notify", "route": "deliver_wake"}, {}),
+        )
+        ok, err, result = asyncio.run(client.send_letter("ses_main", self.LETTER))
+        assert ok is True and err is None
+        assert result == {"status": 202, "body": {
+            "accepted": True, "letter_id": "l1",
+            "class": "notify", "route": "deliver_wake",
+        }}
+        assert calls == [{
+            "method": "POST", "path": "/inbox/letters",
+            "params": None, "json_body": self.LETTER,
+        }]
+
+    def test_200_duplicate_is_success_not_failure(self, monkeypatch):
+        client, _ = _make_client(
+            monkeypatch,
+            lambda m, p, q, b: (200, {"duplicate": True, "letter_id": "l0",
+                                      "state": "pending"}, {}),
+        )
+        ok, err, result = asyncio.run(client.send_letter("ses_main", self.LETTER))
+        assert ok is True and err is None
+        assert result["status"] == 200
+        assert result["body"]["duplicate"] is True
+
+    @pytest.mark.parametrize(
+        ("status", "code", "message"),
+        [
+            (403, "source_unregistered", "source is not registered"),
+            (413, "letter_body_too_large", "body too large"),
+            (503, "inbox_disabled", "inbox is disabled"),
+        ],
+    )
+    def test_4xx_5xx_are_failures_with_code_and_body(
+        self, monkeypatch, status, code, message,
+    ):
+        client, _ = _make_client(
+            monkeypatch,
+            lambda m, p, q, b: (status, {"error": {"code": code, "message": message}}, {}),
+        )
+        ok, err, result = asyncio.run(client.send_letter("ses_main", self.LETTER))
+        assert ok is False
+        assert f"HTTP {status}" in err and message in err
+        assert result["status"] == status
+        assert result["code"] == code
+        assert result["body"]["error"]["code"] == code
+
+    def test_transport_error_is_failure_without_fake_acceptance(self, monkeypatch):
+        def _boom(m, p, q, b):
+            raise ConnectionError("wire down")
+
+        client, calls = _make_client(monkeypatch, _boom)
+        ok, err, result = asyncio.run(client.send_letter("ses_main", self.LETTER))
+        assert ok is False and "wire down" in err
+        assert result is None
+        assert len(calls) == 1 and calls[0]["path"] == "/inbox/letters"
+
+    def test_get_inbox_status_maps_200(self, monkeypatch):
+        snapshot = {"as_of": 1, "mode": "live", "pending": 2,
+                    "by_class": {"digest": 1, "notify": 1, "interrupt": 0},
+                    "by_source": {"qq": 2}, "oldest_age_ms": 5,
+                    "dead_letter": 0, "unknown": 0, "digest_due_at": 99,
+                    "session_id": "ses_main"}
+        client, calls = _make_client(monkeypatch, lambda m, p, q, b: (200, snapshot, {}))
+        got = asyncio.run(client.get_inbox_status("ses_main"))
+        assert got["ok"] is True and got["data"] == snapshot
+        assert calls[0] == {"method": "GET", "path": "/inbox/status",
+                            "params": None, "json_body": None}

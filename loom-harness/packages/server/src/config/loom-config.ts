@@ -13,6 +13,7 @@ import {
   type ConvergenceConfig,
   type ExitsStub,
   type FlowConfig,
+  type InboxConfig,
   type LlmConfig,
   type McpConfig,
   type ModelConfig,
@@ -30,6 +31,7 @@ import {
   checkConvergence,
   checkExits,
   checkFlow,
+  checkInbox,
   checkLlm,
   checkMcp,
   checkModels,
@@ -55,6 +57,16 @@ export type {
   ExitsStub,
   FlowConfig,
   Hostname,
+  InboxAccumulateConfig,
+  InboxClassesConfig,
+  InboxConfig,
+  InboxDigestConfig,
+  InboxEchoConfig,
+  InboxLimitsConfig,
+  InboxMode,
+  InboxQuietHoursConfig,
+  InboxRedeliveryConfig,
+  InboxSourceConfig,
   LlmConfig,
   McpConfig,
   McpServerEntryConfig,
@@ -159,6 +171,12 @@ export interface LoomConfig {
    * 不物化——运行期缺省收敛在 boot，schema 面不造假值（sandbox/subagent 同款纪律）。
    */
   readonly scheduling?: SchedulingConfig | undefined;
+  /**
+   * 统一收件箱配置（T2 核心；T3/T4 才接 HTTP/boot/wake-queue）。
+   * 整段缺省 = undefined = 不物化；运行期缺省（mode=off 等）收敛在
+   * inbox/defaults.ts 与消费层，schema 面不造假值。
+   */
+  readonly inbox?: InboxConfig | undefined;
 }
 
 /** 配置校验失败：errors 汇总全部问题，避免一次只报一个。 */
@@ -217,6 +235,7 @@ export function parseLoomConfig(
   const plan = checkPlan(doc["plan"], errors);
   const flow = checkFlow(doc["flow"], errors);
   const scheduling = checkScheduling(doc["scheduling"], errors);
+  const inbox = checkInbox(doc["inbox"], errors);
 
   if (errors.length > 0) {
     throw new LoomConfigError(source, errors);
@@ -255,6 +274,8 @@ export function parseLoomConfig(
     ...(flow === undefined ? {} : { flow }),
     // scheduling 段：缺席 = 键不物化（运行期缺省归 boot；schema 不造假值）。
     ...(scheduling === undefined ? {} : { scheduling }),
+    // inbox 段：缺席 = 键不物化（运行期缺省归 inbox/defaults.ts；schema 不造假值）。
+    ...(inbox === undefined ? {} : { inbox }),
   };
 }
 

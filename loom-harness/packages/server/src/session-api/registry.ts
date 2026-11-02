@@ -1255,6 +1255,17 @@ export class SessionRegistry {
     rec.flow = null;
     rec.turns += 1;
     rec.hub.publish("session.status", rec.sessionID, statusProps("busy"));
+    // T4 inbox：run 起点同步认领 prompt 标记（onPrompt 返回 run-scoped token）。接缝异常
+    // 只 journal warn——收件箱故障绝不改变会话终态或起轮语义。
+    rec.promptToken = undefined;
+    try {
+      rec.promptToken = this.#opts.onPrompt?.(rec.sessionID, text);
+    } catch (err) {
+      this.#journal("warn", "loom prompt hook failed", {
+        sessionID: rec.sessionID,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     // T5 每轮独立的收尾信号：仅本轮的瞬时 LLM 错误可触发重放，sync throw/成功轮恒 false。
     let replayEligible = false;
 
@@ -1331,6 +1342,21 @@ export class SessionRegistry {
           error: { message: rec.lastError },
         });
       } finally {
+        // T4 inbox：run 终点必须在 #drainQueue 之前收口（下一个排队 run 不得认领上一批）。
+        // 此刻 rec.running 仍非 null：收口内若 deliverWake 只会入队，不会重入起轮。
+        // 接缝异常只 journal warn——绝不改变会话终态。
+        const promptToken = rec.promptToken;
+        rec.promptToken = undefined;
+        if (promptToken !== undefined) {
+          try {
+            this.#opts.onRunFinished?.(rec.sessionID, promptToken);
+          } catch (err) {
+            this.#journal("warn", "loom run-finished hook failed", {
+              sessionID: rec.sessionID,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
         rec.running = null;
         // 装配 span 落 trace + W13 上下文快照留内存（观测面：失败都不影响会话终态）。
         try {

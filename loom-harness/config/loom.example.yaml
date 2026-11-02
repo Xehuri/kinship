@@ -262,3 +262,58 @@ mcp:
 #   summaryTimeoutMs: 60000
 #   boundary: false
 #   microcompact: { enabled: true, triggerTokens: 150000, targetTokens: 60000, keepRecent: 5 }
+
+# inbox 段（统一收件箱核心 T2 + HTTP/排班接线 T3；可整段缺省 = 不物化，运行期缺省 mode=off）。
+# 只有异步来源（QQ、后端 task、脚本、未来服务）走 letters；用户聊天走 /sessions/:id/messages，
+# 绝不进收件箱。source 是注册键（[a-z0-9_.-]{1,64}），trust 是独立维度：
+# QQ @ 是 source=qq + trust=external；内部服务回调是 source=backend.tasks + trust=trusted_service。
+# class 是契约（interrupt/notify/digest），调用方只能请求 class，不能提交 score/weight；
+# 数值权重只在 policy 内部排序（classes.weights），不进入 prompt/日志/HTTP。
+# 生效 = 改 <实例根>/.loom/config.yaml + 重启（无热重载通道）。
+# inbox:
+#   mode: shadow                 # off（缺省）| shadow（只落账观测）| live（允许投递）
+#   sessionId: main_session      # 收件箱账本文件名；缺省由消费层选主会话
+#   sources:
+#     qq:                        # source 注册键；未注册来源一律抑制
+#       maxTrust: external       # 该来源可声明的最高信任；HTTP 入口高于此值直接 403
+#       maxClass: notify         # 该来源可请求的最高 class；超过则 policy 向下钳制
+#       ratePerMinute: 30        # 每分钟最多尝试次数（超限降一档）
+#       burst: 5                 # 1 秒内最多尝试次数（超限降一档）
+#       cooldownMs: 2000         # 两次投递最小间隔（未到期降一档）
+#       requireDedupeKey: true   # 强制调用方提供 dedupe_key
+#       tokenEnv: LOOM_INBOX_QQ_TOKEN  # 鉴权 token 的环境变量名（只存名字，不存值）
+#     backend.tasks:
+#       maxTrust: trusted_service
+#       maxClass: interrupt
+#   limits:
+#     maxBodyBytes: 16384        # body UTF-8 字节上限
+#     maxPending: 1000           # 未终结信件积压上限（超过抑制新信件）
+#     maxLettersPerMinute: 120   # 全局速率上限
+#   digest:
+#     cadenceMs: 900000          # 摘要唤醒节拍
+#     maxAgeMs: 21600000         # 摘要信件最长等待
+#     maxBatch: 20               # 单次摘要最多条数
+#     leaseMs: 60000             # 摘要租约
+#   classes:
+#     weights: { interrupt: 3, notify: 2, digest: 1 }  # 内部排序，必须单调不增
+#   accumulate:
+#     notifyBurst: 3             # 窗口内 notify 达到该次数 → digest
+#     windowMs: 300000
+#   quietHours:
+#     enabled: true
+#     start: "22:00"
+#     end: "07:00"
+#     timezone: Asia/Shanghai    # enabled=true 时必填合法 IANA 名
+#     downgradeExternalInterruptTo: notify  # notify | digest
+#   redelivery:
+#     maxAttempts: 1
+#     backoffMs: 30000
+#   ackGraceTurns: 2
+#   autoAckKinds: [system_note]
+#   dedupeTtlMs: 172800000
+#   coalesceWindowMs: 1800000
+#   echo:
+#     maxCausationDepth: 8
+#     blockedSources: []
+#   planMirror: true
+#   metricsIntervalMs: 60000

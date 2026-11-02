@@ -18,12 +18,14 @@ import { stringifyStableJson, writeJsonAtomic } from "../plan/atomic-write.js";
 import type { WakeEntry } from "../plan/wake-render.js";
 
 export const WAKE_QUEUE_SCHEMA = 2;
-export const WAKE_QUEUE_SOURCES = ["plan", "flow", "special"] as const;
+export const WAKE_QUEUE_SOURCES = ["plan", "flow", "special", "inbox"] as const;
 export type WakeQueueSource = (typeof WAKE_QUEUE_SOURCES)[number];
 
 /** 计划条目保留 48h，flow/special 保留 30d（自 scheduled at 起算）。 */
 export const PLAN_RETENTION_MS = 48 * 60 * 60 * 1000;
 export const OTHER_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+/** inbox 摘要条目与计划同口径 48h（摘要批次只是待投递提示，不做长期存档）。 */
+export const INBOX_RETENTION_MS = PLAN_RETENTION_MS;
 export const LEGACY_WAKE_ID = "legacy-auto-wake";
 
 /** T05b：投递失败后的唯一一次重试延迟；不做指数退避。 */
@@ -241,8 +243,10 @@ function requireId(value: unknown, field: string): string {
 }
 
 function requireSource(value: unknown): WakeQueueSource {
-  if (value === "plan" || value === "flow" || value === "special") return value;
-  throw new WakeQueueValidationError("source", `必须是 plan/flow/special: ${String(value)}`);
+  if (value === "plan" || value === "flow" || value === "special" || value === "inbox") {
+    return value;
+  }
+  throw new WakeQueueValidationError("source", `必须是 plan/flow/special/inbox: ${String(value)}`);
 }
 
 function requireFinite(value: unknown, field: string): number {
@@ -273,6 +277,8 @@ function retentionMs(source: WakeQueueSource): number {
   switch (source) {
     case "plan":
       return PLAN_RETENTION_MS;
+    case "inbox":
+      return INBOX_RETENTION_MS;
     case "flow":
     case "special":
       return OTHER_RETENTION_MS;
@@ -493,6 +499,8 @@ function renderSource(source: WakeQueueSource): WakeSource {
       return "flow";
     case "special":
       return "special";
+    case "inbox":
+      return "inbox";
     default:
       return assertNever(source);
   }

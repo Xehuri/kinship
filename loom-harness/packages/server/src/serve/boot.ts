@@ -28,7 +28,7 @@
 
 import { createServer, type Server } from "node:http";
 import { createHash } from "node:crypto";
-import { statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { JsonlSessionStore, RotatingLedger, StateLayout } from "@axeuh/loom-adapters";
@@ -56,6 +56,11 @@ import {
 } from "../flow/index.js";
 import type { HotConfigStore } from "../hotreload/index.js";
 import { HttpError, Router, readJsonBody, sendJson } from "../http/index.js";
+import { InboxBatchRuntime } from "../inbox/batch.js";
+import { InboxDigestRuntime } from "../inbox/digest.js";
+import { InboxJournalStore } from "../inbox/journal-store.js";
+import { createInboxPolicyEngine, registerInboxRoutes } from "../inbox/routes.js";
+import { createInboxTools } from "../inbox/tools.js";
 import { registerOpsRoutes } from "../ops-api/index.js";
 import {
   assembleContextManifest,
@@ -143,6 +148,7 @@ function wakeNotifyProps(entry: WakeQueueEntry): Readonly<Record<string, unknown
       ? payload["title"]
       : entry.id;
   if (entry.source === "plan") return { title: "计划唤醒", message: title, variant: "info" };
+  if (entry.source === "inbox") return { title: "收件箱摘要", message: title, variant: "info" };
   return { title: "心流唤醒", message: title, variant: "info" };
 }
 
@@ -204,7 +210,7 @@ export interface LoomApp {
   readonly engine: RunEngine;
   /** W9 切片 2：进程唯一 SpawnKernel（在飞册/登记面观察口；测试与运维取证用）。 */
   readonly kernel: SpawnKernel;
-  /** 主/副会话共用的工具面（同一缝、同一边界；观测/取证面）。 */
+  /** 主会话工具面（shared + main-only，如 inbox pull tools；观测/取证面）。 */
   readonly tools: readonly HarnessTool[];
   /** W5-A skills 装配结局（loom.yaml 无 skills 段 = undefined；W25：entries/degraded 为活读面）。 */
   readonly skillsWiring: ServeSkillsWiring | undefined;
@@ -450,7 +456,83 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       ? configuredSchedulingSession
       : mainSession.sessionID
     : undefined;
+
+  // T3 inbox：off = 零 store/零账本；shadow/live 才创建账本与会话路由。
+  // live 必须复用持久唤醒队列（摘要只能经既有 WakeQueue 投递，禁止第二调度器）。
+  const inboxConfig = options.config.inbox;
+  const inboxMode = inboxConfig?.mode ?? "off";
+  const inboxEnabled = inboxMode !== "off";
+  const inboxSessionID = inboxEnabled
+    ? inboxConfig?.sessionId ?? schedulingMainSessionID ?? mainSession.sessionID
+    : undefined;
+  if (inboxMode === "live") {
+    if (!schedulingActive || wakeMode !== "live" || schedulingMainSessionID === undefined) {
+      throw new Error(
+        "inbox.mode=live 需要 scheduling.wakeQueue=live：摘要唤醒必须进既有持久唤醒队列，不能另起调度器",
+      );
+    }
+    if (inboxConfig?.sessionId !== undefined && inboxConfig.sessionId !== schedulingMainSessionID) {
+      throw new Error(
+        `inbox.sessionId=${inboxConfig.sessionId} 与唤醒队列会话 ${schedulingMainSessionID} 不一致：` +
+          "live 收件箱必须与 scheduling 唤醒队列共用同一会话（或删除 inbox.sessionId）",
+      );
+    }
+  }
+  const inboxStore =
+    inboxEnabled && inboxSessionID !== undefined
+      ? new InboxJournalStore({
+          stateRoot: options.stateRoot,
+          sessionId: inboxSessionID,
+          now: () => Date.now(),
+          ...(inboxConfig?.limits?.maxBodyBytes === undefined
+            ? {}
+            : { validation: { maxBodyBytes: inboxConfig.limits.maxBodyBytes } }),
+          onTornTail: (info): void => {
+            log("warn", "loom inbox journal torn tail", {
+              line_number: info.line_number,
+              message: info.message,
+            });
+          },
+        })
+      : undefined;
+  if (inboxStore !== undefined) {
+    // T4 崩溃恢复：routed 但没有 delivered = 上次进程在投递前后中断。不自动重路由
+    // （会重复投递），只告警并让信件继续可见（inbox_list pending 仍包含 routed）。
+    const stranded = inboxStore
+      .list()
+      .filter((record) => record.state === "routed" && record.delivered_at === undefined);
+    if (stranded.length > 0) {
+      log("warn", "loom inbox routed without delivered (left visible)", {
+        count: stranded.length,
+        letterIDs: stranded.slice(0, 10).map((record) => record.id),
+      });
+    }
+    const autoAckKinds = new Set(inboxConfig?.autoAckKinds ?? []);
+    const unacked = inboxStore
+      .list()
+      .filter(
+        (record) =>
+          (record.state === "delivered" || record.state === "read") &&
+          !autoAckKinds.has(record.kind),
+      );
+    if (unacked.length > 0) {
+      log("warn", "loom inbox unacked letters survive restart (left visible)", {
+        count: unacked.length,
+        letterIDs: unacked.slice(0, 10).map((record) => record.id),
+      });
+    }
+  }
+  const inboxPolicy = inboxEnabled
+    ? createInboxPolicyEngine(inboxConfig ?? {})
+    : createInboxPolicyEngine({ mode: "off" });
+  log("info", "loom inbox", {
+    mode: inboxMode,
+    sessionID: inboxSessionID ?? null,
+    sources: Object.keys(inboxConfig?.sources ?? {}).length,
+  });
+
   let wakeQueue: WakeQueue | undefined;
+  let inboxDigest: InboxDigestRuntime | undefined;
   let planScheduler: PlanScheduler | undefined;
   let planMasterStore: JsonMasterPlanStore | undefined;
   let planOverlayStore: JsonPlanOverlayStore | undefined;
@@ -466,17 +548,24 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       stateRoot: options.stateRoot,
       sessionID: queueSessionID,
       now: () => Date.now(),
-      render: (entry): string | null =>
-        renderQueueWakeEntry(
+      render: (entry): string | null => {
+        if (entry.source === "inbox") {
+          return inboxDigest?.render(entry) ?? null;
+        }
+        return renderQueueWakeEntry(
           entry,
           schedulingTimezone,
           (at): string | null => registry.flowWakeLine(queueSessionID, at),
           (message, failed) => {
             log("warn", "loom wake render warning", { id: failed.id, message });
           },
-        ),
-      deliver: (sessionID, line, entry) => {
+        );
+      },
+      deliver: async (sessionID, line, entry): Promise<void> => {
         registry.deliverWake(sessionID, line, wakeNotifyProps(entry));
+        if (entry.source === "inbox" && inboxDigest !== undefined) {
+          await inboxDigest.markDelivered(entry);
+        }
       },
       hasSession: (sessionID) => registry.has(sessionID),
       observe: (event): void => {
@@ -492,6 +581,44 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       },
     });
   }
+
+  if (
+    inboxMode === "live" &&
+    inboxConfig !== undefined &&
+    inboxStore !== undefined &&
+    wakeQueue !== undefined
+  ) {
+    inboxDigest = new InboxDigestRuntime({
+      store: inboxStore,
+      config: inboxConfig,
+      queue: wakeQueue,
+      now: () => Date.now(),
+      log: (level, msg, fields) => log(level, msg, fields),
+    });
+  }
+  const reconcileDigest = async (): Promise<void> => {
+    if (inboxDigest === undefined) return;
+    try {
+      await inboxDigest.reconcile();
+    } catch (error: unknown) {
+      log("warn", "loom inbox digest reconcile failed", { error: errorText(error) });
+    }
+  };
+
+  // T4 inbox pull tools：只装进主会话面（tool-wiring.mainOnlyTools），side/child 面永不出现。
+  // shadow 也注册（便于观察/演练）：它们只能看到 observed 行，且不会触发投递。
+  const inboxTools: readonly HarnessTool[] =
+    inboxEnabled && inboxStore !== undefined && inboxSessionID !== undefined
+      ? createInboxTools({
+          store: inboxStore,
+          config: inboxConfig ?? {},
+          sessionID: inboxSessionID,
+          now: () => Date.now(),
+          onDeferred: () => {
+            void reconcileDigest();
+          },
+        })
+      : [];
 
   if (
     schedulingActive &&
@@ -681,6 +808,7 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       ...(skillsWiring === undefined ? [] : [skillsWiring.tool]),
       ...mcpWiring.tools,
     ],
+    ...(inboxTools.length === 0 ? {} : { mainOnlyTools: inboxTools }),
     ...(skillsWiring === undefined ? {} : { extraHooks: [skillsWiring.hook] }),
   });
   toolStream = createToolOutputStream({
@@ -1018,6 +1146,9 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   const autoWakeEnabled = options.config.server.autoWakeEnabled !== false;
   const wakeQueueForFlow: WakeQueue | undefined = wakeQueue;
   const wakeQueueSessionID = schedulingMainSessionID;
+  // T4 inbox 批次生命周期（registry 构造后立即绑定；回调在首个请求/runs 前不会触发）。
+  let inboxBatch: InboxBatchRuntime | undefined;
+  const inboxBatchSessionID = inboxEnabled ? inboxSessionID : undefined;
   const registry: SessionRegistry = new SessionRegistry({
     model: model.model,
     store: sessionStore,
@@ -1026,7 +1157,8 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     historyStores: [loomSessionsStore],
     stateRoot: options.stateRoot,
     runEngine: engine,
-    tools: toolWiring.tools,
+    // T4：主会话面 = shared + inbox pull tools；side/子会话仍走 toolWiring.tools。
+    tools: toolWiring.mainTools,
     // W11a：tool-stream hook 常驻主会话面（pending/running/output/file.edited 唯一挂点；
     // 子/副会话不挂——帧归属只认主会话 hub）。workspaceRoot/version 供 session.created。
     hooks: [
@@ -1145,7 +1277,34 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     createdAtOf: (sid) => bootCreatedAt.get(sid) ?? null,
     // W42b send 队列 sidecar/恢复/加固链的 journal 出口（ServeLog 同形；未接 = 静默）。
     logSink: (level, msg, fields) => log(level, msg, fields),
+    // T4 inbox run 起止接缝：仅 inbox 装配存在时接线（否则键缺席 = 旧行为逐字节）。
+    ...(inboxBatchSessionID === undefined || inboxStore === undefined
+      ? {}
+      : {
+          onPrompt: (sessionID: string, text: string): unknown =>
+            inboxBatch?.onPrompt(sessionID, text),
+          onRunFinished: (sessionID: string, token: unknown): void => {
+            inboxBatch?.onRunFinished(sessionID, token);
+          },
+        }),
   });
+  if (inboxBatchSessionID !== undefined && inboxStore !== undefined) {
+    const batchSessionID = inboxBatchSessionID;
+    inboxBatch = new InboxBatchRuntime({
+      store: inboxStore,
+      config: inboxConfig ?? {},
+      sessionID: batchSessionID,
+      deliverWake: (line: string): void => {
+        registry.deliverWake(batchSessionID, line, {
+          title: "收件箱提醒",
+          message: "收件箱来信待处理",
+          variant: "info",
+        });
+      },
+      now: () => Date.now(),
+      log: (level, msg, fields) => log(level, msg, fields),
+    });
+  }
   compactSessionResolver = (sessionID) => registry.loopOf(sessionID)?.session;
   // pty 退出通知绑定（双惰性闭环）：PTY 退出走 durable 队列路径（空闲 → 立即起轮；
   // 忙 → 当前轮收尾后起新轮），不走 transient 边界提醒（收束前会滞留）。
@@ -1187,6 +1346,31 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       retireConverge,
       source: "declared",
     });
+  }
+
+  // Flow Phase A 退休提示：flow.enabled=false 但仍有 flow 状态目录残留时，
+  // 仅打印一条 WARN 指引运维跑退休工具；不改动任何 boot 行为，flow-enabled 路径逐字节不变。
+  if (!flowEnabled) {
+    const flowStateDirs: string[] = [];
+    try {
+      const sessionRootReal = join(options.stateRoot, "session");
+      if (existsSync(sessionRootReal)) {
+        for (const name of readdirSync(sessionRootReal)) {
+          if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/.test(name)) continue;
+          if (existsSync(join(sessionRootReal, name, "flow"))) {
+            flowStateDirs.push(name);
+          }
+        }
+      }
+    } catch {
+      // 探测失败不阻断 boot
+    }
+    if (flowStateDirs.length > 0) {
+      log("warn", "loom flow state remains but flow.enabled=false", {
+        hint: "运行 node scripts/retire-flow.mjs --state-root <stateRoot> --apply 以退休 Flow 状态（原数据仅复制，不删除）",
+        sessions: flowStateDirs,
+      });
+    }
   }
   // W15 重启重水化（修「restart 清空会话列表」）：registry.#records 是纯内存 Map，
   // 此前 boot 后零登记 → GET /sessions 空 → 网页面板 loadSessions 拿不到任何会话，
@@ -1249,6 +1433,10 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
         log("warn", "loom flow wake reconcile threw", { error: errorText(error) });
       }
       log("debug", "loom scheduling boot step", { step: "flow.reconcile" });
+    }
+    if (inboxDigest !== undefined) {
+      await reconcileDigest();
+      log("debug", "loom scheduling boot step", { step: "inbox.digest.reconcile" });
     }
     if (!schedulingClosed) {
       planScheduler?.start();
@@ -1336,6 +1524,15 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     // W23-A：/context/full 三段回落的缓存读口 + 纯缓存面的 contextWindow 数据源。
     wireCache,
     contextWindow: typeof model.model.contextWindow === "number" ? model.model.contextWindow : null,
+  });
+  registerInboxRoutes(router, {
+    store: inboxStore,
+    policy: inboxPolicy,
+    registry,
+    sessionID: inboxSessionID ?? schedulingMainSessionID ?? mainSession.sessionID,
+    mode: inboxMode,
+    log: (level, msg, fields) => log(level, msg, fields),
+    ...(inboxDigest === undefined ? {} : { digest: { reconcile: reconcileDigest } }),
   });
   // W25 手动热重载端点（运维面；鉴权继承 Router 前置，无豁免）。重扫 allowlist 并原子
   // 换入目录视图：成功 = 下一请求的 system prompt 即携新 catalog（主/副/子会话同一
@@ -1514,7 +1711,7 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     ledger,
     engine,
     kernel,
-    tools: toolWiring.tools,
+    tools: toolWiring.mainTools,
     skillsWiring,
     mcpWiring,
     // W25 现算面：每次读取重建清单（skillFiles 段随热重载即刻反映；其余段定值纯函数重算）。
@@ -1532,6 +1729,7 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       }
       wakeQueue?.dispose();
       planScheduler?.dispose();
+      inboxBatch?.dispose();
       await mcpWiring.closeAll();
     },
   };

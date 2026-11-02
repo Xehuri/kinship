@@ -348,14 +348,19 @@ describe("restore", () => {
     writeSidecar(root, [
       storedEntry({ id: "old-plan", source: "plan", at: NOW - 49 * HOUR }),
       storedEntry({ id: "old-flow", source: "flow", at: NOW - 31 * DAY }),
+      storedEntry({ id: "old-inbox", source: "inbox", at: NOW - 49 * HOUR }),
       storedEntry({ id: "expired-special", source: "special", at: NOW + 1_000, expires_at: NOW }),
+      storedEntry({ id: "recent-inbox", source: "inbox", at: NOW - 2 * HOUR }),
       storedEntry({ id: "recent-special", source: "special", at: NOW - 1 * HOUR }),
     ]);
 
     const queue = makeQueue(root);
-    expect(await queue.restore()).toEqual({ restored: 1, migratedLegacy: false, dropped: 3 });
-    expect((await queue.snapshot()).entries.map((item) => item.id)).toEqual(["recent-special"]);
-    expect(arrayField(readJson(pathsAt(root).sidecar), "entries")).toHaveLength(1);
+    expect(await queue.restore()).toEqual({ restored: 2, migratedLegacy: false, dropped: 4 });
+    expect((await queue.snapshot()).entries.map((item) => item.id)).toEqual([
+      "recent-inbox",
+      "recent-special",
+    ]);
+    expect(arrayField(readJson(pathsAt(root).sidecar), "entries")).toHaveLength(2);
   });
 });
 
@@ -443,6 +448,31 @@ describe("watchdogTick 与落盘", () => {
       at: NOW + 60_000,
       instructions: "按计划执行",
     });
+  });
+
+  it("inbox 来源：接受入队、按 48h 保留，并投影为 inbox WakeEntry", async () => {
+    const root = tempRoot();
+    const queue = makeQueue(root);
+    const dueAt = NOW + 5 * 60_000;
+    expect(
+      await queue.enqueue({
+        id: `inbox:digest:${String(dueAt)}`,
+        source: "inbox",
+        action: "inbox.digest",
+        at: dueAt,
+        payload: { title: "收件箱摘要" },
+      }),
+    ).toBe("inserted");
+    const stored = first((await queue.snapshot()).entries);
+    expect(stored).toMatchObject({ source: "inbox", action: "inbox.digest", at: dueAt });
+    expect(toWakeEntry(stored)).toMatchObject({
+      id: `inbox:digest:${String(dueAt)}`,
+      title: "收件箱摘要",
+      source: "inbox",
+      action: "inbox.digest",
+    });
+    const reconcile = await queue.reconcileSource("inbox", []);
+    expect(reconcile).toEqual({ added: 0, updated: 0, cancelled: 1 });
   });
 });
 

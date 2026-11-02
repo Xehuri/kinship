@@ -23,11 +23,12 @@ export const WAKE_ACTIONS = [
   "longterm.due",
   "flow.check",
   "special.continue",
+  "inbox.digest",
 ] as const;
 
 export type WakeAction = (typeof WAKE_ACTIONS)[number];
 
-export const WAKE_SOURCES = ["master", "anchor", "long_term", "flow", "special"] as const;
+export const WAKE_SOURCES = ["master", "anchor", "long_term", "flow", "special", "inbox"] as const;
 
 export type WakeSource = (typeof WAKE_SOURCES)[number];
 
@@ -49,6 +50,7 @@ const SOURCE_DEFAULT_ACTIONS: Readonly<Record<WakeSource, WakeAction>> = {
   long_term: "longterm.due",
   flow: "flow.check",
   special: "special.continue",
+  inbox: "inbox.digest",
 };
 
 /** 已知历史任务 id 的显式映射；未知 id 仍回落到来源兜底。 */
@@ -103,6 +105,8 @@ export function actionRequiresCoverage(action: WakeAction): boolean {
       return false;
     case "special.continue":
       return false;
+    case "inbox.digest":
+      return false;
     default:
       return assertNever(action);
   }
@@ -139,6 +143,8 @@ export function actionIsSilent(action: WakeAction): boolean {
       return true;
     case "special.continue":
       return false;
+    case "inbox.digest":
+      return true;
     default:
       return assertNever(action);
   }

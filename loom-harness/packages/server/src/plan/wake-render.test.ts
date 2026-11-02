@@ -185,6 +185,30 @@ describe("source dispatch", () => {
       formatSpecialWakeLine(AT),
     );
   });
+
+  it("routes inbox sources to the selected instructions or payload fallback", () => {
+    const withInstructions = entry({
+      id: "inbox:digest:1",
+      source: "inbox",
+      action: "inbox.digest",
+      title: "收件箱摘要",
+      instructions: "按 inbox 工具拉取待处理信件。",
+    });
+    expect(renderWakeEntry(withInstructions, { date: DATE, timezone: SHANGHAI })).toBe(
+      "按 inbox 工具拉取待处理信件。",
+    );
+
+    const fallback = entry({
+      id: "inbox:digest:2",
+      source: "inbox",
+      action: "inbox.digest",
+      title: "摘要批次",
+      payload: { title: "摘要批次" },
+    });
+    const line = renderWakeEntry(fallback, { date: DATE, timezone: SHANGHAI });
+    expect(line).toContain("【收件箱摘要】摘要批次");
+    expect(line).toContain(formatWakeAt(AT));
+  });
 });
 
 describe("unknown input fallback", () => {

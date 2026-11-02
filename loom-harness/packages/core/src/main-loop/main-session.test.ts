@@ -824,4 +824,59 @@ describe("promptTimestamp：队列 prompt 保留 accept 时刻", () => {
     expect(userMessageWithContent(loop.messages, "queued-main").timestamp).toBe(12345);
     model.teardown();
   });
+
+
+describe("Loom inbox 表征测试：TurnBoundary.deliver 耐久 / remind 瞬态（不改行为）", () => {
+  const REMINDER_LOCAL = '[run-reminder] run=run_local status=done side_session=ses_local；副会话已终态。';
+
+  it("(D) deliver 耐久：投递在 turn 边界 appendMessage 进 session.messages，随 HWM 落盘，resume 可见", async () => {
+    const store = new MemorySessionStore();
+    let loopRef!: MainSessionLoop;
+    const deliverTool: HarnessTool = {
+      name: "deliverer",
+      description: "测试用：执行时调用 loop.deliver 注入一条 user 信",
+      parameters: Type.Object({ msg: Type.String() }),
+      isConcurrencySafe: () => true,
+      async execute(args) {
+        loopRef.deliver(`【信】${String(args["msg"] ?? "")}`);
+        return { content: [{ type: "text", text: "delivered" }] };
+      },
+    };
+    const model = createFakeModel([
+      { content: [{ type: "toolCall", name: "deliverer", arguments: { msg: "letter-1" } }] },
+      convergeTurn(),
+    ]);
+    loopRef = makeLoop(model, { store, tools: [deliverTool] });
+    const result = await loopRef.start("调度");
+    expect(result.type).toBe("converged");
+    const persisted = storeMessages(await store.getPathToLeaf(loopRef.id));
+    expect(persisted.some((m) => m.role === "user" && textOf(m).includes("letter-1"))).toBe(true);
+    const drained = eventsOfType(loopRef.events(), "delivery-drained");
+    expect(drained).toHaveLength(1);
+    expect(nth(drained, 0).turnIdx).toBe(1);
+    expect(nth(drained, 0).count).toBe(1);
+    expect(loopRef.pendingDeliveries()).toBe(0);
+    model.teardown();
+  });
+
+  it("(E) remind 瞬态：提醒绝不进 session.messages/store（'不在历史中'），只在下一次 LLM call 的 messages view 尾部", async () => {
+    const store = new MemorySessionStore();
+    const sessionId = "w12-remind-transient-lineage";
+    const model = createFakeModel([convergeTurn()]);
+    const loop = makeLoop(model, { store, sessionId, onRemindersDrained: () => {} });
+    loop.remind(REMINDER_LOCAL);
+    expect(loop.pendingReminders()).toBe(1);
+    const result = await loop.start("第二问");
+    expect(result.type).toBe("converged");
+    const sent = nth(model.getCalls(), 0).messages;
+    expect(allText(sent)).toContain(REMINDER_LOCAL);
+    expect(allText(loop.messages)).not.toContain(REMINDER_LOCAL);
+    const persisted = storeMessages(await store.getPathToLeaf(sessionId));
+    expect(persisted.map((m) => textOf(m)).join("\n")).not.toContain(REMINDER_LOCAL);
+    expect(loop.pendingReminders()).toBe(0);
+    model.teardown();
+  });
+});
+
+
 });

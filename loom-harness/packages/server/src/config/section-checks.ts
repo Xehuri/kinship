@@ -1,6 +1,8 @@
 // T07 loom.yaml 各段（server/models/pricing/workspace/exits）的类型与运行时校验。
 // credentials 段单独在 ./credentials.ts（凭据铁律）。
 
+import type { LetterClass, LetterTrust } from "../inbox/types.js";
+
 /** 品牌类型：模型 id，区别于普通 string（跨模块传错 id 编译期即拒）。 */
 export type ModelId = string & { readonly __brand: "ModelId" };
 
@@ -1693,5 +1695,452 @@ export function checkScheduling(
     ...(debtAfterHours === undefined ? {} : { debtAfterHours }),
     ...(timezone === undefined ? {} : { timezone }),
     ...(sessionId === undefined ? {} : { sessionId }),
+  };
+}
+
+
+/** 收件箱档位：off 不装配；shadow 只观测落账；live 入库并允许路由投递。 */
+export type InboxMode = "off" | "shadow" | "live";
+
+/** 单个 source 的注册配置（source 是注册键，不是枚举）。 */
+export interface InboxSourceConfig {
+  readonly maxTrust?: LetterTrust;
+  readonly maxClass?: LetterClass;
+  readonly ratePerMinute?: number;
+  readonly burst?: number;
+  readonly cooldownMs?: number;
+  readonly requireDedupeKey?: boolean;
+  /** 该 source 的鉴权 token 所在环境变量名（只存名字，绝不存值）。 */
+  readonly tokenEnv?: string;
+}
+
+export interface InboxLimitsConfig {
+  readonly maxBodyBytes?: number;
+  readonly maxPending?: number;
+  readonly maxLettersPerMinute?: number;
+}
+
+export interface InboxDigestConfig {
+  readonly cadenceMs?: number;
+  readonly maxAgeMs?: number;
+  readonly maxBatch?: number;
+  readonly leaseMs?: number;
+}
+
+export interface InboxClassesConfig {
+  readonly weights?: {
+    readonly interrupt?: number;
+    readonly notify?: number;
+    readonly digest?: number;
+  };
+}
+
+export interface InboxAccumulateConfig {
+  readonly notifyBurst?: number;
+  readonly windowMs?: number;
+}
+
+export interface InboxQuietHoursConfig {
+  readonly enabled?: boolean;
+  readonly start?: string;
+  readonly end?: string;
+  readonly timezone?: string;
+  readonly downgradeExternalInterruptTo?: "notify" | "digest";
+}
+
+export interface InboxRedeliveryConfig {
+  readonly maxAttempts?: number;
+  readonly backoffMs?: number;
+}
+
+export interface InboxEchoConfig {
+  readonly maxCausationDepth?: number;
+  readonly blockedSources?: readonly string[];
+}
+
+/**
+ * 收件箱配置面（`inbox` 段）。所有键可选；缺席 = undefined 不物化，
+ * 缺省语义集中在 inbox/defaults.ts 的消费层（schema 不造假值）。
+ * 未知键与邻居各段同口径：不读不报，静默容忍。
+ */
+export interface InboxConfig {
+  readonly mode?: InboxMode;
+  readonly sessionId?: string;
+  readonly sources?: Readonly<Record<string, InboxSourceConfig>>;
+  readonly limits?: InboxLimitsConfig;
+  readonly digest?: InboxDigestConfig;
+  readonly classes?: InboxClassesConfig;
+  readonly accumulate?: InboxAccumulateConfig;
+  readonly quietHours?: InboxQuietHoursConfig;
+  readonly redelivery?: InboxRedeliveryConfig;
+  readonly ackGraceTurns?: number;
+  readonly autoAckKinds?: readonly string[];
+  readonly dedupeTtlMs?: number;
+  readonly coalesceWindowMs?: number;
+  readonly echo?: InboxEchoConfig;
+  readonly planMirror?: boolean;
+  readonly metricsIntervalMs?: number;
+}
+
+const INBOX_SOURCE_KEY_RE = /^[a-z0-9_.-]{1,64}$/;
+const INBOX_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const INBOX_ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const INBOX_HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function optionalPositiveNumber(
+  v: unknown,
+  field: string,
+  errors: string[],
+): number | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+    return v;
+  }
+  errors.push(`${field}: 需要 >0 的数字，实际为 ${JSON.stringify(v) ?? "undefined"}`);
+  return undefined;
+}
+
+function checkInboxSessionId(
+  v: unknown,
+  errors: string[],
+): string | undefined {
+  const id = optionalStr(v, "inbox.sessionId", errors);
+  if (id === undefined) return undefined;
+  if (!INBOX_SESSION_ID_RE.test(id)) {
+    errors.push(
+      `inbox.sessionId: 需要匹配 ${String(INBOX_SESSION_ID_RE)}（字母数字开头，允许 ._-），实际为 ${JSON.stringify(id)}`,
+    );
+    return undefined;
+  }
+  return id;
+}
+
+function checkInboxSource(
+  key: string,
+  raw: unknown,
+  errors: string[],
+): InboxSourceConfig | undefined {
+  const field = `inbox.sources.${key}`;
+  if (!isRecord(raw)) {
+    errors.push(`${field}: 需要映射`);
+    return undefined;
+  }
+  const maxTrust = optionalEnum(
+    raw["maxTrust"],
+    `${field}.maxTrust`,
+    ["external", "trusted_service", "user"],
+    errors,
+  );
+  const maxClass = optionalEnum(
+    raw["maxClass"],
+    `${field}.maxClass`,
+    ["digest", "notify", "interrupt"],
+    errors,
+  );
+  const ratePerMinute = optionalIntRange(raw["ratePerMinute"], `${field}.ratePerMinute`, 1, errors);
+  const burst = optionalIntRange(raw["burst"], `${field}.burst`, 1, errors);
+  const cooldownMs = optionalIntRange(raw["cooldownMs"], `${field}.cooldownMs`, 0, errors);
+  const requireDedupeKey = optionalBool(raw["requireDedupeKey"], `${field}.requireDedupeKey`, errors);
+  const tokenEnv = optionalStr(raw["tokenEnv"], `${field}.tokenEnv`, errors);
+  if (tokenEnv !== undefined && !INBOX_ENV_NAME_RE.test(tokenEnv)) {
+    errors.push(
+      `${field}.tokenEnv: 需要合法环境变量名（${String(INBOX_ENV_NAME_RE)}），实际为 ${JSON.stringify(tokenEnv)}`,
+    );
+  }
+  if (maxTrust === "external" && maxClass === "interrupt") {
+    errors.push(
+      `${field}.maxClass: 与 maxTrust 冲突（external 最高只能 notify；interrupt 需要 trusted_service/user）`,
+    );
+  }
+  return {
+    ...(maxTrust === undefined ? {} : { maxTrust }),
+    ...(maxClass === undefined ? {} : { maxClass }),
+    ...(ratePerMinute === undefined ? {} : { ratePerMinute }),
+    ...(burst === undefined ? {} : { burst }),
+    ...(cooldownMs === undefined ? {} : { cooldownMs }),
+    ...(requireDedupeKey === undefined ? {} : { requireDedupeKey }),
+    ...(tokenEnv === undefined ? {} : { tokenEnv }),
+  };
+}
+
+function checkInboxSources(
+  raw: unknown,
+  errors: string[],
+): Readonly<Record<string, InboxSourceConfig>> | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push("inbox.sources: 需要映射（source 注册键 → 配置）");
+    return undefined;
+  }
+  const out: Record<string, InboxSourceConfig> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!INBOX_SOURCE_KEY_RE.test(key)) {
+      errors.push(
+        `inbox.sources[${JSON.stringify(key)}]: 需要匹配 ${String(INBOX_SOURCE_KEY_RE)}，实际为 ${JSON.stringify(key)}`,
+      );
+      continue;
+    }
+    const checked = checkInboxSource(key, value, errors);
+    if (checked !== undefined) out[key] = checked;
+  }
+  return out;
+}
+
+function checkInboxLimits(raw: unknown, errors: string[]): InboxLimitsConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push("inbox.limits: 需要映射");
+    return undefined;
+  }
+  const maxBodyBytes = optionalIntRange(raw["maxBodyBytes"], "inbox.limits.maxBodyBytes", 1, errors);
+  const maxPending = optionalIntRange(raw["maxPending"], "inbox.limits.maxPending", 0, errors);
+  const maxLettersPerMinute = optionalIntRange(
+    raw["maxLettersPerMinute"],
+    "inbox.limits.maxLettersPerMinute",
+    1,
+    errors,
+  );
+  return {
+    ...(maxBodyBytes === undefined ? {} : { maxBodyBytes }),
+    ...(maxPending === undefined ? {} : { maxPending }),
+    ...(maxLettersPerMinute === undefined ? {} : { maxLettersPerMinute }),
+  };
+}
+
+function checkInboxDigest(raw: unknown, errors: string[]): InboxDigestConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push("inbox.digest: 需要映射");
+    return undefined;
+  }
+  const cadenceMs = optionalIntRange(raw["cadenceMs"], "inbox.digest.cadenceMs", 1, errors);
+  const maxAgeMs = optionalIntRange(raw["maxAgeMs"], "inbox.digest.maxAgeMs", 1, errors);
+  const maxBatch = optionalIntRange(raw["maxBatch"], "inbox.digest.maxBatch", 1, errors);
+  const leaseMs = optionalIntRange(raw["leaseMs"], "inbox.digest.leaseMs", 1, errors);
+  return {
+    ...(cadenceMs === undefined ? {} : { cadenceMs }),
+    ...(maxAgeMs === undefined ? {} : { maxAgeMs }),
+    ...(maxBatch === undefined ? {} : { maxBatch }),
+    ...(leaseMs === undefined ? {} : { leaseMs }),
+  };
+}
+
+function checkInboxClasses(raw: unknown, errors: string[]): InboxClassesConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push("inbox.classes: 需要映射");
+    return undefined;
+  }
+  const weightsRaw = raw["weights"];
+  if (weightsRaw === undefined) return {};
+  if (!isRecord(weightsRaw)) {
+    errors.push("inbox.classes.weights: 需要映射");
+    return {};
+  }
+  const interrupt = optionalPositiveNumber(
+    weightsRaw["interrupt"],
+    "inbox.classes.weights.interrupt",
+    errors,
+  );
+  const notify = optionalPositiveNumber(weightsRaw["notify"], "inbox.classes.weights.notify", errors);
+  const digest = optionalPositiveNumber(weightsRaw["digest"], "inbox.classes.weights.digest", errors);
+  if (interrupt !== undefined && notify !== undefined && interrupt < notify) {
+    errors.push(
+      `inbox.classes.weights.interrupt: 必须 ≥ notify（class 权重只用于排序，禁止倒挂），实际为 ${interrupt} < ${notify}`,
+    );
+  }
+  if (notify !== undefined && digest !== undefined && notify < digest) {
+    errors.push(
+      `inbox.classes.weights.notify: 必须 ≥ digest（class 权重只用于排序，禁止倒挂），实际为 ${notify} < ${digest}`,
+    );
+  }
+  return {
+    weights: {
+      ...(interrupt === undefined ? {} : { interrupt }),
+      ...(notify === undefined ? {} : { notify }),
+      ...(digest === undefined ? {} : { digest }),
+    },
+  };
+}
+
+function checkInboxAccumulate(raw: unknown, errors: string[]): InboxAccumulateConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push("inbox.accumulate: 需要映射");
+    return undefined;
+  }
+  const notifyBurst = optionalIntRange(raw["notifyBurst"], "inbox.accumulate.notifyBurst", 1, errors);
+  const windowMs = optionalIntRange(raw["windowMs"], "inbox.accumulate.windowMs", 1, errors);
+  return {
+    ...(notifyBurst === undefined ? {} : { notifyBurst }),
+    ...(windowMs === undefined ? {} : { windowMs }),
+  };
+}
+
+function isValidTimeZone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function checkInboxQuietHours(
+  raw: unknown,
+  errors: string[],
+): InboxQuietHoursConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push("inbox.quietHours: 需要映射");
+    return undefined;
+  }
+  const enabled = optionalBool(raw["enabled"], "inbox.quietHours.enabled", errors);
+  const start = optionalStr(raw["start"], "inbox.quietHours.start", errors);
+  const end = optionalStr(raw["end"], "inbox.quietHours.end", errors);
+  const timezone = optionalStr(raw["timezone"], "inbox.quietHours.timezone", errors);
+  const downgrade = optionalEnum(
+    raw["downgradeExternalInterruptTo"],
+    "inbox.quietHours.downgradeExternalInterruptTo",
+    ["notify", "digest"],
+    errors,
+  );
+  if (start !== undefined && !INBOX_HHMM_RE.test(start)) {
+    errors.push(`inbox.quietHours.start: 需要 HH:MM（00:00-23:59），实际为 ${JSON.stringify(start)}`);
+  }
+  if (end !== undefined && !INBOX_HHMM_RE.test(end)) {
+    errors.push(`inbox.quietHours.end: 需要 HH:MM（00:00-23:59），实际为 ${JSON.stringify(end)}`);
+  }
+  if (timezone !== undefined && !isValidTimeZone(timezone)) {
+    errors.push(`inbox.quietHours.timezone: 需要合法 IANA 时区名，实际为 ${JSON.stringify(timezone)}`);
+  }
+  if (enabled === true && timezone === undefined) {
+    errors.push("inbox.quietHours.timezone: quietHours.enabled=true 时必填（用于判断本地静默时段）");
+  }
+  return {
+    ...(enabled === undefined ? {} : { enabled }),
+    ...(start === undefined ? {} : { start }),
+    ...(end === undefined ? {} : { end }),
+    ...(timezone === undefined ? {} : { timezone }),
+    ...(downgrade === undefined ? {} : { downgradeExternalInterruptTo: downgrade }),
+  };
+}
+
+function checkInboxRedelivery(
+  raw: unknown,
+  errors: string[],
+): InboxRedeliveryConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push("inbox.redelivery: 需要映射");
+    return undefined;
+  }
+  const maxAttempts = optionalIntRange(raw["maxAttempts"], "inbox.redelivery.maxAttempts", 0, errors);
+  const backoffMs = optionalIntRange(raw["backoffMs"], "inbox.redelivery.backoffMs", 0, errors);
+  return {
+    ...(maxAttempts === undefined ? {} : { maxAttempts }),
+    ...(backoffMs === undefined ? {} : { backoffMs }),
+  };
+}
+
+function checkInboxAutoAckKinds(raw: unknown, errors: string[]): readonly string[] | undefined {
+  const kinds = optionalStrArray(raw, "inbox.autoAckKinds", errors);
+  if (kinds === undefined) return undefined;
+  const seen = new Set<string>();
+  for (const [i, kind] of kinds.entries()) {
+    if (seen.has(kind)) {
+      errors.push(`inbox.autoAckKinds[${i}]: 重复的 kind ${JSON.stringify(kind)}`);
+    }
+    seen.add(kind);
+  }
+  return kinds;
+}
+
+function checkInboxEcho(raw: unknown, errors: string[]): InboxEchoConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push("inbox.echo: 需要映射");
+    return undefined;
+  }
+  const maxCausationDepth = optionalIntRange(
+    raw["maxCausationDepth"],
+    "inbox.echo.maxCausationDepth",
+    0,
+    errors,
+  );
+  const blockedSourcesRaw = optionalStrArray(raw["blockedSources"], "inbox.echo.blockedSources", errors);
+  if (blockedSourcesRaw !== undefined) {
+    const seen = new Set<string>();
+    for (const [i, source] of blockedSourcesRaw.entries()) {
+      if (!INBOX_SOURCE_KEY_RE.test(source)) {
+        errors.push(
+          `inbox.echo.blockedSources[${i}]: 需要匹配 ${String(INBOX_SOURCE_KEY_RE)}，实际为 ${JSON.stringify(source)}`,
+        );
+      }
+      if (seen.has(source)) {
+        errors.push(`inbox.echo.blockedSources[${i}]: 重复的 source ${JSON.stringify(source)}`);
+      }
+      seen.add(source);
+    }
+  }
+  return {
+    ...(maxCausationDepth === undefined ? {} : { maxCausationDepth }),
+    ...(blockedSourcesRaw === undefined ? {} : { blockedSources: blockedSourcesRaw }),
+  };
+}
+
+/**
+ * inbox 段校验：整段缺省 = undefined；存在必为映射；单键缺席不物化，
+ * 非法值 fail-fast 并点名精确键。未知键静默容忍（邻居各段同口径）。
+ */
+export function checkInbox(raw: unknown, errors: string[]): InboxConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push("inbox: 需要映射");
+    return undefined;
+  }
+  const mode = optionalEnum(raw["mode"], "inbox.mode", ["off", "shadow", "live"], errors);
+  const sessionId = checkInboxSessionId(raw["sessionId"], errors);
+  const sources = checkInboxSources(raw["sources"], errors);
+  const limits = checkInboxLimits(raw["limits"], errors);
+  const digest = checkInboxDigest(raw["digest"], errors);
+  const classes = checkInboxClasses(raw["classes"], errors);
+  const accumulate = checkInboxAccumulate(raw["accumulate"], errors);
+  const quietHours = checkInboxQuietHours(raw["quietHours"], errors);
+  const redelivery = checkInboxRedelivery(raw["redelivery"], errors);
+  const ackGraceTurns = optionalIntRange(raw["ackGraceTurns"], "inbox.ackGraceTurns", 0, errors);
+  const autoAckKinds = checkInboxAutoAckKinds(raw["autoAckKinds"], errors);
+  const dedupeTtlMs = optionalIntRange(raw["dedupeTtlMs"], "inbox.dedupeTtlMs", 0, errors);
+  const coalesceWindowMs = optionalIntRange(
+    raw["coalesceWindowMs"],
+    "inbox.coalesceWindowMs",
+    0,
+    errors,
+  );
+  const echo = checkInboxEcho(raw["echo"], errors);
+  const planMirror = optionalBool(raw["planMirror"], "inbox.planMirror", errors);
+  const metricsIntervalMs = optionalIntRange(
+    raw["metricsIntervalMs"],
+    "inbox.metricsIntervalMs",
+    1,
+    errors,
+  );
+  return {
+    ...(mode === undefined ? {} : { mode }),
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(sources === undefined ? {} : { sources }),
+    ...(limits === undefined ? {} : { limits }),
+    ...(digest === undefined ? {} : { digest }),
+    ...(classes === undefined ? {} : { classes }),
+    ...(accumulate === undefined ? {} : { accumulate }),
+    ...(quietHours === undefined ? {} : { quietHours }),
+    ...(redelivery === undefined ? {} : { redelivery }),
+    ...(ackGraceTurns === undefined ? {} : { ackGraceTurns }),
+    ...(autoAckKinds === undefined ? {} : { autoAckKinds }),
+    ...(dedupeTtlMs === undefined ? {} : { dedupeTtlMs }),
+    ...(coalesceWindowMs === undefined ? {} : { coalesceWindowMs }),
+    ...(echo === undefined ? {} : { echo }),
+    ...(planMirror === undefined ? {} : { planMirror }),
+    ...(metricsIntervalMs === undefined ? {} : { metricsIntervalMs }),
   };
 }

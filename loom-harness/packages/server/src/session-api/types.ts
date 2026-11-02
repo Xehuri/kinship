@@ -317,6 +317,17 @@ export interface SessionRegistryOptions {
    * 返回 null = 不在 boot 快照（新会话 ⇒ 取 now）。注入时刻 = #ensure 建记录时刻。
    */
   readonly createdAtOf?: (sessionID: string) => number | null;
+  /**
+   * T4 inbox run 起点接缝：每轮 #start 在 LLM 循环启动前同步调用，返回值作为该轮
+   * run-scoped token 存进 SessionRecord.promptToken。异常只 journal warn，绝不改变
+   * 会话终态；未接线 = 键缺席 = 旧行为逐字节。
+   */
+  readonly onPrompt?: (sessionID: string, text: string) => unknown;
+  /**
+   * T4 inbox run 终点接缝：每轮 #start finally 在 #drainQueue 之前调用（同一 token）。
+   * 异常只 journal warn；未接线 = 键缺席 = 旧行为逐字节。
+   */
+  readonly onRunFinished?: (sessionID: string, token: unknown) => void;
 }
 
 /**
@@ -447,6 +458,11 @@ export interface SessionRecord {
   flow: FlowDraft | null;
   /** T5 待触发的重放定时器（queue 头部 replay 行的 nextAt 驱动；null = 无在途定时器）。 */
   replayTimer?: ReturnType<typeof setTimeout> | null;
+  /**
+   * T4 inbox run token（onPrompt 返回、onRunFinished 消费）；未接线/非 inbox 轮 =
+   * undefined。仅内存，绝不进 sidecar/转录。
+   */
+  promptToken?: unknown | undefined;
   /**
    * W16-F1 busy 排队（对齐 opencode prompt_async 的排队语义）：在途轮未收尾时
    * 到达的文本消息按 FIFO 滞留于此，上限 `SEND_QUEUE_CAP`（超限回压 409）；

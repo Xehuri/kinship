@@ -52,7 +52,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Mapping
 
 from config.config import get_config
 from services.opencode_client import (
@@ -647,6 +647,85 @@ class LoomClient:
             return self._ok({"sent": success, "session_id": session_id, "queued": queued})
         except Exception as e:
             return self._fail("system", f"send_message 异常: {e}")
+
+    async def send_letter(
+        self,
+        session_id: str,
+        letter: Mapping[str, Any],
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """POST /inbox/letters —— 异步来源投递到 Loom 统一收件箱。
+
+        返回 (ok, error, result)：
+          - 200（dedupe 命中）与 202（accepted/coalesced/observed）都算成功；
+            duplicate 不是失败，调用方按 result["body"]["duplicate"] 自行判定。
+          - 4xx/5xx = 失败；error 为可读详情，result 带 status/body/code 供网关
+            决定重试或丢弃。
+          - 传输异常 = (False, 脱敏错误, None)，不伪造已入箱。
+
+        session_id 仅用于日志归属；收件箱会话由 Loom 侧 inbox.sessionId /
+        scheduling 会话决定，路由本身不接收 session 参数。
+        """
+        logger.debug(
+            "[LOOM-REQ] POST /inbox/letters session=%s source=%s class=%s",
+            session_id,
+            letter.get("source"),
+            letter.get("class"),
+        )
+        try:
+            status, data, _ = await self._request(
+                "POST",
+                "/inbox/letters",
+                json_body=dict(letter),
+                timeout=aiohttp.ClientTimeout(total=15),
+            )
+            body: Dict[str, Any] = data if isinstance(data, dict) else {"raw": data}
+            if status in (200, 202):
+                return True, None, {"status": status, "body": body}
+            code: Optional[str] = None
+            err = body.get("error")
+            if isinstance(err, dict) and isinstance(err.get("code"), str):
+                code = err["code"]
+            result: Dict[str, Any] = {"status": status, "body": body}
+            if code is not None:
+                result["code"] = code
+            return False, self._error_detail(status, data), result
+        except Exception as e:
+            logger.error(
+                "发送收件箱信件失败: session=%s err=%s",
+                session_id,
+                redact_text(str(e)),
+            )
+            return False, redact_text(str(e)), None
+
+    async def get_inbox_status(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """GET /inbox/status —— 收件箱积压/分类/摘要到期只读面（与前端信封同构）。
+
+        session_id 仅为调用方对齐签名保留（状态端点是 Loom 实例级，不按会话过滤）。
+        """
+        if self._offline_mode():
+            return self._ok({
+                "as_of": 0,
+                "mode": "off",
+                "pending": 0,
+                "by_class": {"digest": 0, "notify": 0, "interrupt": 0},
+                "by_source": {},
+                "oldest_age_ms": 0,
+                "dead_letter": 0,
+                "unknown": 0,
+                "digest_due_at": None,
+                "session_id": session_id,
+            })
+        try:
+            status, data, _ = await self._request(
+                "GET",
+                "/inbox/status",
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            if status == 200 and isinstance(data, dict):
+                return self._ok(data)
+            return self._fail("loom", self._error_detail(status, data), code=status)
+        except Exception as e:
+            return self._fail("system", f"get_inbox_status 异常: {e}", code=502)
 
     async def send_voice_to_opencode(self, text: str, agent: str = "main-task") -> bool:
         """统一语音消息发送：获取/创建 agent 会话 → loom 原生 /voice（立接立回 202，

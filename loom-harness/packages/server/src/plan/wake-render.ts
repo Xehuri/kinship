@@ -153,6 +153,19 @@ export function formatSpecialWakeLine(at: number): string {
   return `【自动唤醒】设定的唤醒时间已到（${formatWakeAt(at)}，本地时间）。请继续处理此前挂起的任务。`;
 }
 
+/**
+ * inbox 摘要的缺省行：正常生产由 boot 的 inbox digest renderer 覆盖；
+ * 本分支只保证 renderWakeEntry 永不为 inbox 来源返回 null，且指令/载荷可被显式透传。
+ */
+export function formatInboxWakeLine(entry: WakeEntry): string {
+  const instructions = entry.instructions?.trim();
+  if (instructions !== undefined && instructions !== "") return instructions;
+  const payload = isRecord(entry.payload) ? entry.payload : null;
+  const title = typeof payload?.["title"] === "string" ? payload["title"] : "";
+  const head = title !== "" ? `【收件箱摘要】${title}` : "【收件箱摘要】";
+  return `${head}（${formatWakeAt(entry.at)}，本地时间）。请按收件箱流程处理待处理信件。`;
+}
+
 /** 按来源/动作分派渲染；无法识别时回落到来源兜底动作并告警。 */
 export function renderWakeEntry(entry: WakeEntry, deps: WakeRenderDeps): string | null {
   const source = resolveSource(entry.source);
@@ -172,6 +185,9 @@ export function renderWakeEntry(entry: WakeEntry, deps: WakeRenderDeps): string 
   }
   if (source === "special" || action === "special.continue") {
     return formatSpecialWakeLine(entry.at);
+  }
+  if (source === "inbox" || action === "inbox.digest") {
+    return formatInboxWakeLine(normalized);
   }
   return formatPlanWakeLine({
     entry: normalized,
