@@ -336,10 +336,10 @@ class TestMissingUserIdRejected:
     def test_active_endpoints_reject_missing_user_id(
         self, sandbox_root, client, auth_headers, monkeypatch
     ):
-        # 模拟“token 有效但身份缺失”的异常注入（中间件 L117 写入 None）
+        # 模拟“token 有效但身份缺失”的异常注入（中间件写入 None）
         monkeypatch.setattr(
-            "middleware.auth_middleware.verify_token",
-            lambda token: (True, None),
+            "middleware.auth_middleware.verify_token_full",
+            lambda token: (True, None, "user", ""),
         )
 
         cases = [
@@ -365,8 +365,8 @@ class TestMissingUserIdRejected:
     ):
         """sync 写路径专项：被拒后无任何分片落盘。"""
         monkeypatch.setattr(
-            "middleware.auth_middleware.verify_token",
-            lambda token: (True, None),
+            "middleware.auth_middleware.verify_token_full",
+            lambda token: (True, None, "user", ""),
         )
         resp = client.post(
             "/api/health/sync",
