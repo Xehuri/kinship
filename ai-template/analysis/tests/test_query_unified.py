@@ -244,6 +244,41 @@ def test_scope_layer_order_and_default_all_excludes_evidence(corpus, capsys):
     assert "evidence" not in all_payload["query"]["scopes"]
 
 
+def test_scope_accepts_comma_and_slash_values(corpus, capsys):
+    for value in ("event,observation", "event/observation"):
+        rc, payload, err = _json(
+            capsys, *_args(
+                corpus, "--scope", value, "--from", "2026-10-31",
+                "--to", "2026-11-01", "--format", "json",
+            ),
+        )
+        assert rc == 0, err
+        assert payload["query"]["scopes"] == ["event", "observation"]
+        assert {item["scope"] for item in payload["items"]} <= {"event", "observation"}
+
+
+def test_scope_rejects_unknown_comma_token(corpus):
+    with pytest.raises(SystemExit) as exc:
+        query.main(_args(
+            corpus, "--scope", "event,bogus", "--from", "2026-10-31",
+            "--to", "2026-11-01", "--format", "json",
+        ))
+    assert exc.value.code == 2
+
+
+def test_all_include_linked_evidence_expands_evidence_layer(corpus, capsys):
+    rc, payload, err = _json(
+        capsys, *_args(
+            corpus, "--scope", "all", "--allow-full-scan",
+            "--include-linked-evidence", "--format", "json",
+        ),
+    )
+    assert rc == 0, err
+    assert payload["query"]["scopes"] == ["event", "observation", "report", "evidence"]
+    assert payload["counts"]["by_scope"].get("evidence", 0) > 0
+    assert any(item["scope"] == "evidence" for item in payload["items"])
+
+
 def test_event_and_observation_scope_kind_semantics(corpus, capsys):
     _, event_payload, _ = _json(
         capsys, *_args(corpus, "--scope", "event", "--from", "2026-10-30",

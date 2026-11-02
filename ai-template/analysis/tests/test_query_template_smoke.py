@@ -56,3 +56,25 @@ def test_query_all_without_filters_requires_allow_full_scan() -> None:
     result = _run("--scope", "all", "--format", "json")
     assert result.returncode == 2
     assert "allow-full-scan" in result.stderr
+
+
+def test_query_scope_accepts_comma_and_slash() -> None:
+    for value in ("event,observation", "event/observation"):
+        result = _run("--scope", value, "--allow-full-scan", "--format", "json")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["query"]["scopes"] == ["event", "observation"]
+        assert payload["counts"]["total"] == 0
+
+
+def test_query_all_include_linked_evidence_expands_layer() -> None:
+    result = _run(
+        "--scope", "all", "--allow-full-scan",
+        "--include-linked-evidence", "--format", "json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["query"]["scopes"] == [
+        "event", "observation", "report", "evidence",
+    ]
+    assert payload["counts"]["total"] == 0

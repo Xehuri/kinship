@@ -795,14 +795,27 @@ def _expand_scopes(values: Sequence[str]) -> list[str]:
     return [scope for scope in LAYER_ORDER if scope in expanded]
 
 
+def _scope_values(value: str) -> list[str]:
+    parts = [part for part in re.split(r"[,/]", value) if part]
+    if not parts:
+        raise argparse.ArgumentTypeError("scope must not be empty")
+    allowed = (*LAYER_ORDER, "all")
+    for part in parts:
+        if part not in allowed:
+            raise argparse.ArgumentTypeError(
+                f"invalid scope {part!r} (choose from {', '.join(allowed)})"
+            )
+    return parts
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Read-only normalized retrieval across index/memory/chat layers.")
     parser.add_argument("--root", default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument("--index-dir", default=None)
     parser.add_argument(
-        "--scope", action="append", choices=(*LAYER_ORDER, "all"), default=None,
-        help="repeatable; default all",
+        "--scope", action="extend", type=_scope_values, default=None,
+        help="repeatable, comma/slash separated; default all",
     )
     parser.add_argument("--from", dest="start", default=None, help="YYYY-MM-DD (inclusive)")
     parser.add_argument("--to", dest="end", default=None, help="YYYY-MM-DD (inclusive)")
@@ -876,6 +889,9 @@ def _run(args: argparse.Namespace, requested: Sequence[str]) -> int:
     order = args.order or ("relevance" if args.grep else "chrono")
     descending = not args.asc
     scopes = _expand_scopes(requested)
+    if all_mode and args.include_linked_evidence and "evidence" not in scopes:
+        scopes.append("evidence")
+        scopes.sort(key=LAYER_ORDER.index)
     warnings: list[str] = []
 
     if "memory" in scopes and not args.grep:
