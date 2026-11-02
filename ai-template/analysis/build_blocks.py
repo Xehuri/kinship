@@ -186,6 +186,62 @@ def build_batch(root: Path, date_filter: str | None, include_meta: bool = False)
     return set(days), rows
 
 
+def legacy_files(root: Path, date_filter: str | None) -> tuple[list[str], list[Path]]:
+    """Return monolithic 理解 files for days that have no batch files."""
+    daily = root / "data" / "daily"
+    if date_filter is not None:
+        days = [date_filter]
+    elif daily.is_dir():
+        days = sorted(path.name for path in daily.iterdir() if path.is_dir() and DATE_RE.match(path.name))
+    else:
+        days = []
+    files: list[Path] = []
+    for day in days:
+        folder = daily / day
+        if not folder.is_dir():
+            continue
+        if list(folder.glob(f"理解-{day}-批次-*.md")):
+            continue
+        path = folder / f"理解-{day}.md"
+        if path.is_file():
+            files.append(path)
+    return days, files
+
+
+def build_legacy(root: Path, date_filter: str | None) -> tuple[set[str], list[dict]]:
+    """Build blocks from pre-batch monolithic 理解 files."""
+    days, files = legacy_files(root, date_filter)
+    counters: dict[tuple[str, str], int] = {}
+    rows: list[dict] = []
+    for path in files:
+        day = path.parent.name
+        rel = relative_path(path, root)
+        for section in heading_sections(path):
+            time_match = TIME_START_RE.match(section["heading"])
+            if time_match is None:
+                continue
+            hour = f"{int(time_match.group(1)):02d}"
+            key = (day, hour)
+            counters[key] = counters.get(key, 0) + 1
+            text = section["text"]
+            rows.append(
+                {
+                    "block_id": f"L-{day.replace('-', '')}-{hour}-{counters[key]:02d}",
+                    "source_type": "legacy",
+                    "source_kind": "daily",
+                    "file": rel,
+                    "date": day,
+                    "heading": section["heading"],
+                    "line_start": section["line_start"],
+                    "line_end": section["line_end"],
+                    "text": text,
+                    "text_sha256": text_sha256(text),
+                    "status": "active",
+                }
+            )
+    return set(days), rows
+
+
 def build_review(root: Path, date_filter: str | None) -> tuple[set[str], list[dict]]:
     reports = root / "data" / "reports"
     candidates: list[Path] = []
@@ -229,7 +285,14 @@ def build_review(root: Path, date_filter: str | None) -> tuple[set[str], list[di
 
 def merge_scope(existing: list[dict], built: list[dict], source: str) -> list[dict]:
     dates = {row.get("date") for row in built}
-    types = {"batch"} if source == "batch" else {"review"} if source == "review" else {"batch", "review"}
+    if source == "batch":
+        types = {"batch"}
+    elif source == "legacy":
+        types = {"legacy"}
+    elif source == "review":
+        types = {"review"}
+    else:
+        types = {"batch", "legacy", "review"}
     kept = [
         row
         for row in existing
@@ -265,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=str(Path(__file__).resolve().parents[1]), help="AI root (default: parent of analysis/)")
     parser.add_argument("--index-dir", default=None, help="index directory (default: ROOT/data/index)")
     parser.add_argument("--date", default=None, help="YYYY-MM-DD; omit to scan every available date")
-    parser.add_argument("--source", choices=["batch", "review", "all"], default="batch")
+    parser.add_argument("--source", choices=["batch", "legacy", "review", "all"], default="batch")
     parser.add_argument("--out", default=None, help="output directory, or a .jsonl file path")
     parser.add_argument("--include-meta", action="store_true", help="also index non-time batch sections such as availability and defect notes")
     parser.add_argument("--dry-run", action="store_true", help="validate and report, write nothing")
@@ -281,9 +344,15 @@ def main(argv: list[str] | None = None) -> int:
     rows: list[dict] = []
     scanned: set[str] = set()
     if args.source in ("batch", "all"):
-        days, batch_rows = build_batch(root, args.date, include_meta=args.include_meta)
+        _, files = batch_files(root, args.date)
+        if files or args.source == "batch":
+            days, batch_rows = build_batch(root, args.date, include_meta=args.include_meta)
+            scanned |= days
+            rows.extend(batch_rows)
+    if args.source in ("legacy", "all"):
+        days, legacy_rows = build_legacy(root, args.date)
         scanned |= days
-        rows.extend(batch_rows)
+        rows.extend(legacy_rows)
     if args.source in ("review", "all"):
         days, review_rows = build_review(root, args.date)
         scanned |= days
