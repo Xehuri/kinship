@@ -952,3 +952,50 @@ def test_default_format_remains_table(corpus, capsys):
     assert rc == 0, err
     assert not out.lstrip().startswith("{")
     assert "event" in out
+
+
+def test_request_non_utf8_file_returns_invalid_request_json(corpus, capsys, tmp_path):
+    bad = tmp_path / "bad.json"
+    bad.write_bytes(b"\xff\xfe")
+    rc, payload, err = _json(capsys, "--request", f"@{bad}")
+    assert rc == 2
+    assert err == ""
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "InvalidRequest"
+
+
+def test_request_non_utf8_stdin_returns_invalid_request_json(corpus, capsys, monkeypatch):
+    class BadStdin:
+        def read(self):
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(sys, "stdin", BadStdin())
+    rc, payload, err = _json(capsys, "--request", "-")
+    assert rc == 2
+    assert err == ""
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "InvalidRequest"
+
+
+def test_request_rejects_nonstandard_json_constants(corpus, capsys):
+    for literal in ("NaN", "Infinity", "-Infinity"):
+        rc, out, err = _run(capsys, "--request", '{"limit": ' + literal + "}")
+        assert rc == 2, literal
+        assert err == "", literal
+        assert "NaN" not in out and "Infinity" not in out
+        payload = json.loads(out)
+        assert payload["ok"] is False
+        assert payload["error"]["type"] == "InvalidRequest"
+
+
+def test_request_rejects_huge_integer_and_deep_nesting(corpus, capsys):
+    cases = [
+        '{"limit": ' + "9" * 5000 + "}",
+        '{"limit": ' + "[" * 2000 + "0" + "]" * 2000 + "}",
+    ]
+    for body in cases:
+        rc, payload, err = _json(capsys, "--request", body)
+        assert rc == 2
+        assert err == ""
+        assert payload["ok"] is False
+        assert payload["error"]["type"] == "InvalidRequest"

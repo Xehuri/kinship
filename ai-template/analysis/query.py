@@ -908,12 +908,15 @@ def _request_spec(argv: Sequence[str]) -> str | None:
 
 def _read_request_text(spec: str) -> str:
     if spec == "-":
-        text = sys.stdin.read()
+        try:
+            text = sys.stdin.read()
+        except (OSError, ValueError) as exc:
+            raise InvalidRequest(f"cannot read request from stdin: {exc}") from exc
     elif spec.startswith("@"):
         path = Path(spec[1:])
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             raise InvalidRequest(f"cannot read request file: {exc}") from exc
     else:
         text = spec
@@ -923,10 +926,21 @@ def _read_request_text(spec: str) -> str:
     return text
 
 
+def _reject_json_constant(value: str) -> None:
+    raise InvalidRequest("non-standard JSON constant is not allowed")
+
+
 def _load_request_object(spec: str) -> dict[str, Any]:
     try:
-        payload = json.loads(_read_request_text(spec))
+        payload = json.loads(
+            _read_request_text(spec),
+            parse_constant=_reject_json_constant,
+        )
+    except InvalidRequest:
+        raise
     except json.JSONDecodeError as exc:
+        raise InvalidRequest(f"invalid JSON request: {exc}") from exc
+    except (ValueError, RecursionError) as exc:
         raise InvalidRequest(f"invalid JSON request: {exc}") from exc
     if not isinstance(payload, dict):
         raise InvalidRequest("request must be a JSON object")
@@ -934,7 +948,10 @@ def _load_request_object(spec: str) -> dict[str, Any]:
 
 
 def _request_error(message: str, key: str, value: Any) -> InvalidRequest:
-    return InvalidRequest(f"{key}: {message}", {"key": key, "value": value})
+    return InvalidRequest(
+        f"{key}: {message}",
+        {"key": key, "value_type": type(value).__name__},
+    )
 
 
 def _request_scopes(value: Any) -> list[str]:
@@ -1091,7 +1108,12 @@ def _request_error_payload(exc: Exception, exit_code: int) -> dict[str, Any]:
 
 
 def _emit_request_error(exc: Exception, exit_code: int) -> int:
-    print(json.dumps(_request_error_payload(exc, exit_code), ensure_ascii=False, indent=2))
+    print(json.dumps(
+        _request_error_payload(exc, exit_code),
+        ensure_ascii=False,
+        indent=2,
+        allow_nan=False,
+    ))
     return exit_code
 
 
