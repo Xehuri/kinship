@@ -821,16 +821,21 @@ class TestDevicesRegistry:
         assert set(data2.keys()) == {"Pixel8", CLOUD_DEVICE_ID}
 
 
+def _cloud_pull_task_path() -> str:
+    root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+    task_path = os.path.join(root, "ai", "data", "tasks", "xiaomi_cloud_health.py")
+    if not os.path.isfile(task_path):
+        pytest.skip("private ai/ is not part of the public tree")
+    return task_path
+
+
 class TestCloudPullTaskAndSandbox:
     """拉取任务随包 enabled:false；沙箱白名单放行 cloud_pull 导入。"""
 
     def test_task_ships_disabled(self):
-        # tests/ -> backend/ -> 项目根（三级上溯）
-        root = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-        task_path = os.path.join(root, "ai", "data", "tasks", "xiaomi_cloud_health.py")
-        assert os.path.exists(task_path), f"拉取任务缺失: {task_path}"
+        task_path = _cloud_pull_task_path()
         with open(task_path, encoding="utf-8") as f:
             head = f.read(500)
         assert "enabled: false" in head, (
@@ -846,10 +851,7 @@ class TestCloudPullTaskAndSandbox:
         """
         from services.script_sandbox import check_security
 
-        root = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-        task_path = os.path.join(root, "ai", "data", "tasks", "xiaomi_cloud_health.py")
+        task_path = _cloud_pull_task_path()
         with open(task_path, encoding="utf-8") as f:
             source = f.read()
         result = check_security(source)
@@ -861,10 +863,7 @@ class TestCloudPullTaskAndSandbox:
 
     def test_v8_roundtrip_symbols_gone(self):
         """P2-V8 结构锁：脚本不再引 /sync 线格式，旧降级器全仓清零。"""
-        root = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-        task_path = os.path.join(root, "ai", "data", "tasks", "xiaomi_cloud_health.py")
+        task_path = _cloud_pull_task_path()
         with open(task_path, encoding="utf-8") as f:
             task_src = f.read()
         assert "api/health/sync" not in task_src, "脚本已直写，不应再引 /sync"
