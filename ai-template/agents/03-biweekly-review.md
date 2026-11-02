@@ -385,9 +385,9 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
    需要按概念/槽位细查时，`{AI目录}/analysis/query_catalog.py` 仍可用作专用回退。
 3. 建观察卡/发现卡：观察卡必须有 `period_start/period_end`，且跨 >=2 天或聚合 >=3 个事件；发现卡必须有 >=2 张 `derived_from` 卡或 >=2 个独立块，不得重述单个事件。命中 §卡片与概念准入 的拒收门不建，拒收候选连同块 ID 与原因记入 `{AI目录}/data/cache/index-backfill-reject-{start_date}~{end_date}.json`。
    ```bash
-   python3 {AI目录}/analysis/card_admin.py add-card --index-dir data/index --json <草稿.json>
+   python3 {AI目录}/analysis/card_admin.py add-card --index-dir data/index --text <草稿.txt>
    ```
-   草稿放 `{AI目录}/data/cache/index-review-{end_date}.json`。
+   草稿放 `{AI目录}/data/cache/index-review-{end_date}.txt`，格式见 `{AI目录}/data/index/README.md`「文本卡片草稿」。
 4. 只使用叶子概念；卡片必须引用复盘块，不能只写结论。
 5. 写后运行：
    ```bash

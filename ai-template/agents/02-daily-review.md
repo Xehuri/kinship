@@ -410,9 +410,9 @@ tags: [记忆, 用户画像, <主题>]        # 人物/事项/属性
 
    卡片写入统一走：
    ```bash
-   python3 {AI目录}/analysis/card_admin.py add-card --index-dir data/index --json <草稿.json>
+   python3 {AI目录}/analysis/card_admin.py add-card --index-dir data/index --text <草稿.txt>
    ```
-   草稿放 `{AI目录}/data/cache/index-cards-{date}.json`，不要手写 `{AI目录}/data/index/*.jsonl`。
+   草稿放 `{AI目录}/data/cache/index-cards-{date}.txt`，格式见 `{AI目录}/data/index/README.md`「文本卡片草稿」，不要手写 `{AI目录}/data/index/*.jsonl`。
 4. **每张卡必须有 `concept_id`、至少一个 `block_ids`、以及该概念的必填槽位**；事件卡时间必须落在所属块时段内。
 5. **只使用叶子概念**；父概念不贴卡。没有合适叶子就按 §卡片与概念准入 登记候选，不现场造父类。
 6. **写后校验**：

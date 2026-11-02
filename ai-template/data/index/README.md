@@ -47,6 +47,29 @@
 - **概念准入**：只有叶子概念可贴卡。新增叶子须同一批改动里有 >=2 个不同实例需要且现有叶子都不合适；新增 L2 须 >=2 个叶子同域，或有 >=3 张卡的规划批次；新增 L1 只在新卡种引入且校验器同步更新时。先登记后使用，ID 永不复用，废弃只改 `status`；改完运行 `validate_catalog.py`。
 - **重复与总结**：重复发生的事件默认逐次建事件卡；只有跨 >=2 天或聚合 >=3 个事件且能提供趋势含义时，才建聚合观察卡；禁止新增与报告重复的纯总结卡。
 
+### 文本卡片草稿
+
+`card_admin.py add-card --text <file|->` 使用纯文本，不是 JSON。多张卡之间用单独一行 `---` 分隔；字段为 `key: value`；`block`/`slot`/`relation` 可重复。示例：
+
+```text
+card_id: C-20261101-801
+kind: event
+title: 出门去潞城修笔记本
+statement: 下午从家出发，坐公交转地铁，17:27 抵达潞城站。
+date: 2026-11-01
+time: 15:58
+end_time: 17:27
+concept: EVENT.TRAVEL.OUTING
+blocks: B-20261101-15-04, B-20261101-16-02
+slot: who=H1
+slot: from=家
+slot: to=潞城站
+confidence: high
+version: 1
+```
+
+常用字段：`card_id`、`kind`、`title`、`statement`、`date`/`time` 或 `period_start`/`period_end`、`concept`、`blocks`、`slot`、`confidence`、`status`、`version`。`--json` 仅用于旧脚本兼容。
+
 ## 源优先级
 
 1. `data/daily/<date>/理解-*.md` 批次正文是事件级第一证据；无批次文件的早期日期用单体 `理解-<date>.md`。
@@ -60,7 +83,7 @@
 - `analysis/build_reports.py` 写 `reports.jsonl`。
 - `analysis/build_report_relations.py` 写 `report_relations.jsonl`。
 - `analysis/build_relations.py` 写 `card_relations.jsonl`，保留人工关系并重建自动关系。
-- `analysis/card_admin.py` 只写 `cards.jsonl`, `card_concepts.jsonl`, `card_blocks.jsonl`, `card_relations.jsonl`。
+- `analysis/card_admin.py` 只写 `cards.jsonl`, `card_concepts.jsonl`, `card_blocks.jsonl`, `card_relations.jsonl`；`add-card` 优先用 `--text` 文本草稿。
 - `analysis/query_catalog.py` 与 `analysis/validate_catalog.py` 只读。
 - `analysis/query_reports.py` 只读查询报告索引。
 - `concept_types.jsonl` 只在评审后人工增改；新概念先登记再使用。

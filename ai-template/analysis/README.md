@@ -49,7 +49,7 @@
 | `build_reports.py` | 扫描日报、周报、双周报、全程总结，生成 `reports.jsonl` |
 | `build_report_relations.py` | 生成报告→卡片、周报→日报、双周→周报、全程→报告的 `report_relations.jsonl` |
 | `build_relations.py` | 生成同日事件顺序、观察/发现回指事件卡的 `card_relations.jsonl` |
-| `card_admin.py {add-card|add-relation|deprecate-card}` | 写入卡片与卡片关系 |
+| `card_admin.py add-card --text <txt\|->` / `add-relation` / `deprecate-card` | 写入卡片与卡片关系；`add-card` 使用纯文本草稿，`--json` 仅保留旧兼容 |
 | `query.py [--scope ...] [--from/--to] [--grep ...]` | 规范化多角度检索入口：event/observation/report/evidence/memory/chat/all 单层或复合查询，自动分组、排序、去重；证据层默认随卡片折叠，`--include-linked-evidence` 才展开。`query_catalog.py` / `query_reports.py` 保留为专用回退 |
 | `query_catalog.py` | 按概念/日期/时段/文本/金额查询卡片，可回指块 |
 | `query_reports.py [--type ...] [--layer ...] [--follow]` | 查询报告索引与报告关系 |
