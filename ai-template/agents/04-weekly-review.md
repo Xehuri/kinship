@@ -295,6 +295,31 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 **注意**：这不是 02 每日复盘的记忆收割，只收割跨日的新信息。已在每日复盘中收割过的内容不要重复收割。
 
+### 步骤 4b：索引层观察/发现卡（新增）
+
+周报负责把本周结论编成卡片，不改批次原文。准入规则唯一真源见 `{AI目录}/data/index/README.md` §卡片与概念准入，此处只列观察/发现口径。
+
+1. 先建本期复盘块：
+   ```bash
+   python3 {AI目录}/analysis/build_blocks.py --source review --date {end_date}
+   ```
+2. 先查跨层已有内容（必跑）：
+   ```bash
+   python3 {AI目录}/analysis/query.py --from {start_date} --to {end_date} --scope event,observation,report --format json
+   ```
+   需要按概念/槽位细查时，`{AI目录}/analysis/query_catalog.py` 仍可用作专用回退。
+3. 建观察卡/发现卡：观察卡必须有 `period_start/period_end`，且跨 >=2 天或聚合 >=3 个事件；发现卡必须有 >=2 张 `derived_from` 卡或 >=2 个独立块，不得重述单个事件。命中 §卡片与概念准入 的拒收门不建，拒收候选连同块 ID 与原因记入 `{AI目录}/data/cache/index-backfill-reject-{start_date}~{end_date}.json`。
+   ```bash
+   python3 {AI目录}/analysis/card_admin.py add-card --index-dir data/index --json <草稿.json>
+   ```
+   草稿放 `{AI目录}/data/cache/index-review-{end_date}.json`。
+4. 只使用叶子概念；卡片必须引用周报块。
+5. 写后运行：
+   ```bash
+   python3 {AI目录}/analysis/validate_catalog.py --index-dir data/index
+   ```
+6. 报告自检追加：`索引: cards=N blocks=N resolve=100%`。
+
 ### 步骤 5：写周报
 
 将分析结果写入 `{AI目录}/data/reports/每周总结-{start}~{end}.md`。

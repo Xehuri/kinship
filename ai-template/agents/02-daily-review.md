@@ -389,6 +389,39 @@ tags: [记忆, 用户画像, <主题>]        # 人物/事项/属性
 - **依据必须来自近几日数据或用户原话**（如"某类话题连续 3 天零出现，就把该类降优先"）；凭单日波动不改
 - 批次侧只能在白名单内调侧重、不能增删分类（01 步骤 8 第 7 点）；**增删分类的权力只在复盘这一步**
 
+### 步骤5e: 索引层编目（新增）
+
+复盘负责把当天可检索的内容编成卡片，批次侧不改。准入规则唯一真源见 `{AI目录}/data/index/README.md` §卡片与概念准入，此处只列当日口径。
+
+1. **先切当天块**（只切时间窗，不改原文）：
+   ```bash
+   python3 {AI目录}/analysis/build_blocks.py --date {date}
+   ```
+2. **先查已有卡片（必跑）**：统一用 `{AI目录}/analysis/query.py`：
+   ```bash
+   python3 {AI目录}/analysis/query.py --from {date} --to {date} --scope event,observation,report --format json
+   ```
+   需要按概念/槽位细查时，`{AI目录}/analysis/query_catalog.py` 仍可用作专用回退。
+3. **建卡**：事件卡按优先级与上限建：
+   - P0：明确决定/承诺、外出出行、维修/就医/考试/申请、大额消费；P1：吃饭/点单、运动、上课/训练、工作/项目里程碑、家务/跑腿；P2：娱乐、常规社交闲聊、常规自学；P3（被动传感器、纯 App/手机使用、睡眠传感器分段、可用性/元信息）不单独建卡。
+   - 每天最多 3 张新事件卡，显式 `major_event` 放宽到 5 张；没有 P0~P2 事件时 cards=0 允许，但必须写一行原因。
+   - 命中 §卡片与概念准入 的拒收门（缺行动者+动作+对象/地点、重复、引用块内无断言动作、事件时间出界等）一律不建，并把块 ID 与原因记入 `{AI目录}/data/cache/index-backfill-reject-{date}.json`。
+   - 观察卡必须有 `period_start`/`period_end` 且跨 >=2 天或聚合 >=3 个事件；发现卡需 >=2 张 `derived_from` 卡或 >=2 个独立块。
+
+   卡片写入统一走：
+   ```bash
+   python3 {AI目录}/analysis/card_admin.py add-card --index-dir data/index --json <草稿.json>
+   ```
+   草稿放 `{AI目录}/data/cache/index-cards-{date}.json`，不要手写 `{AI目录}/data/index/*.jsonl`。
+4. **每张卡必须有 `concept_id`、至少一个 `block_ids`、以及该概念的必填槽位**；事件卡时间必须落在所属块时段内。
+5. **只使用叶子概念**；父概念不贴卡。没有合适叶子就按 §卡片与概念准入 登记候选，不现场造父类。
+6. **写后校验**：
+   ```bash
+   python3 {AI目录}/analysis/validate_catalog.py --index-dir data/index
+   ```
+   有任何断链或非叶标签，不得结束复盘。
+7. **报告自检结果追加一行**：`索引: cards=N blocks=N resolve=100%`；如果当天没有可建卡内容，写 `索引: cards=0`。
+
 ### 步骤6: 写复盘报告
 
 将复盘结果写入 `{AI目录}/data/daily/{date}/复盘-{date}.md`。如文件已存在则覆盖。

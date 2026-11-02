@@ -50,9 +50,20 @@
 | `build_report_relations.py` | 生成报告→卡片、周报→日报、双周→周报、全程→报告的 `report_relations.jsonl` |
 | `build_relations.py` | 生成同日事件顺序、观察/发现回指事件卡的 `card_relations.jsonl` |
 | `card_admin.py {add-card|add-relation|deprecate-card}` | 写入卡片与卡片关系 |
+| `query.py [--scope ...] [--from/--to] [--grep ...]` | 规范化多角度检索入口：event/observation/report/evidence/memory/chat/all 单层或复合查询，自动分组、排序、去重；证据层默认随卡片折叠，`--include-linked-evidence` 才展开。`query_catalog.py` / `query_reports.py` 保留为专用回退 |
 | `query_catalog.py` | 按概念/日期/时段/文本/金额查询卡片，可回指块 |
 | `query_reports.py [--type ...] [--layer ...] [--follow]` | 查询报告索引与报告关系 |
 | `validate_catalog.py` | 校验八张表、源文件、哈希、报告层和关系引用 |
+
+## 统一检索输出
+
+`query.py` 的排序与整理规则：
+
+- 分组：多 scope 默认 `--group-by layer`，层序固定 event → observation → report → evidence → memory → chat；`--group-by date` 按日期倒序分组；`--group-by none` 扁平输出。
+- 排序：默认有 `--grep` 用 relevance（标题命中 > 摘要命中 > 元数据命中，再按层优先级/日期/ID），否则按时间倒序；`--order chrono` 可强制时间序，`--asc` 反向。
+- 去重：卡片按 card_id，报告按 report_id，块按 block_id 与 file:line:sha，记忆按 path:line:sha，对话按 session:message；跨层文本哈希重复保留高层并记 related_ids。
+- 限制：先 `--limit-per-scope`，再按层轮转取 `--limit`，最后按 `--budget` 字节截断；JSON 返回 groups/items/counts，table 按组打印。
+- `--scope all` 默认不返回 evidence；证据被卡片引用时折叠，`--include-linked-evidence` 才展开。
 
 ## 记忆工具
 
