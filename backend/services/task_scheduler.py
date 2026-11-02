@@ -4,12 +4,16 @@
 """
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional, Any
 from enum import Enum
 
+from config.config import get_config
+from .ai_client_factory import acquire_ai_client as acquire_opencode_client
 from .task_storage import TaskStorage, get_task_storage
-from .task_models import Task, TaskExecutionState
+from .task_models import Task, TaskExecution, TaskExecutionState
+from .task_executor import TaskLetterDispatch
 from .schedule_parser import ScheduleParser
 from .task_config import (
     TASK_SCHEDULER_CHECK_INTERVAL,
@@ -80,6 +84,10 @@ class TaskScheduler:
         # 内建回调任务（V13）：task_id -> 零参 async 回调；执行分派时
         # 优先于 execute_callback（prompt 语义），共用 tick/next_run/执行记录路径。
         self._builtin_callbacks: Dict[str, Callable[[], Any]] = {}
+
+        # letter 结果对账节流（复用 2s tick，不新建调度器）；首轮必跑
+        self._last_letter_reconcile_at: float = -float("inf")
+        self.LETTER_RECONCILE_BATCH = 20
 
         logger.info("TaskScheduler 初始化完成")
     
@@ -271,6 +279,8 @@ class TaskScheduler:
     
     async def _check_tasks(self) -> None:
         """检查并执行到期的任务"""
+        await self._maybe_reconcile_letter_results()
+
         if self._paused:
             # 暂停期间不派发到期任务；next_run 不推进，恢复后补跑。
             return
@@ -376,11 +386,12 @@ class TaskScheduler:
             # 执行分派（V13）：内建回调任务走 coro_fn()（零参），prompt 任务走
             # execute_callback(task)；成功/失败执行记录路径两者共用。
             builtin_fn = self._builtin_callbacks.get(task.task_id)
+            callback_result: Any = None
             try:
                 if builtin_fn is not None:
                     await builtin_fn()
                 elif self.execute_callback is not None:
-                    await self.execute_callback(task)
+                    callback_result = await self.execute_callback(task)
                 else:
                     raise RuntimeError(
                         "未配置执行回调(execute_callback)，任务未实际执行"
@@ -394,12 +405,28 @@ class TaskScheduler:
                 
                 logger.error(f"任务执行失败: {task.task_id} - {e}")
             else:
-                # 更新执行记录为成功
-                execution.status = "success"
-                execution.completed_at = datetime.now().timestamp()
-                self.storage.update_execution(execution)
-                
-                logger.info(f"任务执行成功: {task.task_id}")
+                if isinstance(callback_result, TaskLetterDispatch):
+                    # letter 只代表"已受理"，task 尚未完成：等结果对账再落终态。
+                    execution.status = TaskExecutionState.ACCEPTED.value
+                    execution.correlation_id = callback_result.correlation_id
+                    execution.letter_id = callback_result.letter_id
+                    execution.dispatch_mode = "letter"
+                    execution.result_status = TaskExecutionState.ACCEPTED.value
+                    execution.completed_at = None
+                    self.storage.update_execution(execution)
+
+                    logger.info(
+                        f"任务已投递收件箱，等待结果: {task.task_id} "
+                        f"correlation_id={callback_result.correlation_id} "
+                        f"letter_id={callback_result.letter_id} "
+                        f"duplicate={callback_result.duplicate}"
+                    )
+                else:
+                    # 更新执行记录为成功
+                    execution.status = "success"
+                    execution.completed_at = datetime.now().timestamp()
+                    self.storage.update_execution(execution)
+                    logger.info(f"任务执行成功: {task.task_id}")
             
         except Exception as e:
             logger.error(f"执行任务时出错: {task.task_id} - {e}", exc_info=True)
@@ -637,6 +664,124 @@ class TaskScheduler:
         
         except Exception as e:
             logger.error(f"恢复卡住任务失败: {e}")
+
+    async def _maybe_reconcile_letter_results(self) -> None:
+        """按配置间隔限频调用结果对账（复用调度器 tick，不新建循环）。"""
+        interval = get_config().TASK_LETTER_RECONCILE_INTERVAL_SECONDS
+        now = time.monotonic()
+        if now - self._last_letter_reconcile_at < interval:
+            return
+        self._last_letter_reconcile_at = now
+        await self._reconcile_letter_results()
+
+    async def _reconcile_letter_results(self) -> None:
+        """扫描 accepted 执行记录并消费 Loom 结果（每批最多 20 条，最旧优先）。"""
+        getter = getattr(self.storage, "get_executions_by_state", None)
+        if getter is None:
+            return
+        try:
+            executions = getter(TaskExecutionState.ACCEPTED)
+        except Exception as e:
+            logger.error(f"读取 accepted 执行记录失败: {e}")
+            return
+        if not executions:
+            return
+
+        executions.sort(key=lambda item: item.started_at or 0.0)
+        for execution in executions[: self.LETTER_RECONCILE_BATCH]:
+            try:
+                await self._reconcile_letter_execution(execution)
+            except Exception as e:
+                logger.error(
+                    f"letter 结果对账异常: execution={execution.execution_id} - {e}",
+                    exc_info=True,
+                )
+
+    async def _reconcile_letter_execution(self, execution: TaskExecution) -> None:
+        """单条 accepted 记录：超时转 unknown，否则按 Loom 结果映射终态。"""
+        now = datetime.now().timestamp()
+        timeout_s = get_config().TASK_LETTER_RESULT_TIMEOUT_SECONDS
+        if execution.started_at is not None and now - execution.started_at >= timeout_s:
+            execution.status = TaskExecutionState.UNKNOWN.value
+            execution.result_status = "timeout"
+            execution.completed_at = now
+            execution.error_message = "result timeout"
+            self.storage.update_execution(execution)
+            logger.warning(
+                f"letter 结果超时，执行记录转 unknown: {execution.execution_id} "
+                f"correlation_id={execution.correlation_id}"
+            )
+            return
+
+        correlation_id = execution.correlation_id
+        if not correlation_id:
+            logger.error(
+                f"accepted 执行记录缺少 correlation_id，无法对账: "
+                f"{execution.execution_id}"
+            )
+            return
+
+        try:
+            gw = await acquire_opencode_client()
+        except Exception as e:
+            logger.error(f"获取 AI 客户端失败，下轮再对账: {e}")
+            return
+
+        get_inbox_result = getattr(gw, "get_inbox_result", None)
+        if not callable(get_inbox_result):
+            logger.error(
+                f"当前 AI 后端 {type(gw).__name__} 不支持 get_inbox_result；"
+                f"accepted 记录 {execution.execution_id} 保持待对账"
+            )
+            return
+
+        result = await get_inbox_result(correlation_id)
+        if not isinstance(result, dict) or not result.get("ok"):
+            # 404 / 传输 / 5xx：保持 accepted，下一轮再试，绝不能据此落完成。
+            logger.debug(
+                f"letter 结果暂不可得，保持 accepted: "
+                f"execution={execution.execution_id} "
+                f"status={(result or {}).get('status') if isinstance(result, dict) else None}"
+            )
+            return
+
+        data = result.get("data")
+        data = data if isinstance(data, dict) else {}
+        result_state = str(data.get("status") or "").strip().lower()
+        outcome = data.get("outcome")
+        evidence_ref = data.get("evidence_ref")
+
+        if result_state == "completed":
+            execution.last_result_at = now
+            execution.status = TaskExecutionState.COMPLETED.value
+            execution.completed_at = now
+            execution.result_status = str(outcome or "completed")
+        elif result_state == "failed":
+            execution.last_result_at = now
+            execution.status = TaskExecutionState.FAILED.value
+            execution.completed_at = now
+            execution.result_status = str(outcome or "failed")
+            execution.error_message = str(outcome or evidence_ref or "failed")
+        elif result_state == "observed":
+            execution.last_result_at = now
+            execution.status = TaskExecutionState.ACCEPTED.value
+            execution.result_status = "observed"
+        elif result_state == "pending":
+            execution.last_result_at = now
+            execution.status = TaskExecutionState.ACCEPTED.value
+            execution.result_status = "pending"
+        else:
+            logger.warning(
+                f"未知 letter 结果状态，保持 accepted: "
+                f"execution={execution.execution_id} status={result_state!r}"
+            )
+            return
+
+        self.storage.update_execution(execution)
+        logger.info(
+            f"letter 结果已对账: execution={execution.execution_id} "
+            f"status={execution.status} result_status={execution.result_status}"
+        )
     
     async def _broadcast_task_event(self, event_type: str, task) -> None:
         """广播任务事件到WebSocket客户端"""

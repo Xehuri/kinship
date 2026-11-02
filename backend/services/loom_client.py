@@ -53,6 +53,7 @@ import logging
 import uuid
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple, Mapping
+from urllib.parse import quote
 
 from config.config import get_config
 from services.opencode_client import (
@@ -696,6 +697,58 @@ class LoomClient:
                 redact_text(str(e)),
             )
             return False, redact_text(str(e)), None
+
+    async def get_inbox_result(self, correlation_id: str) -> Dict[str, Any]:
+        """GET /inbox/results/:correlation_id —— T8 任务 letter 结果对账。
+
+        200 -> {"ok": True, "data": body}；404 -> ok=False + error.code="not_found"
+        + status=404；其它非 200 -> ok=False + status/body；传输异常 -> ok=False。
+        404/传输失败只表示"下轮再试"，调用方不得据此判定任务完成。
+        """
+        if self._offline_mode():
+            return self._ok({"status": "pending", "correlation_id": correlation_id})
+        encoded = quote(correlation_id, safe="")
+        try:
+            status, data, _ = await self._request(
+                "GET",
+                f"/inbox/results/{encoded}",
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            if status == 200:
+                return self._ok(data if isinstance(data, dict) else {"raw": data})
+            if status == 404:
+                return {
+                    "ok": False,
+                    "data": None,
+                    "error": {
+                        "source": "loom",
+                        "detail": self._error_detail(status, data),
+                        "code": "not_found",
+                    },
+                    "status": 404,
+                }
+            return {
+                "ok": False,
+                "data": None,
+                "error": {
+                    "source": "loom",
+                    "detail": self._error_detail(status, data),
+                    "code": status,
+                },
+                "status": status,
+                "body": data,
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "data": None,
+                "error": {
+                    "source": "system",
+                    "detail": redact_text(f"get_inbox_result 异常: {e}"),
+                    "code": 502,
+                },
+                "status": None,
+            }
 
     async def get_inbox_status(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """GET /inbox/status —— 收件箱积压/分类/摘要到期只读面（与前端信封同构）。

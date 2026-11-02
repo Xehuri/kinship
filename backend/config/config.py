@@ -102,6 +102,27 @@ def _parse_nice(raw: Any) -> Optional[int]:
     return max(-20, min(19, value))
 
 
+def _to_bool(value: Any, *, default: bool) -> bool:
+    """把配置值归一为 bool；非法值回落 default（安全默认）。"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ('true', '1', 'yes', 'on'):
+            return True
+        if normalized in ('false', '0', 'no', 'off', ''):
+            return False
+    return default
+
+
+def _to_positive_int(value: Any, *, default: int) -> int:
+    """把配置值归一为正整数；缺失/非法/非正回落 default。"""
+    parsed = _to_int(value)
+    return parsed if parsed is not None and parsed > 0 else default
+
+
 _LOOM_TOKEN_FILE_CACHE: dict[tuple[str, int, int], str] = {}
 _LOOM_TOKEN_FILE_CACHE_LOCK = threading.Lock()
 _LOOM_TOKEN_FILE_CACHE_LIMIT = 32
@@ -850,6 +871,31 @@ class Config:
         if raw:
             return raw
         return self._ai_data_path()
+
+    # ── 定时任务触发投递（T8 letter 模式） ─────────────
+
+    @property
+    def TASK_LETTER_DISPATCH(self) -> bool:
+        """prompt 任务是否改走 Loom 收件箱 letter；默认 false = 旧 send_message 路径。"""
+        return _to_bool(
+            self._section('tasks').get('letter_dispatch', False), default=False
+        )
+
+    @property
+    def TASK_LETTER_RESULT_TIMEOUT_SECONDS(self) -> int:
+        """letter 结果回执等待上限（秒），默认 1800；非正/非法回落默认。"""
+        return _to_positive_int(
+            self._section('tasks').get('letter_result_timeout_seconds', 1800),
+            default=1800,
+        )
+
+    @property
+    def TASK_LETTER_RECONCILE_INTERVAL_SECONDS(self) -> int:
+        """letter 结果对账最小间隔（秒），默认 5；非正/非法回落默认。"""
+        return _to_positive_int(
+            self._section('tasks').get('letter_reconcile_interval_seconds', 5),
+            default=5,
+        )
 
     @property
     def SCRIPTS_DIR(self) -> str:

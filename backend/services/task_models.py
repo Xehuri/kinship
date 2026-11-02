@@ -19,9 +19,11 @@ class TaskExecutionState(Enum):
     PENDING = "pending"
     ACQUIRED = "acquired"
     EXECUTING = "executing"
+    ACCEPTED = "accepted"  # letter 已入 Loom 收件箱，等待结果回执（≠ 完成）
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    UNKNOWN = "unknown"  # 结果回执超时/不可判定，禁止冒充 success
 
 
 @dataclass
@@ -139,17 +141,23 @@ class TaskExecution:
     """任务执行记录"""
     execution_id: str
     task_id: str
-    status: str  # pending/success/failed
+    status: str  # pending/executing/accepted/completed/success/failed/unknown
     session_id: Optional[str] = None
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     retry_count: int = 0
     error_message: Optional[str] = None
+    # T8 letter 投递/结果对账字段；全部带默认值，旧执行记录 from_dict 不受影响。
+    correlation_id: Optional[str] = None
+    letter_id: Optional[str] = None
+    dispatch_mode: str = "message"  # message（旧路径）| letter（收件箱）
+    result_status: Optional[str] = None  # accepted/pending/observed/timeout/<outcome>
+    last_result_at: Optional[float] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典（时间字段输出 ISO 格式）"""
         d = asdict(self)
-        for key in ('started_at', 'completed_at'):
+        for key in ('started_at', 'completed_at', 'last_result_at'):
             val = d.get(key)
             if val is not None:
                 d[key] = datetime.fromtimestamp(val).isoformat()
@@ -159,7 +167,7 @@ class TaskExecution:
     def from_dict(cls, data: Dict[str, Any]) -> "TaskExecution":
         """从字典创建，兼容 ISO 格式字符串"""
         d = dict(data)
-        for key in ('started_at', 'completed_at'):
+        for key in ('started_at', 'completed_at', 'last_result_at'):
             val = d.get(key)
             if isinstance(val, str):
                 try:

@@ -5,9 +5,11 @@
 import asyncio
 import logging
 import time
-from typing import Optional, Callable, Dict
+from dataclasses import dataclass
+from typing import Optional, Callable, Dict, Union
 from datetime import datetime
 
+from config.config import get_config
 from .task_models import Task, TaskExecution, TaskExecutionState
 from .task_config import (
     TASK_MAX_RETRIES,
@@ -27,6 +29,14 @@ logger = logging.getLogger(__name__)
 class CircuitBreakerOpen(Exception):
     """熔断器打开异常"""
     pass
+
+
+@dataclass(frozen=True)
+class TaskLetterDispatch:
+    """letter 已入 Loom 收件箱（accepted/duplicate），等待结果回执。"""
+    correlation_id: str
+    letter_id: Optional[str] = None
+    duplicate: bool = False
 
 
 class TaskExecutor:
@@ -51,7 +61,7 @@ class TaskExecutor:
 
         logger.info("TaskExecutor 初始化完成")
 
-    async def execute(self, task: Task) -> bool:
+    async def execute(self, task: Task) -> Union[bool, TaskLetterDispatch]:
         """
         执行任务
 
@@ -59,7 +69,7 @@ class TaskExecutor:
             task: 要执行的任务
 
         Returns:
-            是否执行成功
+            bool（message 模式）或 TaskLetterDispatch（letter 已受理，等待回执）
 
         Raises:
             CircuitBreakerOpen: 该任务熔断器打开时
@@ -76,12 +86,12 @@ class TaskExecutor:
         # 执行重试循环
         for attempt in range(TASK_MAX_RETRIES + 1):
             try:
-                success = await self._execute_once(task)
+                result = await self._execute_once(task)
 
-                if success:
+                if result:
                     # 执行成功，重置该任务的失败计数
                     self._reset_failures(task_id)
-                    return True
+                    return result
 
                 # 执行失败但未抛出异常
                 self._record_failure(task_id)
@@ -123,7 +133,7 @@ class TaskExecutor:
         logger.error(f"任务 {task_id} 在 {TASK_MAX_RETRIES + 1} 次尝试后仍失败")
         return False
     
-    async def execute_task_now(self, task: Task) -> bool:
+    async def execute_task_now(self, task: Task) -> Union[bool, TaskLetterDispatch]:
         """
         立即执行任务（用于手动触发）
         
@@ -131,11 +141,11 @@ class TaskExecutor:
             task: 要执行的任务
             
         Returns:
-            是否执行成功
+            bool（message 模式）或 TaskLetterDispatch（letter 已受理）
         """
         return await self._execute_once(task)
     
-    async def _execute_once(self, task: Task) -> bool:
+    async def _execute_once(self, task: Task) -> Union[bool, TaskLetterDispatch]:
         """
         单次执行任务 - 根据配置发送到不同目标
         
@@ -143,8 +153,9 @@ class TaskExecutor:
             task: 要执行的任务
             
         Returns:
-            是否执行成功
+            bool（message 模式）或 TaskLetterDispatch（letter 已受理）
         """
+        letter_dispatch = bool(get_config().TASK_LETTER_DISPATCH)
         try:
             # 1. 根据target_type获取目标会话
             session_id, is_new_session = await self._get_target_session_by_config(task)
@@ -155,16 +166,21 @@ class TaskExecutor:
             
             logger.info(f"任务 {task.task_id} 使用会话: {session_id} (target_type={task.target_type})")
             
-            # 2. 发送任务消息
-            success = await self._send_message_with_config(session_id, task)
+            # 2. 按开关选择投递方式：letter 未启用时严格保持旧 send_message 行为
+            if letter_dispatch:
+                result: Union[bool, TaskLetterDispatch] = await self._send_letter_with_config(
+                    session_id, task
+                )
+            else:
+                result = await self._send_message_with_config(session_id, task)
             
             # 3. 如果是新建会话模式且发送成功，可选：关闭临时会话（根据需求决定是否保留）
-            if is_new_session and success and task.target_type == "new_session":
+            if is_new_session and result and task.target_type == "new_session":
                 # 这里可以选择是否关闭临时会话
                 # await self._close_temporary_session(session_id)
                 pass
             
-            if success:
+            if result:
                 logger.info(f"任务 {task.task_id} 消息发送成功")
                 # scheduler已记录执行记录和run_count，这里只更新最后执行时间
                 try:
@@ -175,17 +191,20 @@ class TaskExecutor:
                     )
                 except Exception as e:
                     logger.error(f"更新任务 {task.task_id} 执行状态失败: {e}")
-                return True
+                return result
             else:
                 logger.error(f"任务 {task.task_id} 消息发送失败")
-                try:
-                    storage = get_task_storage()
-                    storage.update_task(
-                        task.task_id,
-                        last_run=time.time()
-                    )
-                except Exception as e:
-                    logger.error(f"更新任务 {task.task_id} 状态异常: {e}")
+                # letter 模式失败不推进 last_run：同一次调度槽的重试必须复用
+                # 同一 correlation_id/dedupe_key，避免 Loom 收到第二封信。
+                if not letter_dispatch:
+                    try:
+                        storage = get_task_storage()
+                        storage.update_task(
+                            task.task_id,
+                            last_run=time.time()
+                        )
+                    except Exception as e:
+                        logger.error(f"更新任务 {task.task_id} 状态异常: {e}")
                 return False
             
         except asyncio.TimeoutError:
@@ -369,6 +388,77 @@ class TaskExecutor:
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
             return False
+
+    async def _send_letter_with_config(
+        self, session_id: str, task: Task
+    ) -> Union[bool, TaskLetterDispatch]:
+        """经 Loom 收件箱投递任务触发 letter；受理（202/200 duplicate）即返回。"""
+        message = self._build_message(task)
+        letter, correlation_id = self._build_letter(task, message)
+        try:
+            gw = await acquire_opencode_client()
+            send_letter = getattr(gw, "send_letter", None)
+            if not callable(send_letter):
+                logger.error(
+                    f"letter 投递已启用，但当前 AI 后端 {type(gw).__name__} "
+                    f"不支持 send_letter；任务 {task.task_id} 失败（不回落 send_message）"
+                )
+                return False
+
+            ok, error, result = await send_letter(session_id, letter)
+            if not ok:
+                logger.error(f"任务 {task.task_id} letter 投递失败: {error or 'unknown'}")
+                return False
+
+            body = (result if isinstance(result, dict) else {}).get("body")
+            body = body if isinstance(body, dict) else {}
+            letter_id = body.get("letter_id")
+            duplicate = bool(body.get("duplicate"))
+            if not letter_id:
+                logger.warning(
+                    f"任务 {task.task_id} letter 已受理但响应缺少 letter_id "
+                    f"(correlation_id={correlation_id})"
+                )
+            logger.info(
+                f"任务 {task.task_id} letter 已受理: letter_id={letter_id} "
+                f"duplicate={duplicate} correlation_id={correlation_id}"
+            )
+            return TaskLetterDispatch(
+                correlation_id=correlation_id,
+                letter_id=letter_id,
+                duplicate=duplicate,
+            )
+
+        except asyncio.TimeoutError:
+            logger.error(f"任务 {task.task_id} letter 投递超时")
+            return False
+
+        except Exception as e:
+            logger.error(f"任务 {task.task_id} letter 投递异常: {e}")
+            return False
+
+    @staticmethod
+    def _letter_correlation_id(task: Task) -> str:
+        """同一次调度槽稳定：task_id + last_run + run_count 任一变化才是新槽。"""
+        slot = int(task.last_run or time.time())
+        return f"task:{task.task_id}:{slot}:{task.run_count}"
+
+    def _build_letter(self, task: Task, message: str) -> tuple[Dict[str, object], str]:
+        """组装收件箱 letter；correlation_id 同时作为 dedupe_key 保证重试幂等。"""
+        correlation_id = self._letter_correlation_id(task)
+        letter: Dict[str, object] = {
+            "source": "backend.tasks",
+            "kind": "task.trigger",
+            "class": "notify",
+            "trust": "trusted_service",
+            "principal": f"task:{task.task_id}",
+            "title": task.task_name,
+            "body": message,
+            "correlation_id": correlation_id,
+            "dedupe_key": correlation_id,
+            "ref": {"task_id": task.task_id, "run_count": task.run_count},
+        }
+        return letter, correlation_id
     
     # 【2026-09-09 取消 web_message 感知记录】方法停用，保留定义以防历史追溯。
     # async def _record_task_trigger(self, task: Task) -> None:

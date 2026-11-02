@@ -28,6 +28,15 @@ opencode:
   default_model: deepseek-flash
   default_provider: deepseek
 
+# 定时任务触发投递（T8）
+# letter_dispatch=false（默认）时保持旧行为：prompt 任务经 send_message 直接投递。
+# 只在 ai_backend=loom 时才能开启；开启后任务只记 accepted，必须等收件箱结果回执
+# 才会转为 completed/failed，超时转 unknown（绝不把 POST 受理当成任务完成）。
+tasks:
+  letter_dispatch: false                   # true = prompt 任务改投 Loom 收件箱 letter
+  letter_result_timeout_seconds: 1800      # 结果回执等待上限（秒）；超时执行记录转 unknown
+  letter_reconcile_interval_seconds: 5     # 结果对账间隔（秒），复用调度器 2s tick 限频
+
 # 音频压缩归档（关闭时完整保留所有原始 WAV）
 audio_compressor:
   enabled: false                  # 是否启用每日自动压缩（凌晨把超过 keep_days 天的 WAV 合并为 M4A 归档并删除原文件）

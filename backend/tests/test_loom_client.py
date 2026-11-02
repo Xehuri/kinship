@@ -752,3 +752,56 @@ class TestInboxLetters:
         assert got["ok"] is True and got["data"] == snapshot
         assert calls[0] == {"method": "GET", "path": "/inbox/status",
                             "params": None, "json_body": None}
+
+
+class TestInboxResult:
+    """T8：GET /inbox/results/:correlation_id 的结果信封与错误映射。"""
+
+    BODY = {
+        "correlation_id": "task:t1:100:2",
+        "status": "completed",
+        "outcome": "posted",
+        "evidence_ref": "evt-1",
+        "state": "done",
+        "attempts": 2,
+    }
+
+    def test_200_returns_data_envelope_and_encodes_id(self, monkeypatch):
+        client, calls = _make_client(monkeypatch, lambda m, p, q, b: (200, dict(self.BODY), {}))
+        got = asyncio.run(client.get_inbox_result("task:t1:100:2"))
+        assert got == {"ok": True, "data": self.BODY, "error": None}
+        assert calls == [{
+            "method": "GET",
+            "path": "/inbox/results/task%3At1%3A100%3A2",
+            "params": None,
+            "json_body": None,
+        }]
+
+    def test_404_is_not_found_envelope_not_completion(self, monkeypatch):
+        client, _ = _make_client(
+            monkeypatch,
+            lambda m, p, q, b: (404, {"error": {"code": "not_found"}}, {}),
+        )
+        got = asyncio.run(client.get_inbox_result("task:t1:100:2"))
+        assert got["ok"] is False
+        assert got["status"] == 404
+        assert got["error"]["code"] == "not_found"
+
+    def test_500_fails_with_status_and_body(self, monkeypatch):
+        body = {"error": {"code": "internal", "message": "boom"}}
+        client, _ = _make_client(monkeypatch, lambda m, p, q, b: (500, body, {}))
+        got = asyncio.run(client.get_inbox_result("c1"))
+        assert got["ok"] is False
+        assert got["status"] == 500
+        assert got["error"]["code"] == 500
+        assert got["body"] == body
+
+    def test_network_error_fails_without_status(self, monkeypatch):
+        def _boom(m, p, q, b):
+            raise ConnectionError("wire down")
+
+        client, _ = _make_client(monkeypatch, _boom)
+        got = asyncio.run(client.get_inbox_result("c1"))
+        assert got["ok"] is False
+        assert got["status"] is None
+        assert "wire down" in got["error"]["detail"]
