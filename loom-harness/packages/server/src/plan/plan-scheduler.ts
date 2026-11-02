@@ -37,8 +37,15 @@ export const PLAN_SCHEDULER_REASONS = [
   "watchdog",
   "manual",
 ] as const;
-export type ReconcileReason = (typeof PLAN_SCHEDULER_REASONS)[number];
+/** 固定 reason 的闭合集合（保留给既有消费者与校验提示）。 */
+export type PlanSchedulerReason = (typeof PLAN_SCHEDULER_REASONS)[number];
+/** 自定义锚点的动态 reason：anchor:HH:MM。 */
+export type AnchorReconcileReason = `anchor:${string}`;
+export type ReconcileReason = PlanSchedulerReason | AnchorReconcileReason;
 
+const ANCHOR_REASON_RE = /^anchor:([01]\d|2[0-3]):([0-5]\d)$/;
+const DEFAULT_ANCHORS = ["05:00", "07:30"] as const;
+const MAX_ANCHORS = 8;
 export const PLAN_SCHEDULER_LEDGER_SCHEMA = 1 as const;
 const HOUR_MS = 60 * 60 * 1000;
 const LATE_DELAY_MS = 60_000;
@@ -143,6 +150,8 @@ export interface PlanSchedulerOptions {
   readonly horizonHours?: number;
   readonly catchupMaxAgeHours?: number;
   readonly debtAfterHours?: number;
+  /** 每日对账锚点（严格 HH:MM）；缺省 ["05:00", "07:30"]。 */
+  readonly anchors?: readonly string[];
   readonly shadow?: boolean;
   /** shadow 文件与 scheduler.jsonl 的根；提供 ledger 回调时可省略。 */
   readonly stateRoot?: string;
@@ -238,14 +247,67 @@ function requireHours(value: unknown, field: string, min: number): number {
   return value;
 }
 
-function requireReason(value: unknown): ReconcileReason {
-  if (typeof value !== "string" || !(PLAN_SCHEDULER_REASONS as readonly string[]).includes(value)) {
+function isAnchorReason(value: string): value is AnchorReconcileReason {
+  return ANCHOR_REASON_RE.test(value);
+}
+
+function reasonForAnchor(clock: string): ReconcileReason {
+  if (clock === "05:00") return "anchor-0500";
+  if (clock === "07:30") return "anchor-0730";
+  return `anchor:${clock}`;
+}
+
+function requireAnchors(value: unknown, timezone: string): readonly string[] {
+  const candidate: unknown = value ?? DEFAULT_ANCHORS;
+  if (!Array.isArray(candidate) || candidate.length === 0) {
+    throw new PlanSchedulerValidationError("anchors", "必须是非空数组");
+  }
+  if (candidate.length > MAX_ANCHORS) {
     throw new PlanSchedulerValidationError(
-      "reason",
-      `必须是 ${PLAN_SCHEDULER_REASONS.join(" | ")} 之一: ${String(value)}`,
+      "anchors",
+      `最多 ${String(MAX_ANCHORS)} 个锚点: ${String(candidate.length)}`,
     );
   }
-  return value as ReconcileReason;
+  const items: readonly unknown[] = candidate;
+  const seen = new Set<string>();
+  const anchors: string[] = [];
+  for (const [index, clock] of items.entries()) {
+    if (typeof clock !== "string") {
+      throw new PlanSchedulerValidationError(
+        "anchors",
+        `第 ${String(index)} 项必须是 HH:MM 字符串`,
+      );
+    }
+    try {
+      localDateTimeToEpoch("2000-01-01", clock, timezone);
+    } catch {
+      throw new PlanSchedulerValidationError(
+        "anchors",
+        `第 ${String(index)} 项不是有效 HH:MM: ${clock}`,
+      );
+    }
+    if (seen.has(clock)) {
+      throw new PlanSchedulerValidationError("anchors", `重复锚点: ${clock}`);
+    }
+    seen.add(clock);
+    anchors.push(clock);
+  }
+  return anchors;
+}
+
+function requireReason(value: unknown): ReconcileReason {
+  if (typeof value === "string") {
+    if ((PLAN_SCHEDULER_REASONS as readonly string[]).includes(value)) {
+      return value as PlanSchedulerReason;
+    }
+    if (isAnchorReason(value)) {
+      return value;
+    }
+  }
+  throw new PlanSchedulerValidationError(
+    "reason",
+    `必须是 ${PLAN_SCHEDULER_REASONS.join(" | ")} 之一，或 anchor:HH:MM: ${String(value)}`,
+  );
 }
 
 function fromEffectiveEntry(entry: EffectivePlanEntry): SchedulerItem {
@@ -390,6 +452,7 @@ export class PlanScheduler {
   readonly #horizonMs: number;
   readonly #catchupMaxAgeMs: number;
   readonly #debtAfterMs: number;
+  readonly #anchors: readonly string[];
   readonly #shadow: boolean;
   readonly #stateRoot: string | undefined;
 
@@ -466,7 +529,9 @@ export class PlanScheduler {
     this.#queue = options.queue;
     this.#mainSessionId = options.mainSessionId;
     this.#mainSession = options.mainSession;
-    this.#timezone = requireTimezone(options.timezone ?? DEFAULT_TIMEZONE);
+    const timezone = requireTimezone(options.timezone ?? DEFAULT_TIMEZONE);
+    this.#timezone = timezone;
+    this.#anchors = requireAnchors(options.anchors, timezone);
     this.#now = options.now ?? Date.now;
     this.#observeSink = options.observe;
     this.#ledgerSink = options.ledger;
@@ -478,12 +543,11 @@ export class PlanScheduler {
     this.#stateRoot = stateRoot;
   }
 
-  /** 每天 05:00 / 07:30 触发对账；看门狗按 watchdogMs 兜底。 */
+  /** 每天按配置锚点触发对账（缺省 05:00 / 07:30）；看门狗按 watchdogMs 兜底。 */
   start(): void {
     if (this.#started || this.#disposed) return;
     this.#started = true;
-    this.#scheduleAnchor("05:00", "anchor-0500");
-    this.#scheduleAnchor("07:30", "anchor-0730");
+    this.#scheduleAnchors();
     if (this.#watchdogMs > 0) {
       const handle = setInterval(() => {
         void this.#runWatchdog();
@@ -912,8 +976,13 @@ export class PlanScheduler {
     if (!this.#started || this.#disposed) return;
     for (const timer of this.#anchorTimers.values()) clearTimeout(timer);
     this.#anchorTimers.clear();
-    this.#scheduleAnchor("05:00", "anchor-0500");
-    this.#scheduleAnchor("07:30", "anchor-0730");
+    this.#scheduleAnchors();
+  }
+
+  #scheduleAnchors(): void {
+    for (const clock of this.#anchors) {
+      this.#scheduleAnchor(clock, reasonForAnchor(clock));
+    }
   }
 
   #scheduleAnchor(clock: string, reason: ReconcileReason): void {

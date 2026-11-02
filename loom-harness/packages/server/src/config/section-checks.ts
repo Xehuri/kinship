@@ -1611,6 +1611,10 @@ function optionalIntRange(
  */
 export type SchedulingMode = "live" | "shadow" | "off";
 
+/** 每日计划对账锚点：严格 HH:MM、最多 8 个、不可重复。 */
+const SCHEDULING_ANCHOR_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const MAX_SCHEDULING_ANCHORS = 8;
+
 /**
  * scheduling 段（调度子系统配置面）：键全可选、键缺席 = undefined 不物化
  * （"缺省 ⇒ 运行期缺省"的收敛在 boot，schema 面不造假值；W40/W42c 同款纪律）。
@@ -1634,6 +1638,50 @@ export interface SchedulingConfig {
   readonly timezone?: string;
   /** 调度目标会话；缺席 = boot 按默认主会话选择。 */
   readonly sessionId?: string;
+  /** 每日计划对账锚点（严格 HH:MM，1-8 个且不重复）；缺席 = 不物化。 */
+  readonly anchors?: readonly string[];
+}
+
+function checkSchedulingAnchors(
+  raw: unknown,
+  errors: string[],
+): readonly string[] | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(raw)) {
+    errors.push(
+      `scheduling.anchors: 需要非空数组（最多 ${String(MAX_SCHEDULING_ANCHORS)} 个 HH:MM），实际为 ${JSON.stringify(raw) ?? "undefined"}`,
+    );
+    return undefined;
+  }
+  if (raw.length === 0) {
+    errors.push("scheduling.anchors: 至少需要 1 个锚点");
+    return undefined;
+  }
+  if (raw.length > MAX_SCHEDULING_ANCHORS) {
+    errors.push(
+      `scheduling.anchors: 最多 ${String(MAX_SCHEDULING_ANCHORS)} 个锚点，实际为 ${String(raw.length)} 个`,
+    );
+    return undefined;
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of raw.entries()) {
+    if (typeof item !== "string" || !SCHEDULING_ANCHOR_RE.test(item)) {
+      errors.push(
+        `scheduling.anchors: 第 ${String(index)} 项需要严格 HH:MM（00:00-23:59），实际为 ${JSON.stringify(item) ?? "undefined"}`,
+      );
+      continue;
+    }
+    if (seen.has(item)) {
+      errors.push(`scheduling.anchors: 第 ${String(index)} 项重复时刻 ${item}`);
+      continue;
+    }
+    seen.add(item);
+    out.push(item);
+  }
+  return out;
 }
 
 /** scheduling 段校验：整段缺省 = undefined；存在必为映射；单键缺席不物化、非法值 fail-fast。 */
@@ -1686,6 +1734,7 @@ export function checkScheduling(
   );
   const timezone = optionalStr(raw["timezone"], "scheduling.timezone", errors);
   const sessionId = optionalStr(raw["sessionId"], "scheduling.sessionId", errors);
+  const anchors = checkSchedulingAnchors(raw["anchors"], errors);
   return {
     ...(wakeQueue === undefined ? {} : { wakeQueue }),
     ...(planScheduler === undefined ? {} : { planScheduler }),
@@ -1695,6 +1744,7 @@ export function checkScheduling(
     ...(debtAfterHours === undefined ? {} : { debtAfterHours }),
     ...(timezone === undefined ? {} : { timezone }),
     ...(sessionId === undefined ? {} : { sessionId }),
+    ...(anchors === undefined ? {} : { anchors }),
   };
 }
 

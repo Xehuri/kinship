@@ -662,6 +662,107 @@ describe("PlanScheduler 容错与模式", () => {
     await vi.advanceTimersByTimeAsync(24 * HOUR);
     expect(calls).toHaveLength(1);
   });
+
+  it("start() 缺省锚点仍在 07:30 触发 anchor-0730", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 27, 23, 29, 30))); // 07:29:30 +08
+    const doc = master([
+      entry({ id: "review", action: "plan.review", schedule: { kind: "daily", at: "07:30" } }),
+    ]);
+    const { queue, calls } = fakeQueue();
+    const observations: PlanSchedulerObservation[] = [];
+    const scheduler = new PlanScheduler({
+      masterStore: { read: async () => doc },
+      overlayStore: absentOverlay(),
+      queue,
+      mainSessionId: "ses_main",
+      timezone: TZ,
+      observe: (event) => observations.push(event),
+      watchdogMs: 0,
+    });
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(30_000);
+    for (let attempt = 0; attempt < 20 && calls.length === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(calls).toHaveLength(1);
+    expect(observations).toContainEqual(
+      expect.objectContaining({ kind: "reconcile", reason: "anchor-0730" }),
+    );
+    scheduler.dispose();
+  });
+
+  it("自定义 anchors 按配置时刻触发并生成 anchor:HH:MM reason", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 27, 21, 14, 30))); // 05:14:30 +08
+    const doc = master([
+      entry({ id: "build", action: "plan.build", schedule: { kind: "daily", at: "06:15" } }),
+    ]);
+    const { queue, calls } = fakeQueue();
+    const observations: PlanSchedulerObservation[] = [];
+    const scheduler = new PlanScheduler({
+      masterStore: { read: async () => doc },
+      overlayStore: absentOverlay(),
+      queue,
+      mainSessionId: "ses_main",
+      timezone: TZ,
+      anchors: ["06:15"],
+      observe: (event) => observations.push(event),
+      watchdogMs: 0,
+    });
+
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(HOUR);
+    for (let attempt = 0; attempt < 20 && calls.length === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(calls).toHaveLength(1);
+    expect(observations).toContainEqual(
+      expect.objectContaining({ kind: "reconcile", reason: "anchor:06:15" }),
+    );
+    scheduler.dispose();
+  });
+
+  it("#retime 切到母版时区后仍按自定义锚点重排", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 27, 5, 0, 0))); // 05:00 UTC / 13:00 +08
+    const doc = master(
+      [entry({ id: "keep", schedule: { kind: "daily", at: "06:15" } })],
+      { timezone: "UTC" },
+    );
+    const { queue } = fakeQueue();
+    const observations: PlanSchedulerObservation[] = [];
+    const scheduler = new PlanScheduler({
+      masterStore: { read: async () => doc },
+      overlayStore: absentOverlay(),
+      queue,
+      mainSessionId: "ses_main",
+      timezone: TZ,
+      anchors: ["06:15"],
+      observe: (event) => observations.push(event),
+      watchdogMs: 0,
+    });
+
+    scheduler.start();
+    await scheduler.reconcile({ reason: "manual" });
+    await vi.advanceTimersByTimeAsync(75 * 60 * 1000);
+    for (
+      let attempt = 0;
+      attempt < 20 &&
+      !observations.some((event) => "reason" in event && event.reason === "anchor:06:15");
+      attempt += 1
+    ) {
+      await Promise.resolve();
+    }
+    expect(observations).toContainEqual(
+      expect.objectContaining({ kind: "reconcile", reason: "anchor:06:15" }),
+    );
+    scheduler.dispose();
+  });
 });
 
 describe("PlanScheduler 参数校验", () => {
@@ -679,5 +780,35 @@ describe("PlanScheduler 参数校验", () => {
       () => new PlanScheduler({ ...base, catchupMaxAgeHours: 12, debtAfterHours: 8 }),
     ).toThrow(/debtAfterHours/);
     expect(() => new PlanScheduler({ ...base, shadow: true })).toThrow(/stateRoot/);
+  });
+
+  it("anchors 必须是严格 HH:MM、非空、最多 8 个且不重复", () => {
+    const doc = master([]);
+    const base = {
+      masterStore: { read: async () => doc },
+      overlayStore: absentOverlay(),
+      mainSessionId: "ses_main",
+      queue: fakeQueue().queue,
+    };
+    expect(() => new PlanScheduler({ ...base, anchors: ["6:15"] })).toThrow(/anchors/);
+    expect(() => new PlanScheduler({ ...base, anchors: ["24:00"] })).toThrow(/anchors/);
+    expect(() => new PlanScheduler({ ...base, anchors: ["05:00", "05:00"] })).toThrow(
+      /anchors/,
+    );
+    expect(() => new PlanScheduler({ ...base, anchors: [] })).toThrow(/anchors/);
+    expect(
+      () =>
+        new PlanScheduler({
+          ...base,
+          anchors: ["00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", "08:00"],
+        }),
+    ).toThrow(/anchors/);
+  });
+
+  it("reconcile 接受动态 anchor:HH:MM reason", async () => {
+    const scheduler = schedulerAt(NOW, { masterDoc: master([]), queue: fakeQueue().queue });
+    await expect(scheduler.reconcile({ reason: "anchor:06:15" })).resolves.toMatchObject({
+      reason: "anchor:06:15",
+    });
   });
 });

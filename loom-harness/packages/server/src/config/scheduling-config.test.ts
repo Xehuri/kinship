@@ -77,6 +77,64 @@ scheduling:
     }
   });
 
+  it("anchors 缺省 = 不物化；自定义值原样解析", () => {
+    const absent = parseLoomConfig(`${BASE}\nscheduling:\n  wakeQueue: live\n`, "<test>");
+    expect(absent.scheduling?.anchors).toBeUndefined();
+    expect("anchors" in (absent.scheduling ?? {})).toBe(false);
+
+    const custom = parseLoomConfig(
+      `${BASE}\nscheduling:\n  anchors: ["06:15", "21:45"]\n`,
+      "<test>",
+    );
+    expect(custom.scheduling?.anchors).toEqual(["06:15", "21:45"]);
+  });
+
+  it("anchors 非法时刻 → 精确错误点名 scheduling.anchors", () => {
+    for (const bad of ["6:15", "24:00", "05:60", "05:00:00", "ab:cd", 615]) {
+      const value = typeof bad === "number" ? String(bad) : JSON.stringify(bad);
+      const errs = errorsOf(() =>
+        parseLoomConfig(`${BASE}\nscheduling:\n  anchors: [${value}]\n`, "<test>"),
+      );
+      expect(
+        errs.some((e) => e.includes("scheduling.anchors")),
+        `应拒 ${String(bad)}`,
+      ).toBe(true);
+    }
+  });
+
+  it("anchors 重复时刻 → 精确错误点名 scheduling.anchors", () => {
+    const errs = errorsOf(() =>
+      parseLoomConfig(`${BASE}\nscheduling:\n  anchors: ["05:00", "05:00"]\n`, "<test>"),
+    );
+    expect(
+      errs.some((e) => e.includes("scheduling.anchors") && e.includes("重复")),
+    ).toBe(true);
+  });
+
+  it("anchors 空数组与非数组 → 精确错误点名 scheduling.anchors", () => {
+    const empty = errorsOf(() =>
+      parseLoomConfig(`${BASE}\nscheduling:\n  anchors: []\n`, "<test>"),
+    );
+    expect(empty.some((e) => e.includes("scheduling.anchors"))).toBe(true);
+    const notArray = errorsOf(() =>
+      parseLoomConfig(`${BASE}\nscheduling:\n  anchors: "05:00"\n`, "<test>"),
+    );
+    expect(notArray.some((e) => e.includes("scheduling.anchors"))).toBe(true);
+  });
+
+  it("anchors 超过 8 个 → 精确错误点名 scheduling.anchors", () => {
+    const nine = ["00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", "08:00"];
+    const errs = errorsOf(() =>
+      parseLoomConfig(
+        `${BASE}\nscheduling:\n  anchors: [${nine.map((value) => JSON.stringify(value)).join(", ")}]\n`,
+        "<test>",
+      ),
+    );
+    expect(
+      errs.some((e) => e.includes("scheduling.anchors") && e.includes("最多 8")),
+    ).toBe(true);
+  });
+
   it("正整数键 0/负数 → 精确错误点名键名", () => {
     for (const key of ["watchdogMs", "horizonHours", "catchupMaxAgeHours", "debtAfterHours"]) {
       for (const bad of ["0", "-1"]) {

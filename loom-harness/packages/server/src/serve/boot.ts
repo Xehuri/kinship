@@ -654,6 +654,7 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       ...(scheduling?.debtAfterHours === undefined
         ? {}
         : { debtAfterHours: scheduling.debtAfterHours }),
+      ...(scheduling?.anchors === undefined ? {} : { anchors: scheduling.anchors }),
       shadow: planMode === "shadow",
       stateRoot: options.stateRoot,
       observe: (event): void => {

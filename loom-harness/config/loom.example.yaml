@@ -263,6 +263,15 @@ mcp:
 #   boundary: false
 #   microcompact: { enabled: true, triggerTokens: 150000, targetTokens: 60000, keepRecent: 5 }
 
+# scheduling 段（T11a 调度引擎；可整段缺省 = 关闭）。anchors 是 PlanScheduler 的每日
+# 对账时刻（严格 HH:MM、1-8 个且不可重复）；缺省 ["05:00", "07:30"]，对应 legacy reason
+# anchor-0500 / anchor-0730；自定义时刻的 reason 为 anchor:HH:MM。
+# scheduling:
+#   wakeQueue: live
+#   planScheduler: live
+#   timezone: Asia/Shanghai
+#   anchors: ["05:00", "07:30"]
+
 # inbox 段（统一收件箱核心 T2 + HTTP/排班接线 T3；可整段缺省 = 不物化，运行期缺省 mode=off）。
 # 只有异步来源（QQ、后端 task、脚本、未来服务）走 letters；用户聊天走 /sessions/:id/messages，
 # 绝不进收件箱。source 是注册键（[a-z0-9_.-]{1,64}），trust 是独立维度：
