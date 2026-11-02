@@ -182,6 +182,7 @@ qq history --friend 1000000001 --unread --compact
 ```
 
 - 提醒不含正文、图片或文件；Loom 必须先调用 `qq history --friend <QQ> --unread --compact`，再用 `qq send` 回复。
+- relay 收到私聊后等 1 秒；1 秒内没有新私聊才合并成一条提醒（`（N 条）`）。
 - 重连补漏按发送者合并为一条，带 `（N 条）`。
 - 图片/文件由 `qq history --unread --compact` 下载并返回本地绝对路径，规则同下节。
 
