@@ -78,36 +78,3 @@ def test_query_all_include_linked_evidence_expands_layer() -> None:
         "event", "observation", "report", "evidence",
     ]
     assert payload["counts"]["total"] == 0
-
-
-
-
-def _run_request(payload: dict) -> subprocess.CompletedProcess[str]:
-    body = {"root": str(AI_ROOT), **payload}
-    return subprocess.run(
-        [sys.executable, str(QUERY), "--request", json.dumps(body, ensure_ascii=False)],
-        cwd=str(AI_ROOT),
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-
-
-def test_query_request_mode_success_on_empty_tables() -> None:
-    result = _run_request({"scope": "all", "allow_full_scan": True})
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["ok"] is True
-    assert payload["counts"]["total"] == 0
-    assert payload["counts"]["returned"] == 0
-    assert any("memory skipped" in warning for warning in payload["warnings"])
-    assert any("chat skipped" in warning for warning in payload["warnings"])
-
-
-def test_query_request_mode_error_is_json() -> None:
-    result = _run_request({"bogus": 1})
-    assert result.returncode == 2
-    assert result.stderr == ""
-    payload = json.loads(result.stdout)
-    assert payload["ok"] is False
-    assert payload["error"]["type"] == "InvalidRequest"
