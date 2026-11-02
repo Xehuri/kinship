@@ -8,6 +8,7 @@ import hashlib
 import json
 import sys
 from collections import Counter
+from datetime import date
 from pathlib import Path
 
 ALLOWED_RELATIONS = {
@@ -20,6 +21,9 @@ ALLOWED_RELATIONS = {
     "supersedes",
     "contradicts",
 }
+REPORT_TYPES = {"daily", "weekly", "biweekly", "program"}
+REPORT_LAYERS = {"event", "observation"}
+REPORT_RELATIONS = {"covers", "observes", "reports_event"}
 TABLES = [
     "concept_types.jsonl",
     "blocks.jsonl",
@@ -27,6 +31,8 @@ TABLES = [
     "card_concepts.jsonl",
     "card_blocks.jsonl",
     "card_relations.jsonl",
+    "reports.jsonl",
+    "report_relations.jsonl",
 ]
 
 
@@ -118,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
     card_concepts = tables["card_concepts.jsonl"]
     card_blocks = tables["card_blocks.jsonl"]
     relations = tables["card_relations.jsonl"]
+    reports = tables["reports.jsonl"]
+    report_relations = tables["report_relations.jsonl"]
 
     concept_by_id = {
         row["concept_id"]: row for row in concepts if isinstance(row.get("concept_id"), str)
@@ -255,6 +263,68 @@ def main(argv: list[str] | None = None) -> int:
             issues.append(f"duplicate relation triplet: {key}")
         seen_relations.add(key)
 
+    report_ids: set[object] = set()
+    for report in reports:
+        report_id = report.get("report_id")
+        if not isinstance(report_id, str) or not report_id:
+            issues.append("report without report_id")
+            continue
+        if report_id in report_ids:
+            issues.append(f"duplicate report_id: {report_id}")
+        report_ids.add(report_id)
+        if report.get("report_type") not in REPORT_TYPES:
+            issues.append(f"bad report_type: {report_id} -> {report.get('report_type')!r}")
+        if report.get("layer") not in REPORT_LAYERS:
+            issues.append(f"bad report_layer: {report_id} -> {report.get('layer')!r}")
+        start = report.get("period_start")
+        end = report.get("period_end")
+        try:
+            if not isinstance(start, str) or not isinstance(end, str):
+                raise ValueError
+            if date.fromisoformat(start) > date.fromisoformat(end):
+                raise ValueError
+        except ValueError:
+            issues.append(f"bad report period: {report_id} -> {start!r}..{end!r}")
+        source = resolve_source(root, report.get("file"))
+        if source is None:
+            issues.append(f"report source missing: {report_id}")
+        else:
+            try:
+                if text_sha256(source.read_text(encoding="utf-8")) != report.get("text_sha256"):
+                    issues.append(f"report sha mismatch: {report_id}")
+            except OSError as exc:
+                issues.append(f"cannot read report {report_id}: {exc}")
+        for block_id in report.get("block_ids") or []:
+            block = block_by_id.get(block_id)
+            if block is None:
+                issues.append(f"unknown report block: {report_id} -> {block_id}")
+            elif block.get("file") != report.get("file"):
+                issues.append(f"report block file mismatch: {report_id} -> {block_id}")
+        for card_id in report.get("card_ids") or []:
+            if card_id not in card_ids:
+                issues.append(f"unknown report card: {report_id} -> {card_id}")
+
+    seen_report_relations: set[tuple[object, object, object]] = set()
+    for row in report_relations:
+        from_report = row.get("from_report")
+        to_report = row.get("to_report")
+        to_card = row.get("to_card")
+        relation = row.get("relation")
+        if from_report not in report_ids:
+            issues.append(f"unknown from_report: {from_report}")
+        if bool(to_report) == bool(to_card):
+            issues.append(f"report relation needs exactly one target: {from_report} -> {to_report or to_card}")
+        if to_report is not None and to_report not in report_ids:
+            issues.append(f"unknown to_report: {to_report}")
+        if to_card is not None and to_card not in card_ids:
+            issues.append(f"unknown to_card in report_relations: {to_card}")
+        if relation not in REPORT_RELATIONS:
+            issues.append(f"bad report relation: {relation!r}")
+        key = (from_report, relation, to_report or to_card)
+        if key in seen_report_relations:
+            issues.append(f"duplicate report relation: {key}")
+        seen_report_relations.add(key)
+
     counts = {
         "concepts": len(concepts),
         "blocks": len(blocks),
@@ -262,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
         "card_concepts": len(card_concepts),
         "card_blocks": len(card_blocks),
         "relations": len(relations),
+        "reports": len(reports),
+        "report_relations": len(report_relations),
     }
     status = "PASS" if not issues else "FAIL"
 

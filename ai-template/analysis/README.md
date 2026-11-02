@@ -52,7 +52,7 @@
 | `card_admin.py {add-card|add-relation|deprecate-card}` | 写入卡片与卡片关系 |
 | `query_catalog.py` | 按概念/日期/时段/文本/金额查询卡片，可回指块 |
 | `query_reports.py [--type ...] [--layer ...] [--follow]` | 查询报告索引与报告关系 |
-| `validate_catalog.py` | 校验索引表、源文件、哈希和关系引用 |
+| `validate_catalog.py` | 校验八张表、源文件、哈希、报告层和关系引用 |
 
 ## 记忆工具
 
