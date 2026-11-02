@@ -244,28 +244,44 @@ def _top_level_key(existing: Dict[str, Any]) -> Optional[tuple]:
     return sleep_session_key(session)
 
 
+_EMPTY_SLEEP_VALUES = (None, "", [], {})
+
+
 def _merge_sleep_data(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:
     """睡眠数据合并：有会话时按会话键合并，顶层标量由主觉重建。
 
     phone/legacy 载荷（无 sleep_sessions 键）维持字段级 update 语义；
     仅小睡重拉不得覆盖已存 legacy 主觉标量（LEGACY NAP GUARD）。
+
+    2026-11-01 本地补丁（数据丢失修复）：新载荷里的空值（None / "" / [] / {}）
+    一律不参与覆盖。此前「只同步了步数、sleep 字段为空」的推送或云端回补会把
+    当天已存的睡眠数据整段抹掉，且无日志（详见 bug 报告 bug-健康分片合并清空
+    睡眠数据-20261101.md）。
     """
     existing = existing or {}
     if not new:
         return existing
-    if "sleep_sessions" not in new:
+
+    # 丢弃空值字段，避免空载荷覆盖既有非空数据
+    cleaned = {
+        key: value for key, value in new.items()
+        if value not in _EMPTY_SLEEP_VALUES
+    }
+    if not cleaned:
+        return dict(existing)
+
+    if "sleep_sessions" not in cleaned:
         merged = dict(existing)
-        merged.update(new)
+        merged.update(cleaned)
         return merged
 
     merged_sessions = _merge_sessions(
         existing.get("sleep_sessions") or [],
-        new.get("sleep_sessions") or [],
+        cleaned.get("sleep_sessions") or [],
     )
     if not merged_sessions:
-        merged = dict(existing)
-        merged.update(new)
-        return merged
+        # 合并结果为空：保留既存，绝不用空结果覆盖
+        return dict(existing)
 
     primary = _primary_session(merged_sessions)
     existing_duration = existing.get("duration_min")
@@ -283,7 +299,7 @@ def _merge_sleep_data(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str
             return guarded
 
     out = dict(existing)
-    for key, value in new.items():
+    for key, value in cleaned.items():
         if key != "sleep_sessions":
             out[key] = value
     for key in _SLEEP_TOP_LEVEL_KEYS:
@@ -435,7 +451,8 @@ class HealthStore:
                 payload["daily_summary"]["total_steps"] = sum(step_vals)
 
         # sleep_data：提供才合并（多会话键控合并；无会话载荷仍为字段级 update）
-        if "sleep_data" in new:
+        # 2026-11-01 本地补丁：空字典视为「未提供」，不进入合并，避免清空既存睡眠数据
+        if new.get("sleep_data"):
             payload["sleep_data"] = _merge_sleep_data(
                 existing.get("sleep_data") or {}, new["sleep_data"]
             )
