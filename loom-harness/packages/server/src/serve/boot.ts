@@ -63,6 +63,7 @@ import { createInboxPolicyEngine, registerInboxRoutes } from "../inbox/routes.js
 import { createInboxTools } from "../inbox/tools.js";
 import { registerOpsRoutes } from "../ops-api/index.js";
 import { createPtyPlugin } from "../features/pty/plugin.js";
+import { createTaskPlugin } from "../features/task/plugin.js";
 import { createTodoPlugin } from "../features/todo/plugin.js";
 import { BUILTIN_PLUGINS } from "../plugin-host/builtins.js";
 import { PluginHost, toPluginStatusReport } from "../plugin-host/index.js";
@@ -229,9 +230,9 @@ export interface LoomApp {
   /** L6 flow 真源（flow.enabled=false 时 undefined：零 store、零 flow 面）。 */
   readonly flowStore: JsonFlowStore | undefined;
   /**
-   * Feature Plugin Host（五个 builtin 已登记并 start）。
-   * P1 起 todo 贡献 todowrite、pty 贡献五件套与其 dispose 生命周期；
-   * task/plan/inbox 仍只承载状态与生命周期（P0 元数据面）。
+    * Feature Plugin Host（五个 builtin 已登记并 start）。
+    * P1 起 todo 贡献 todowrite、pty 贡献五件套与其 dispose 生命周期、task 贡献 task_fetch；
+    * plan/inbox 仍只承载状态与生命周期（P0 元数据面）。
    */
   readonly pluginHost: PluginHost;
   /** 停机扩展点：外部持有资源关停（当前 = MCP 子进程收尸；boot 停机序列消费，幂等）。 */
@@ -422,9 +423,10 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   // 必然发生在任意 HTTP 派发之后，届时 sink 已绑定；绑定前 no-op 安全。
   const ptyNotifySink: { deliver?: (ownerSessionId: string, line: string) => void } = {};
 
-  // Feature Plugin P1：todo + pty 已迁入真实工具贡献，其余三项仍是 P0 元数据面。
-  // Host 必须晚于 onTodoUpdated 与 ptyNotifySink（两个 setup 依赖它们），早于 toolWiring
-  // （extraTools 消费 contributions().tools）。start() 抛错 = critical 失败。
+  // Feature Plugin P1：todo + pty + task（仅 task_fetch）已迁入真实工具贡献，plan/inbox
+  // 仍是 P0 元数据面。Host 必须晚于 onTodoUpdated / ptyNotifySink / loomSessionsStore /
+  // kernel（三个 setup 依赖它们），早于 toolWiring（extraTools 消费 contributions().tools）。
+  // start() 抛错 = critical 失败。
   // workspace realpath 只归一一次，供 pty 的 defaultWorkdir/workspaceRoot 与后续装配共用。
   const workspaceReal = realpathSync(options.config.workspace);
   // pty 授权闭包的双惰性缝合：PluginHost.start() 早于 toolWiring，setup 只构造工具不 spawn，
@@ -439,6 +441,9 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   });
   const plugins = BUILTIN_PLUGINS.map((plugin) => {
     if (plugin.manifest.id === "todo") return createTodoPlugin({ onUpdated: onTodoUpdated });
+    if (plugin.manifest.id === "task") {
+      return createTaskPlugin({ store: loomSessionsStore, kernel });
+    }
     if (plugin.manifest.id === "pty") {
       return createPtyPlugin({
         defaultWorkdir: workspaceReal,
@@ -814,9 +819,6 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     onToolOutput,
     // W9 切片0：子会话转录落盘恒挂（同步/后台同一工厂，见 tool-wiring childSessionFactory）。
     childSessionStore: loomSessionsStore,
-    // W11a3：task_fetch 取件面（读侧速行版）——与 childSessionStore 同一实例，写读成对；
-    // 主/副/子会话共用同一只读取件口（trace.wrapAll 自动包痕，见 tool-wiring.ts）。
-    taskFetchStore: loomSessionsStore,
     // GAP-3/GAP-4：显式 planRoot 才挂 plan/long_task（LOOM_PLAN_ROOT > plan.root；
     // 缺省不传 = 两工具不挂面，boot 已在函数头 info 行说明 disabled 原因）。
     ...(planRootResolution.planRoot === undefined
@@ -826,7 +828,8 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     ...(overlayPlanTool === undefined ? {} : { planTool: overlayPlanTool }),
     // W9 切片 2：task 横闸在飞册=内核视图（主/副/子跨门面共享一池；内核入口=kernel 单例）。
     fanout: kernel.asFanout(),
-    // W9 切片 3：后台派发口与 task_fetch 双索引都从内核切（进程单例，kernelOpts 装配序见上）。
+    // W9 切片 3：后台派发口从内核切（进程单例，kernelOpts 装配序见上）；task_fetch
+    // 的 task_id→sid 双索引由 task feature plugin 在同一内核面构造。
     kernel,
     // W37：task_cancel 取消口 = /tasks HTTP 路由同一 taskSurface 实例（单缝见 const 处注释）。
     taskCancel: taskSurface,
@@ -859,7 +862,7 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       ? {}
       : { subagentMaxTurns: options.config.subagent.maxTurns }),
     extraTools: [
-      // P1：插件工具贡献（todowrite + pty 五件套；task/plan/inbox 仍是 P0 元数据）。
+      // P1：插件工具贡献（todowrite + pty 五件套 + task_fetch；plan/inbox 仍是 P0 元数据）。
       ...pluginHost.contributions().tools,
       compactContextTool,
       ...(skillsWiring === undefined ? [] : [skillsWiring.tool]),

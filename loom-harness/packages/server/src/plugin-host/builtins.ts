@@ -49,17 +49,21 @@ const ptyPlugin = definePlugin({
   setup: () => ({}),
 });
 
+/** task 的 Manifest 真源：静态元数据插件与 P1 task_fetch 工具工厂共用同一份。 */
+export const TASK_MANIFEST: LoomPluginManifest = {
+  id: "task",
+  name: "Task",
+  version: "0.0.0",
+  apiVersion: LOOM_PLUGIN_API_VERSION,
+  permissions: ["tools:register", "routes:register", "config:own"],
+  source: "builtin",
+  trust: "builtin",
+  critical: true,
+};
+
+/** P0 元数据面（空 setup）：boot 中会被 createTaskPlugin 工厂替换（仅 task_fetch，派发工具仍在 wiring）。 */
 const taskPlugin = definePlugin({
-  manifest: {
-    id: "task",
-    name: "Task",
-    version: "0.0.0",
-    apiVersion: LOOM_PLUGIN_API_VERSION,
-    permissions: ["tools:register", "routes:register", "config:own"],
-    source: "builtin",
-    trust: "builtin",
-    critical: true,
-  },
+  manifest: TASK_MANIFEST,
   setup: () => ({}),
 });
 

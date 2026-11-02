@@ -58,7 +58,6 @@ import {
 } from "@axeuh/loom-tools/seam";
 
 import { createServeToolTrace, type ServeToolTrace } from "./tool-trace.js";
-import { createTaskFetchTool } from "./task-fetch.js";
 import { createPlanTool } from "./plan-tool.js";
 import { createLongTaskTool } from "./long-task-tool.js";
 import { JsonPlanStore } from "../plan/json-plan-store.js";
@@ -66,7 +65,7 @@ import { JsonLongTaskStore } from "../plan/json-long-task-store.js";
 import { assembleRoleContext } from "./side-binding.js";
 import type { ManifestAgentRoleFile } from "../session-api/context-manifest.js";
 import type { SandboxConfig } from "../config/loom-config.js";
-import type { SpawnKernel, SubFanout, TaskIndexPort } from "@axeuh/loom-core/kernel";
+import type { SpawnKernel, SubFanout } from "@axeuh/loom-core/kernel";
 import { teeBashOperations, type ToolOutputSink } from "../events/tool-stream.js";
 
 /** 缝审计环形上限（观测面；超出逐出最旧，长跑不留无界数组）。 */
@@ -122,15 +121,7 @@ export interface ServeToolWiringOptions {
    */
   readonly childSessionStore?: SessionStore;
   /**
-   * W11a3 task_fetch 挂面（读侧速行版）：boot 注入 loom-sessions.jsonl 的 store 实例
-   * （= childSessionStore 同一实例，写侧落盘/读侧取件成对）。工具进共用数组——主/副/子
-   * 会话全可 fetch（子会话 fetch 兄弟会话合法），trace.wrapAll 既有包痕自动覆盖。
-   * 缺省 = 不挂（直调测试旧面不变）。语义钉死：W9 内核切片落地后 task 后台化
-   * （派发即返 sid）+ 本工具即成完整闭环，工具接口不变。
-   */
-  readonly taskFetchStore?: SessionStore;
-  /**
-    * W11a P0：bash 输出 chunk 上抛缝（= ToolOutputStream.onOutput）。给了就把
+     * W11a P0：bash 输出 chunk 上抛缝（= ToolOutputStream.onOutput）。给了就把
     * executor.asBashOperations() 包一层 tee——vendor 滚动缓冲口径一字不动，
     * 只是旁路多喂一份给事件面。缺省 = 不包（测试/离线旧面逐字节不变）。
     */
@@ -142,16 +133,16 @@ export interface ServeToolWiringOptions {
    */
   readonly fanout?: SubFanout;
   /**
-   * W9 切片 3：内核本体注入（boot 传进程单例）——后台派发口（subBackground）与
-   * task_fetch 的 task_id→sid 索引都从它切窄接口。缺省不挂 = background:true 响亮拒绝、
-   * task_fetch 仅 ses_ 寻址（直调测试旧面逐字节不变）。
+   * W9 切片 3：内核本体注入（boot 传进程单例）——后台派发口（subBackground）从它切窄接口。
+   * task_fetch 的 task_id→sid 索引随 task feature plugin 在同一内核面构造。缺省不挂 =
+   * background:true 响亮拒绝（直调测试旧面逐字节不变）。
    */
   readonly kernel?: SpawnKernel;
   /**
    * W37 task_cancel 挂面（模型面后台任务中止）：boot 注入与 HTTP
    * `POST /tasks/:taskID/cancel` 路由**同一适配器实例**（kernel sub 册 get/cancel 投影，
    * 单缝——取消语义唯一真源=kernel.cancelSub，工具只委托不重写，见 core task-cancel.ts）。
-   * 缺省不接 = 不挂面（直调测试旧面逐字节不变，taskFetchStore 同款条件挂面纪律）。
+   * 缺省不接 = 不挂面（直调测试旧面逐字节不变，task 同款条件挂面纪律）。
    */
   readonly taskCancel?: TaskCancelSource;
   /**
@@ -503,28 +494,6 @@ export async function createServeToolWiring(
     onSubagentEnd: (e) => trace.subagentEnd(e),
   });
 
-  // W11a3：task_fetch 取件工具（读侧速行版，见 task-fetch.ts）——给了 store 才挂面；
-  // 进同一 wrapAll 包痕数组 = 主/副/子会话共用同一份只读取件口。
-  // W9 切片 3：给了内核就带 task_id→sid 双索引（run_ 前缀寻址；未给=旧 ses_ 单索引面）。
-  const taskFetchTools: HarnessTool[] =
-    opts.taskFetchStore === undefined
-      ? []
-      : [
-          createTaskFetchTool({
-            store: opts.taskFetchStore,
-            ...(opts.kernel === undefined
-              ? {}
-              : {
-                  taskIndex: {
-                    resolve: (taskId: string) => {
-                      const rec = opts.kernel!.getSub(taskId);
-                      return rec === undefined ? undefined : { sessionId: rec.row.session_id, status: rec.state };
-                    },
-                  } satisfies TaskIndexPort,
-                }),
-          }),
-        ];
-
   // W37：task_cancel 中止工具（见 core/subagent/task-cancel.ts）——给了账本适配器才挂面；
   // 进同一 wrapAll 包痕数组 = 主/副/子共用同一取消口（task/task_fetch 同款双门面纪律）。
   const taskCancelTools: HarnessTool[] =
@@ -540,7 +509,7 @@ export async function createServeToolWiring(
           createLongTaskTool({ store: new JsonLongTaskStore({ planRoot: opts.planRoot }) }),
         ];
 
-  const wrapped = trace.wrapAll([...base, taskHandle.tool, ...taskFetchTools, ...taskCancelTools, ...planTools, ...filterExtraTools(base, opts.extraTools ?? [], log)]);
+  const wrapped = trace.wrapAll([...base, taskHandle.tool, ...taskCancelTools, ...planTools, ...filterExtraTools(base, opts.extraTools ?? [], log)]);
   childFace.push(...wrapped);
   const mainOnlyWrapped = trace.wrapAll([...(opts.mainOnlyTools ?? [])]);
 

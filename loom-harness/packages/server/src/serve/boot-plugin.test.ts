@@ -129,7 +129,7 @@ describe("plugin host boot", () => {
     }
     const contributions = booted.app.pluginHost.contributions();
     expect(contributions.tools.map((tool) => tool.name).sort()).toEqual(
-      ["todowrite", ...PTY_NAMES].sort(),
+      ["todowrite", ...PTY_NAMES, "task_fetch"].sort(),
     );
     expect(contributions.hooks).toEqual([]);
     expect(contributions.routes).toEqual([]);
@@ -155,6 +155,7 @@ describe("plugin host boot", () => {
     const names = booted.app.tools.map((tool) => tool.name);
     expect(names).not.toContain("todowrite");
     for (const name of PTY_NAMES) expect(names).toContain(name);
+    expect(names).toContain("task_fetch");
     expect(names).toEqual(baselineNames.filter((name) => name !== "todowrite"));
   }, 60_000);
 
@@ -169,9 +170,10 @@ describe("plugin host boot", () => {
     });
     const names = booted.app.tools.map((tool) => tool.name);
     expect(names).toContain("todowrite");
+    expect(names).toContain("task_fetch");
     for (const name of PTY_NAMES) expect(names).not.toContain(name);
     const contributions = booted.app.pluginHost.contributions();
-    expect(contributions.tools.map((tool) => tool.name)).toEqual(["todowrite"]);
+    expect(contributions.tools.map((tool) => tool.name)).toEqual(["todowrite", "task_fetch"]);
   }, 60_000);
 
   it("pty.enabled=false：既有 pty 配置同样关闭五件套，todowrite 仍在", async () => {
@@ -185,15 +187,34 @@ describe("plugin host boot", () => {
     });
     const names = booted.app.tools.map((tool) => tool.name);
     expect(names).toContain("todowrite");
+    expect(names).toContain("task_fetch");
     for (const name of PTY_NAMES) expect(names).not.toContain(name);
   }, 60_000);
 
-  it("P1 contributions：todo + pty 提供工具，Hook/路由仍为空", async () => {
+  it("plugins.task.enabled=false：task disabled，task_fetch 缺席，todowrite + pty 仍在", async () => {
+    const booted = await boot(tempWork(), "plugins:\n  task:\n    enabled: false");
+    const res = await status(booted);
+    expect(res.status).toBe(200);
+    const plugins = pluginsOf(res.body);
+    expect(plugins.find((plugin) => plugin["id"] === "task")).toMatchObject({
+      enabled: false,
+      state: "disabled",
+    });
+    for (const plugin of plugins.filter((candidate) => candidate["id"] !== "task")) {
+      expect(plugin).toMatchObject({ enabled: true, state: "running" });
+    }
+    const names = booted.app.tools.map((tool) => tool.name);
+    expect(names).not.toContain("task_fetch");
+    expect(names).toContain("todowrite");
+    for (const name of PTY_NAMES) expect(names).toContain(name);
+  }, 60_000);
+
+  it("P1 contributions：todo + pty + task_fetch 提供工具，Hook/路由仍为空", async () => {
     const booted = await boot(tempWork());
     expect(booted.app.tools.length).toBeGreaterThan(0);
     const contributions = booted.app.pluginHost.contributions();
     expect(contributions.tools.map((tool) => tool.name).sort()).toEqual(
-      ["todowrite", ...PTY_NAMES].sort(),
+      ["todowrite", ...PTY_NAMES, "task_fetch"].sort(),
     );
     expect(contributions.hooks).toEqual([]);
     expect(contributions.routes).toEqual([]);

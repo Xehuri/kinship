@@ -4,7 +4,7 @@
  * When:  ①接口的面清单逐名对钉；②不接口的旧面逐字节不变；
  *        ③经 task 工具同步派发一次真子会话，从 fake 模型 getCalls 取证子会话收到的工具面
  * Then:  task_cancel 进 wrapAll 包痕数组 = 主/副门面在场，且与 childFace 同一数组
- *        （子会话模型调用 tools 名单 = wiring.tools 名单，task/task_fetch W9/W11 同款纪律）；
+ *        （子会话模型调用 tools 名单 = wiring.tools 名单，task W9 同款纪律）；
  *        不接 = 面上无该键（旧调用面零扰动先例）。
  */
 
@@ -45,7 +45,7 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe("W37 task_cancel 挂面纪律（taskFetchTools 同款条件口）", () => {
+describe("W37 task_cancel 挂面纪律（task 同款条件口）", () => {
   it("接 taskCancel 口 → 主/副门面含 task_cancel（精确名单，非仅 contains）", async () => {
     const model = createFakeModel([]);
     try {
@@ -57,10 +57,7 @@ describe("W37 task_cancel 挂面纪律（taskFetchTools 同款条件口）", () 
         taskCancel: fakeSource,
       });
       expect(faceNames(wiring)).toEqual(
-        [
-          "bash", "edit", "find", "grep", "ls", "read", "task", "task_cancel", "write",
-          "pty_spawn", "pty_write", "pty_read", "pty_list", "pty_kill",
-        ].sort(),
+        ["bash", "edit", "find", "grep", "ls", "read", "task", "task_cancel", "write"].sort(),
       );
     } finally {
       model.teardown();
@@ -78,10 +75,7 @@ describe("W37 task_cancel 挂面纪律（taskFetchTools 同款条件口）", () 
       });
       expect(faceNames(wiring)).not.toContain("task_cancel");
       expect(faceNames(wiring)).toEqual(
-        [
-          "bash", "edit", "find", "grep", "ls", "read", "task", "write",
-          "pty_spawn", "pty_write", "pty_read", "pty_list", "pty_kill",
-        ].sort(),
+        ["bash", "edit", "find", "grep", "ls", "read", "task", "write"].sort(),
       );
     } finally {
       model.teardown();
@@ -89,7 +83,7 @@ describe("W37 task_cancel 挂面纪律（taskFetchTools 同款条件口）", () 
   }, 30_000);
 
   it(
-    "子会话同面实锤：task 同步派发 → 子模型调用的 tools 名单 = wiring.tools 名单（childFace=同一 wrapAll 数组，task/task_fetch W9/W11 先例镜像）",
+    "子会话同面实锤：task 同步派发 → 子模型调用的 tools 名单 = wiring.tools 名单（childFace=同一 wrapAll 数组，task W9 先例镜像）",
     async () => {
       // 脚本消费序：#0 = 子会话唯一一轮纯文本收尾（同步派发管线等子终态）。
       const model = createFakeModel([{ content: [{ type: "text", text: "w37-child-done" }] }]);
