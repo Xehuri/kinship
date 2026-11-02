@@ -393,6 +393,8 @@ tags: [记忆, 用户画像, <主题>]        # 人物/事项/属性
 
 将复盘结果写入 `{AI目录}/data/daily/{date}/复盘-{date}.md`。如文件已存在则覆盖。
 
+> 报告落盘后，先按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；再提交。
+
 报告格式：
 
 ```markdown

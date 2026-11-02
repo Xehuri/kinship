@@ -439,6 +439,8 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 写入 `{AI目录}/data/reports/深度回顾-{start_date}~{end_date}.md`
 
+> 报告写入后按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；未生成报告索引不得提交。
+
 ## 置信度标注规则
 
 统一词表见 `{AI目录}/agents/复盘-公共.md`「置信度标注规则」（确定 / 高 / 中 / 低 / 数据不足）。

@@ -301,6 +301,8 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 **如果文件已存在则覆盖**（因为可能有修正）。
 
+> 报告写入后按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；未生成报告索引不得提交。
+
 ### 步骤 6：自检
 
 逐项核对自检清单（见下方），标注通过/未通过。
