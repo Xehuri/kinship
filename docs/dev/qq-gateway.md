@@ -169,6 +169,8 @@ qq history --friend 1000000001 --unread --compact
 
 `--unread --compact` 会自动为图片/文件调用网关 `/v1/media`，把媒体下载到 `qq_gateway.media.dir`（默认 `data/qq_gateway/media/`），并在 `[图片]` / `[文件:name]` 后附本地绝对路径；`--json` 的每条消息额外带 `media` 路径数组。媒体下载失败只保留占位符，不影响文字历史。
 
+`--unread --compact` 会解析引用消息（`get_msg`）和合并转发（`get_forward_msg`），递归渲染其中的文本/图片/文件；媒体仍经 `/v1/media` 下载并附本地路径；深度上限 2，避免循环。
+
 ## 私聊提醒契约（2026-10-30）
 
 私聊不再把正文投给 Loom。relay 只发一条元数据提醒：

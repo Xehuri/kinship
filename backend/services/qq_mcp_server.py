@@ -20,6 +20,8 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from services.qq_gateway.forward import extract_messages as _extract_forward_messages
+from services.qq_gateway.forward import normalize_node as _normalize_forward_node
 from services.qq_gateway.render import render_segments as _render_segments
 
 
@@ -338,6 +340,10 @@ def _result(data: Any, fmt: ResponseFormat, title: str) -> str:
 
 
 _COMPACT_TEXT_LIMIT = 300
+_HISTORY_MAX_DEPTH = 2
+_HISTORY_MAX_FORWARD_NODES = 20
+_HISTORY_MAX_FORWARD_CHARS = 1600
+_HISTORY_QUOTE_LIMIT = 200
 
 
 def _history_time(value: Any) -> str:
@@ -374,6 +380,136 @@ def _history_text(value: str) -> str:
     return text
 
 
+async def _render_history_segments(
+    segments: Any, *, message_id: str, fetch_media: bool,
+    paths: list[str], depth: int = 0,
+) -> str:
+    if not isinstance(segments, list):
+        return ""
+
+    async def resolve_media(segment: dict[str, Any], index: int) -> Optional[str]:
+        if not (fetch_media and message_id):
+            return None
+        try:
+            response = await client.post(
+                "/v1/media",
+                {"segment": segment, "index": index, "message_id": message_id},
+            )
+        except Exception:
+            return None
+        if isinstance(response, dict):
+            path = response.get("path")
+            if path:
+                value = str(path)
+                paths.append(value)
+                return value
+        return None
+
+    async def resolve_quote(segment: dict[str, Any], index: int) -> Optional[str]:
+        if depth >= _HISTORY_MAX_DEPTH:
+            return "[引用]"
+        data = segment.get("data") or {}
+        quoted_id = str(
+            data.get("id") or data.get("message_id") or data.get("msg_id") or ""
+        ).strip()
+        inline = data.get("message")
+        if not isinstance(inline, list):
+            inline = data.get("content")
+        if isinstance(inline, list):
+            quoted = {"sender": data.get("sender") or {}, "message": inline}
+        else:
+            if not quoted_id:
+                return "[引用]"
+            try:
+                payload = await client.call("get_msg", {"message_id": quoted_id})
+            except Exception:
+                return "[引用]"
+            quoted = payload if isinstance(payload, dict) else {}
+        quoted_segments = quoted.get("message") or quoted.get("content") or []
+        sender = quoted.get("sender") or {}
+        name = str(
+            sender.get("card") or sender.get("nickname") or sender.get("user_id") or "?"
+        ).strip() or "?"
+        media_message_id = quoted_id or message_id
+        start = len(paths)
+        text = await _render_history_segments(
+            quoted_segments,
+            message_id=media_message_id,
+            fetch_media=fetch_media,
+            paths=paths,
+            depth=depth + 1,
+        )
+        for path in paths[start:]:
+            text = text.replace(" " + path, "")
+        text = " ".join(text.split())
+        if len(text) > _HISTORY_QUOTE_LIMIT:
+            text = text[:_HISTORY_QUOTE_LIMIT] + "…"
+        if not text:
+            return "[引用]"
+        return "[引用 " + name + ": " + text + "]"
+
+    async def resolve_forward(segment: dict[str, Any]) -> Optional[str]:
+        if depth >= _HISTORY_MAX_DEPTH:
+            return "[合并转发: 深度上限]"
+        data = segment.get("data") or {}
+        messages = data.get("content")
+        if not isinstance(messages, list):
+            forward_id = str(data.get("id") or data.get("message_id") or "").strip()
+            if not forward_id:
+                return "[合并转发]"
+            try:
+                payload = await client.call("get_forward_msg", {"message_id": forward_id})
+            except Exception:
+                return "[合并转发]"
+            messages = _extract_forward_messages(payload)
+        items = _extract_forward_messages(messages)
+        if not items:
+            return "[合并转发]"
+        lines: list[str] = []
+        used = 0
+        rendered = 0
+        for position, item in enumerate(items[:_HISTORY_MAX_FORWARD_NODES]):
+            node = _normalize_forward_node(item)
+            node_data = node["data"]
+            nickname = str(node_data.get("nickname") or "?")
+            node_id = ""
+            if isinstance(item, dict):
+                node_id = str(
+                    item.get("message_id") or item.get("message_seq") or ""
+                ).strip()
+            if not node_id:
+                node_id = message_id + "_fwd" + str(position)
+            start = len(paths)
+            body = await _render_history_segments(
+                node_data.get("content"),
+                message_id=node_id,
+                fetch_media=fetch_media,
+                paths=paths,
+                depth=depth + 1,
+            )
+            for path in paths[start:]:
+                body = body.replace(" " + path, "")
+            line = nickname + ": " + body
+            if used + len(line) > _HISTORY_MAX_FORWARD_CHARS:
+                break
+            lines.append(line)
+            used += len(line)
+            rendered += 1
+        remaining = len(items) - rendered
+        if remaining > 0:
+            lines.append("…还有" + str(remaining) + "条")
+        if not lines:
+            return "[合并转发]"
+        return "[合并转发: " + " | ".join(lines) + "]"
+
+    return await _render_segments(
+        segments,
+        media=resolve_media if fetch_media else None,
+        reply=resolve_quote,
+        forward=resolve_forward,
+    )
+
+
 async def _history_body(
     message: dict[str, Any], *, fetch_media: bool = False,
     media_paths: Optional[list[str]] = None,
@@ -381,39 +517,16 @@ async def _history_body(
     segments = message.get("message")
     paths: list[str] = []
     if isinstance(segments, list):
-        resolver = None
-        if fetch_media:
-            message_id = str(
-                message.get("message_id") or message.get("message_seq") or ""
-            )
-
-            async def resolve_media(segment: dict[str, Any], index: int) -> Optional[str]:
-                if not message_id:
-                    return None
-                try:
-                    response = await client.post(
-                        "/v1/media",
-                        {
-                            "segment": segment,
-                            "index": index,
-                            "message_id": message_id,
-                        },
-                    )
-                except Exception:
-                    return None
-                if isinstance(response, dict):
-                    path = response.get("path")
-                    if path:
-                        value = str(path)
-                        paths.append(value)
-                        if media_paths is not None:
-                            media_paths.append(value)
-                        return value
-                return None
-
-            resolver = resolve_media
+        message_id = str(
+            message.get("message_id") or message.get("message_seq") or ""
+        )
         try:
-            text = await _render_segments(segments, media=resolver)
+            text = await _render_history_segments(
+                segments,
+                message_id=message_id,
+                fetch_media=fetch_media,
+                paths=paths,
+            )
         except Exception:
             text = str(message.get("raw_message") or "")
     else:
@@ -422,6 +535,8 @@ async def _history_body(
         unique_paths = list(dict.fromkeys(paths))
         for path in unique_paths:
             text = text.replace(" " + path, "")
+        if media_paths is not None:
+            media_paths.extend(unique_paths)
         return _history_text(text) + " " + " ".join(unique_paths)
     return _history_text(text)
 

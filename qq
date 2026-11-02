@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export QQ_CLI_BACKEND="$DIR/backend"
 exec /opt/kinship/.venv-health/bin/python "$DIR/ai/skills/qq-cli/qq_cli.py" "$@"

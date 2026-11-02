@@ -4,6 +4,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 MediaResolver = Callable[[dict[str, Any], int], Awaitable[Optional[str]]]
 ForwardResolver = Callable[[dict[str, Any]], Awaitable[Optional[str]]]
+ReplyResolver = Callable[[dict[str, Any], int], Awaitable[Optional[str]]]
 
 
 def segment_text(data: Any, fallback: str) -> str:
@@ -18,6 +19,7 @@ async def render_segments(
     segments: Any,
     media: Optional[MediaResolver] = None,
     forward: Optional[ForwardResolver] = None,
+    reply: Optional[ReplyResolver] = None,
 ) -> str:
     if not isinstance(segments, list):
         return ""
@@ -53,7 +55,8 @@ async def render_segments(
         elif seg_type == "video":
             out.append("[视频]")
         elif seg_type == "reply":
-            out.append("[引用]")
+            rendered = await reply(segment, index) if reply else None
+            out.append(rendered or "[引用]")
         elif seg_type in ("json", "xml"):
             out.append("[卡片]")
         elif seg_type == "forward":
