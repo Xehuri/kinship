@@ -4,6 +4,7 @@
  * 端点：
  *   POST /inbox/letters —— 外部异步来源入箱；用户聊天仍走 /sessions/:id/messages。
  *   GET  /inbox/status  —— 只读积压/按类/按源/摘要到期面。
+ *   GET  /inbox/results/:correlation_id —— 派生结果面（后端任务轮询；不含正文/principal）。
  *
  * 响应映射（与 docs/dev/loom-inbox-contract.md §6 对齐）：
  *   503 inbox_disabled / 400 invalid_letter / 403 source_unregistered|trust_ceiling /
@@ -43,7 +44,13 @@ import type {
   InboxPolicyDecision,
   InboxPolicyIndex,
   LetterInput,
+  LetterRecord,
+  LetterState,
 } from "./types.js";
+
+const TASK_TRIGGER_KIND = "task.trigger";
+
+type InboxResultStatus = "pending" | "completed" | "failed" | "observed";
 
 export interface InboxPolicyEngine {
   readonly config: InboxConfig;
@@ -165,6 +172,80 @@ export function registerInboxRoutes(router: Router, deps: InboxRouteDeps): void 
       session_id: deps.sessionID,
     });
   });
+
+  router.add("GET", "/inbox/results/:correlation_id", (_req, res, ctx) => {
+    const store = deps.store;
+    if (deps.mode === "off" || store === undefined) {
+      sendError(res, 503, "inbox_disabled", "inbox is disabled (mode=off)");
+      return;
+    }
+    const correlationID = ctx.params["correlation_id"] ?? "";
+    const record = latestCorrelationLetter(store, correlationID);
+    if (record === undefined) {
+      sendError(res, 404, "result_not_found", "no letter found for correlation_id");
+      return;
+    }
+    sendJson(res, 200, resultView(record, correlationID));
+  });
+}
+
+/** 关联信件可能多封（多次投递）；优先 task.trigger，再取 created_at/id 最大者。 */
+function latestCorrelationLetter(
+  store: InboxJournalStore,
+  correlationID: string,
+): LetterRecord | undefined {
+  if (correlationID.length === 0) return undefined;
+  const matched = store.list({ correlation_id: correlationID });
+  if (matched.length === 0) return undefined;
+  const triggers = matched.filter((record) => record.kind === TASK_TRIGGER_KIND);
+  const candidates = triggers.length === 0 ? matched : triggers;
+  return candidates[candidates.length - 1];
+}
+
+function resultView(record: LetterRecord, correlationID: string): Record<string, unknown> {
+  return {
+    correlation_id: correlationID,
+    found: true,
+    letter_id: record.id,
+    source: record.source,
+    kind: record.kind,
+    state: record.state,
+    attempts: record.attempts,
+    status: resultStatus(record.state, record.ack_outcome),
+    outcome: record.ack_outcome ?? null,
+    evidence_ref: record.evidence_ref ?? null,
+    created_at: record.created_at,
+    updated_at:
+      record.acked_at ??
+      record.delivered_at ??
+      record.read_at ??
+      record.deferred_until ??
+      record.created_at,
+  };
+}
+
+function resultStatus(state: LetterState, ackOutcome: string | undefined): InboxResultStatus {
+  switch (state) {
+    case "acked":
+      if (ackOutcome === "failed") return "failed";
+      if (ackOutcome === "deferred") return "pending";
+      return "completed";
+    case "dead_letter":
+    case "expired":
+      return "failed";
+    case "observed":
+      return "observed";
+    case "pending":
+    case "routed":
+    case "delivered":
+    case "read":
+    case "deferred":
+      return "pending";
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
 }
 
 async function acceptLetter(

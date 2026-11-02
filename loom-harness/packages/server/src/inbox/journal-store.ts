@@ -196,6 +196,12 @@ export interface InboxListFilter {
   readonly state?: LetterState;
   readonly class?: LetterClass;
   readonly source?: string;
+  /**
+   * 按关联 id 过滤（后端任务轮次查询用）。
+   * 实现是 replay 后内存 Map 的线性谓词扫描，不维护第二索引：账本仍是唯一真源，
+   * 信件量级是单会话积压而非表扫描，查询路径不做额外持久化。
+   */
+  readonly correlation_id?: string;
 }
 
 export interface InboxAppendOptions {
@@ -454,6 +460,12 @@ export class InboxJournalStore {
       if (filter.state !== undefined && record.state !== filter.state) continue;
       if (filter.class !== undefined && record.class !== filter.class) continue;
       if (filter.source !== undefined && record.source !== filter.source) continue;
+      if (
+        filter.correlation_id !== undefined &&
+        record.correlation_id !== filter.correlation_id
+      ) {
+        continue;
+      }
       out.push(record);
     }
     return out.sort(compareRecords);

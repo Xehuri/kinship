@@ -22,6 +22,7 @@ import {
   type InboxRouteDeps,
 } from "./routes.js";
 import type { InboxDeliveryTarget } from "./router.js";
+import type { LetterRecord } from "./types.js";
 import type { SendOutcome } from "../session-api/types.js";
 
 const TOKEN = "tok-inbox-routes";
@@ -130,6 +131,65 @@ async function post(body: unknown): Promise<{ status: number; body: Record<strin
 async function status(): Promise<{ status: number; body: Record<string, unknown> }> {
   const res = await fetch(`${baseUrl}/inbox/status`, { headers: { Authorization: `Bearer ${TOKEN}` } });
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
+
+async function result(
+  correlationId: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const res = await fetch(`${baseUrl}/inbox/results/${encodeURIComponent(correlationId)}`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
+
+function seedInput(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    source: "backend.tasks",
+    kind: "task.trigger",
+    class: "notify",
+    trust: "trusted_service",
+    principal: "backend",
+    title: "任务触发",
+    body: "执行任务",
+    correlation_id: "run-1",
+    ...overrides,
+  };
+}
+
+function seed(store: InboxJournalStore, overrides: Record<string, unknown> = {}): LetterRecord {
+  const appended = store.append(seedInput(overrides), { now: clock });
+  if (appended.outcome !== "received") {
+    throw new Error(`seed expected received, got ${appended.outcome}`);
+  }
+  return appended.record;
+}
+
+function markDelivered(store: InboxJournalStore, id: string, attempts = 1): void {
+  store.appendEvent({
+    schema: 1,
+    event: "letter.delivered",
+    at: clock,
+    id,
+    delivered_at: clock,
+    attempts,
+  });
+}
+
+function markAcked(
+  store: InboxJournalStore,
+  id: string,
+  outcome: string,
+  evidenceRef?: string,
+): void {
+  store.appendEvent({
+    schema: 1,
+    event: "letter.acked",
+    at: clock + 5,
+    id,
+    acked_at: clock + 5,
+    ack_outcome: outcome,
+    ...(evidenceRef === undefined ? {} : { evidence_ref: evidenceRef }),
+  });
 }
 
 beforeEach(() => {
@@ -372,5 +432,178 @@ describe("shadow / rate / status", () => {
     expect(got.body["by_source"]).toMatchObject({ chat: 1, legacy_source: 1 });
     expect(got.body["unknown"]).toBe(1);
     expect(got.body["dead_letter"]).toBe(0);
+  });
+});
+
+describe("GET /inbox/results/:correlation_id", () => {
+  it("无匹配信件：404 result_not_found", async () => {
+    makeHarness(liveConfig(), "live");
+    await start();
+    const got = await result("run-missing");
+    expect(got.status).toBe(404);
+    expect((got.body["error"] as { code: string }).code).toBe("result_not_found");
+    expect(got.body["found"]).toBeUndefined();
+  });
+
+  it("off 模式：503 inbox_disabled", async () => {
+    makeHarness({ mode: "off" }, "off");
+    await start();
+    const got = await result("run-1");
+    expect(got.status).toBe(503);
+    expect((got.body["error"] as { code: string }).code).toBe("inbox_disabled");
+  });
+
+  it("pending：未投递信件 status=pending，updated_at=created_at", async () => {
+    const state = makeHarness(liveConfig(), "live");
+    const record = seed(state.store, { correlation_id: "run-pending" });
+    await start();
+    const got = await result("run-pending");
+    expect(got.status).toBe(200);
+    expect(got.body).toMatchObject({
+      correlation_id: "run-pending",
+      found: true,
+      letter_id: record.id,
+      source: "backend.tasks",
+      kind: "task.trigger",
+      state: "pending",
+      attempts: 0,
+      status: "pending",
+      outcome: null,
+      evidence_ref: null,
+      created_at: NOW,
+      updated_at: NOW,
+    });
+  });
+
+  it("acked completed：outcome=acted 映射 completed，updated_at=acked_at", async () => {
+    const state = makeHarness(liveConfig(), "live");
+    const record = seed(state.store, { correlation_id: "run-done" });
+    markDelivered(state.store, record.id);
+    markAcked(state.store, record.id, "acted", "evidence/run-done");
+    await start();
+    const got = await result("run-done");
+    expect(got.body).toMatchObject({
+      state: "acked",
+      attempts: 1,
+      status: "completed",
+      outcome: "acted",
+      evidence_ref: "evidence/run-done",
+      updated_at: NOW + 5,
+    });
+  });
+
+  it("acked failed：status=failed", async () => {
+    const state = makeHarness(liveConfig(), "live");
+    const record = seed(state.store, { correlation_id: "run-failed" });
+    markDelivered(state.store, record.id);
+    markAcked(state.store, record.id, "failed", "evidence/failed");
+    await start();
+    const got = await result("run-failed");
+    expect(got.body).toMatchObject({ state: "acked", status: "failed", outcome: "failed" });
+  });
+
+  it("acked deferred：status=pending", async () => {
+    const state = makeHarness(liveConfig(), "live");
+    const record = seed(state.store, { correlation_id: "run-deferred-ack" });
+    markDelivered(state.store, record.id);
+    markAcked(state.store, record.id, "deferred");
+    await start();
+    const got = await result("run-deferred-ack");
+    expect(got.body).toMatchObject({ state: "acked", status: "pending", outcome: "deferred" });
+  });
+
+  it("dead_letter：status=failed", async () => {
+    const state = makeHarness(liveConfig(), "live");
+    const record = seed(state.store, { correlation_id: "run-dead" });
+    markDelivered(state.store, record.id);
+    state.store.appendEvent({
+      schema: 1,
+      event: "letter.dead_letter",
+      at: clock,
+      id: record.id,
+      reason: "unacked_at_run_end",
+    });
+    await start();
+    const got = await result("run-dead");
+    expect(got.body).toMatchObject({
+      state: "dead_letter",
+      status: "failed",
+      updated_at: NOW,
+    });
+  });
+
+  it("observed：status=observed（shadow 模式旁路态）", async () => {
+    const state = makeHarness(liveConfig({ mode: "shadow" }), "shadow");
+    state.store.recordObserved(seedInput({ correlation_id: "run-observed" }), { now: clock });
+    await start();
+    const got = await result("run-observed");
+    expect(got.body).toMatchObject({ state: "observed", status: "observed" });
+  });
+
+  it("不泄露正文/principal/trust/ref，响应字段固定", async () => {
+    const state = makeHarness(liveConfig(), "live");
+    const record = seed(state.store, {
+      correlation_id: "run-secret",
+      body: "SECRET-BODY",
+      title: "SECRET-TITLE",
+      principal: "SECRET-PRINCIPAL",
+      ref: { token: "SECRET-REF" },
+    });
+    markDelivered(state.store, record.id);
+    markAcked(state.store, record.id, "acted", "e1");
+    await start();
+    const got = await result("run-secret");
+    expect(got.status).toBe(200);
+    expect(Object.keys(got.body).sort()).toEqual([
+      "attempts",
+      "correlation_id",
+      "created_at",
+      "evidence_ref",
+      "found",
+      "kind",
+      "letter_id",
+      "outcome",
+      "source",
+      "state",
+      "status",
+      "updated_at",
+    ]);
+    const serialized = JSON.stringify(got.body);
+    expect(serialized).not.toContain("SECRET-BODY");
+    expect(serialized).not.toContain("SECRET-TITLE");
+    expect(serialized).not.toContain("SECRET-PRINCIPAL");
+    expect(serialized).not.toContain("SECRET-REF");
+    expect(serialized).not.toContain("principal");
+    expect(serialized).not.toContain("trust");
+  });
+
+  it("同 correlation_id 多封：优先 task.trigger，再取最新", async () => {
+    const state = makeHarness(liveConfig(), "live");
+    const trigger1 = seed(state.store, { correlation_id: "run-multi" });
+    clock = NOW + 1;
+    const note = seed(state.store, { correlation_id: "run-multi", kind: "backend.notice" });
+    clock = NOW + 2;
+    const trigger2 = seed(state.store, { correlation_id: "run-multi" });
+    await start();
+
+    const first = await result("run-multi");
+    expect(first.body["letter_id"]).toBe(trigger2.id);
+    expect(first.body["kind"]).toBe("task.trigger");
+
+    state.store.appendEvent({
+      schema: 1,
+      event: "letter.acked",
+      at: clock,
+      id: trigger2.id,
+      acked_at: clock,
+      ack_outcome: "failed",
+    });
+    const afterAck = await result("run-multi");
+    expect(afterAck.body).toMatchObject({
+      letter_id: trigger2.id,
+      status: "failed",
+      outcome: "failed",
+    });
+    expect([trigger1.id, note.id]).not.toContain(afterAck.body["letter_id"]);
   });
 });
