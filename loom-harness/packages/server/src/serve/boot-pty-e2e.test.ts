@@ -27,8 +27,10 @@ import {
   type FakeAssistantResponse,
   type FakeModel,
 } from "@axeuh/loom-core/testing";
+import { createPtyFeature, type PtyFeature } from "@axeuh/loom-tools/pty";
 
 import { SessionRegistry } from "../session-api/index.js";
+import type { ServeToolWiring } from "./tool-wiring.js";
 
 // 加载纪律（同 boot-pty.test）：boot/tool-wiring 图动态 import，避免 core 桶经
 // server 环先实例化（ConvergenceGate "is not a constructor"）。
@@ -42,6 +44,7 @@ interface Stack {
   readonly store: MemorySessionStore;
   readonly registry: SessionRegistry;
   readonly tools: readonly HarnessTool[];
+  readonly pty: PtyFeature;
   readonly workspace: string;
   readonly stateRoot: string;
 }
@@ -75,6 +78,7 @@ afterEach(async () => {
         }
       }
     } finally {
+      stack.pty.dispose();
       stack.model.teardown();
       rmSync(stack.workspace, { recursive: true, force: true });
       rmSync(stack.stateRoot, { recursive: true, force: true });
@@ -140,18 +144,28 @@ function ptyIdsOf(text: string): readonly string[] {
   return text.match(/pty_[0-9a-f]{8}\b/g) ?? [];
 }
 
-/** 真栈子集装配（镜像 w11-live-events）：双惰性 onPtyExit → registry.deliverWake。 */
+/** 真栈子集装配（镜像 w11-live-events）：双惰性 onExit → registry.deliverWake。 */
 async function makeStack(script: readonly FakeAssistantResponse[]): Promise<Stack> {
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), "loom-pty-e2e-ws-")));
   const stateRoot = realpathSync(mkdtempSync(join(tmpdir(), "loom-pty-e2e-state-")));
   const model = createFakeModel([...script]);
   const sink: { deliver?: ((sid: string, line: string) => void) | undefined } = {};
-  const wiring = await createServeToolWiring({
+  let wiring: ServeToolWiring | undefined;
+  const pty = createPtyFeature({
+    defaultWorkdir: workspace,
+    workspaceRoot: workspace,
+    onExit: (sid, line) => sink.deliver?.(sid, line),
+    validateSpawn: async (command, args, workdir) => {
+      if (wiring === undefined) throw new Error("wiring is not ready");
+      await wiring.executor.authorizeTool("pty_spawn", [command, ...args].join(" "), workdir);
+    },
+  });
+  wiring = await createServeToolWiring({
     workspaceRoot: workspace,
     stateRoot,
     model,
     llmOptions: {},
-    onPtyExit: (sid, line) => sink.deliver?.(sid, line),
+    extraTools: pty.tools,
   });
   const store = new MemorySessionStore();
   const registry = new SessionRegistry({
@@ -163,7 +177,7 @@ async function makeStack(script: readonly FakeAssistantResponse[]): Promise<Stac
     version: "pty-e2e",
   });
   sink.deliver = (sid, line) => registry.deliverWake(sid, line);
-  const stack: Stack = { model, store, registry, tools: wiring.tools, workspace, stateRoot };
+  const stack: Stack = { model, store, registry, tools: wiring.tools, pty, workspace, stateRoot };
   stacks.push(stack);
   return stack;
 }

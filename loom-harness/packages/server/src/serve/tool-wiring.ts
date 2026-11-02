@@ -49,7 +49,6 @@ import { createTaskTool } from "@axeuh/loom-core/subagent/task-tool";
 import { createTaskCancelTool, type TaskCancelSource } from "@axeuh/loom-core/subagent/task-cancel";
 import type { ToolName } from "@axeuh/loom-tools";
 import { createAllTools, toolNames } from "@axeuh/loom-tools";
-import { createPtyTools } from "@axeuh/loom-tools/pty";
 import {
   ToolExecutor,
   SeamDeniedError,
@@ -66,7 +65,7 @@ import { JsonPlanStore } from "../plan/json-plan-store.js";
 import { JsonLongTaskStore } from "../plan/json-long-task-store.js";
 import { assembleRoleContext } from "./side-binding.js";
 import type { ManifestAgentRoleFile } from "../session-api/context-manifest.js";
-import type { PtyConfig, SandboxConfig } from "../config/loom-config.js";
+import type { SandboxConfig } from "../config/loom-config.js";
 import type { SpawnKernel, SubFanout, TaskIndexPort } from "@axeuh/loom-core/kernel";
 import { teeBashOperations, type ToolOutputSink } from "../events/tool-stream.js";
 
@@ -171,8 +170,6 @@ export interface ServeToolWiringOptions {
    * （containment strict / net allow / deny 空表，见模块头 W36 段）。
    */
   readonly sandbox?: SandboxConfig | undefined;
-  /** 交互式终端（pty）配置直投；键缺席 = 默认启用（enabled !== false）。 */
-  readonly pty?: PtyConfig | undefined;
   /**
    * 计划/长期任务显式根（boot 从 LOOM_PLAN_ROOT > config `plan.root` 解析）。
    * 键缺席 = plan/long_task 两工具都不挂面；本层绝不猜 ai/data。
@@ -183,8 +180,6 @@ export interface ServeToolWiringOptions {
    * 键缺席 = 旧 plan 工具；long_task 恒用 planRoot 装配，不受本键影响。
    */
   readonly planTool?: HarnessTool | undefined;
-  /** PTY 退出通知出口（boot 以双惰性箭头指 registry.deliverReminder）。 */
-  readonly onPtyExit?: ((ownerSessionId: string, line: string) => void) | undefined;
   /**
    * W40 后台子智能体硬 deadline（loom.yaml `subagent.backgroundDeadlineSeconds` 直投，秒）。
    * 给值 = 装配时写进 task 工具持有的**同一可变 limits 对象**（backgroundDeadlineMs =
@@ -360,33 +355,6 @@ export async function createServeToolWiring(
       : {}),
   });
   const base: HarnessTool[] = toolNames.map((name: ToolName) => all[name]);
-
-  // pty 五件套：spawn 前经 executor.authorizeTool 走同一 D7 缝（权限 + sandbox + 审计，
-  // 不启动进程——真进程由 PtyManager 起）。缺省启用；enabled:false 才整体缺席。
-  const ptyTools: HarnessTool[] =
-    opts.pty?.enabled === false
-      ? []
-      : createPtyTools({
-          defaultWorkdir: workspaceReal,
-          workspaceRoot: workspaceReal,
-          ...(opts.pty?.maxSessionsPerLoomSession === undefined && opts.pty?.maxSessionsTotal === undefined
-            ? {}
-            : {
-                caps: {
-                  ...(opts.pty?.maxSessionsPerLoomSession === undefined
-                    ? {}
-                    : { maxSessionsPerLoomSession: opts.pty.maxSessionsPerLoomSession }),
-                  ...(opts.pty?.maxSessionsTotal === undefined
-                    ? {}
-                    : { maxSessionsTotal: opts.pty.maxSessionsTotal }),
-                },
-              }),
-          ...(opts.onPtyExit === undefined ? {} : { onExit: opts.onPtyExit }),
-          validateSpawn: async (command, args, workdir) => {
-            await executor.authorizeTool("pty_spawn", [command, ...args].join(" "), workdir);
-          },
-          log,
-        });
 
   const trace = createServeToolTrace({
     stateRoot: opts.stateRoot,
@@ -572,7 +540,7 @@ export async function createServeToolWiring(
           createLongTaskTool({ store: new JsonLongTaskStore({ planRoot: opts.planRoot }) }),
         ];
 
-  const wrapped = trace.wrapAll([...base, taskHandle.tool, ...taskFetchTools, ...taskCancelTools, ...ptyTools, ...planTools, ...filterExtraTools(base, opts.extraTools ?? [], log)]);
+  const wrapped = trace.wrapAll([...base, taskHandle.tool, ...taskFetchTools, ...taskCancelTools, ...planTools, ...filterExtraTools(base, opts.extraTools ?? [], log)]);
   childFace.push(...wrapped);
   const mainOnlyWrapped = trace.wrapAll([...(opts.mainOnlyTools ?? [])]);
 

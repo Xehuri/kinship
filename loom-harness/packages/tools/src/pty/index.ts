@@ -14,7 +14,13 @@ import { createPtySpawnTool } from "./tools/spawn.js";
 import { createPtyWriteTool } from "./tools/write.js";
 import type { PtyManagerOptions, PtyToolOptions } from "./types.js";
 
-export function createPtyTools(opts: PtyToolOptions): HarnessTool[] {
+/** 五工具面与其唯一 PtyManager 的生命周期绑定。 */
+export interface PtyFeature {
+  readonly tools: HarnessTool[];
+  dispose(): void;
+}
+
+export function createPtyFeature(opts: PtyToolOptions): PtyFeature {
   const managerOptions: PtyManagerOptions = {
     ...(opts.caps !== undefined ? { caps: opts.caps } : {}),
     ...(opts.spawnPty !== undefined ? { spawnPty: opts.spawnPty } : {}),
@@ -25,13 +31,20 @@ export function createPtyTools(opts: PtyToolOptions): HarnessTool[] {
   const manager = new PtyManager(managerOptions);
   const notifyOnExitDefault = opts.notifyOnExitDefault ?? true;
 
-  return [
-    createPtySpawnTool(manager, { ...opts, notifyOnExitDefault }),
-    createPtyWriteTool(manager),
-    createPtyReadTool(manager),
-    createPtyListTool(manager),
-    createPtyKillTool(manager),
-  ];
+  return {
+    tools: [
+      createPtySpawnTool(manager, { ...opts, notifyOnExitDefault }),
+      createPtyWriteTool(manager),
+      createPtyReadTool(manager),
+      createPtyListTool(manager),
+      createPtyKillTool(manager),
+    ],
+    dispose: () => manager.disposeAll(),
+  };
+}
+
+export function createPtyTools(opts: PtyToolOptions): HarnessTool[] {
+  return createPtyFeature(opts).tools;
 }
 
 export type {

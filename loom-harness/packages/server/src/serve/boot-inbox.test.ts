@@ -541,7 +541,6 @@ describe("main-only tool wiring", () => {
         stateRoot,
         model,
         llmOptions: {},
-        pty: { enabled: false },
         mainOnlyTools: [mainOnly],
       });
       expect(wiring.tools.map((tool) => tool.name)).not.toContain("inbox_test_only");

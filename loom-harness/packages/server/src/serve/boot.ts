@@ -28,7 +28,7 @@
 
 import { createServer, type Server } from "node:http";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { JsonlSessionStore, RotatingLedger, StateLayout } from "@axeuh/loom-adapters";
@@ -62,6 +62,7 @@ import { InboxJournalStore } from "../inbox/journal-store.js";
 import { createInboxPolicyEngine, registerInboxRoutes } from "../inbox/routes.js";
 import { createInboxTools } from "../inbox/tools.js";
 import { registerOpsRoutes } from "../ops-api/index.js";
+import { createPtyPlugin } from "../features/pty/plugin.js";
 import { createTodoPlugin } from "../features/todo/plugin.js";
 import { BUILTIN_PLUGINS } from "../plugin-host/builtins.js";
 import { PluginHost, toPluginStatusReport } from "../plugin-host/index.js";
@@ -229,7 +230,8 @@ export interface LoomApp {
   readonly flowStore: JsonFlowStore | undefined;
   /**
    * Feature Plugin Host（五个 builtin 已登记并 start）。
-   * P1 起 todo 贡献 todowrite；其余四项仍只承载状态与生命周期（P0 元数据面）。
+   * P1 起 todo 贡献 todowrite、pty 贡献五件套与其 dispose 生命周期；
+   * task/plan/inbox 仍只承载状态与生命周期（P0 元数据面）。
    */
   readonly pluginHost: PluginHost;
   /** 停机扩展点：外部持有资源关停（当前 = MCP 子进程收尸；boot 停机序列消费，幂等）。 */
@@ -372,22 +374,6 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     registry.hubOf(sessionID)?.publish("todo.updated", sessionID, { todos });
   };
 
-  // Feature Plugin P1：todo 的 setup 需要上面的 sink 闭包，故 Host 构造移到这里；
-  // 其余四个 feature 仍是 P0 元数据面（构造在下方原路径）。start() 抛错 = critical 失败。
-  const pluginHost = new PluginHost({
-    dataRoot: join(options.stateRoot, "plugins"),
-    config: options.config.plugins ?? {},
-    log: (level, msg, fields) => log(level, msg, fields ?? {}),
-  });
-  const plugins = BUILTIN_PLUGINS.map((plugin) =>
-    plugin.manifest.id === "todo" ? createTodoPlugin({ onUpdated: onTodoUpdated }) : plugin,
-  );
-  for (const plugin of plugins) {
-    const enabled = options.config.plugins?.[plugin.manifest.id]?.enabled ?? true;
-    pluginHost.register(plugin, { enabled });
-  }
-  await pluginHost.start();
-
   // trace 观测面收尾（T21 生产调用方）：run 开跑/催办/盖棺三类行 + 死信分片落盘。
   // W9 切片 2 上移（决策）：SpawnKernel 先于 toolWiring 构造（task 门面装配期要挂在飞册
   // 视图），三缝依赖（runTrace/deadLetters）随之提前——两者只依赖 stateRoot/log，无 wiring 依赖。
@@ -435,6 +421,57 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   // pty 退出通知出口：wiring 早于 registry 构造（双惰性同 runReminders）——运行期首调
   // 必然发生在任意 HTTP 派发之后，届时 sink 已绑定；绑定前 no-op 安全。
   const ptyNotifySink: { deliver?: (ownerSessionId: string, line: string) => void } = {};
+
+  // Feature Plugin P1：todo + pty 已迁入真实工具贡献，其余三项仍是 P0 元数据面。
+  // Host 必须晚于 onTodoUpdated 与 ptyNotifySink（两个 setup 依赖它们），早于 toolWiring
+  // （extraTools 消费 contributions().tools）。start() 抛错 = critical 失败。
+  // workspace realpath 只归一一次，供 pty 的 defaultWorkdir/workspaceRoot 与后续装配共用。
+  const workspaceReal = realpathSync(options.config.workspace);
+  // pty 授权闭包的双惰性缝合：PluginHost.start() 早于 toolWiring，setup 只构造工具不 spawn，
+  // 运行期首次 pty_spawn 必在下面赋值之后。
+  let ptyAuthorize:
+    | ((command: string, args: readonly string[], workdir: string) => Promise<void>)
+    | undefined;
+  const pluginHost = new PluginHost({
+    dataRoot: join(options.stateRoot, "plugins"),
+    config: options.config.plugins ?? {},
+    log: (level, msg, fields) => log(level, msg, fields ?? {}),
+  });
+  const plugins = BUILTIN_PLUGINS.map((plugin) => {
+    if (plugin.manifest.id === "todo") return createTodoPlugin({ onUpdated: onTodoUpdated });
+    if (plugin.manifest.id === "pty") {
+      return createPtyPlugin({
+        defaultWorkdir: workspaceReal,
+        workspaceRoot: workspaceReal,
+        ...(options.config.pty?.maxSessionsPerLoomSession === undefined &&
+        options.config.pty?.maxSessionsTotal === undefined
+          ? {}
+          : {
+              caps: {
+                ...(options.config.pty?.maxSessionsPerLoomSession === undefined
+                  ? {}
+                  : { maxSessionsPerLoomSession: options.config.pty.maxSessionsPerLoomSession }),
+                ...(options.config.pty?.maxSessionsTotal === undefined
+                  ? {}
+                  : { maxSessionsTotal: options.config.pty.maxSessionsTotal }),
+              },
+            }),
+        onExit: (ownerSessionId, line) => ptyNotifySink.deliver?.(ownerSessionId, line),
+        validateSpawn: (command, args, workdir) => {
+          if (ptyAuthorize === undefined) throw new Error("pty authorization is not ready");
+          return ptyAuthorize(command, args, workdir);
+        },
+        log,
+      });
+    }
+    return plugin;
+  });
+  for (const plugin of plugins) {
+    const configured = options.config.plugins?.[plugin.manifest.id]?.enabled ?? true;
+    const featureEnabled = plugin.manifest.id === "pty" ? options.config.pty?.enabled !== false : true;
+    pluginHost.register(plugin, { enabled: configured && featureEnabled });
+  }
+  await pluginHost.start();
 
   // 自动唤醒出口：registry.onAutoWake 运行期才绑定 scheduler（双惰性同 ptyNotifySink）。
   const wakeSink: { arm?: (sessionID: string, at: number | null) => void } = {};
@@ -780,11 +817,6 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     // W11a3：task_fetch 取件面（读侧速行版）——与 childSessionStore 同一实例，写读成对；
     // 主/副/子会话共用同一只读取件口（trace.wrapAll 自动包痕，见 tool-wiring.ts）。
     taskFetchStore: loomSessionsStore,
-    // pty 退出通知：双惰性箭头指 registry.deliverWake（registry 构造在下方；
-    // 绑定前 no-op 安全）。durable 队列路径：空闲 → 立即起轮；忙 → 当前轮收尾后起新轮。
-    onPtyExit: (ownerSessionId, line) => ptyNotifySink.deliver?.(ownerSessionId, line),
-    // pty 段透传（同 sandbox 条件展开纪律：键缺席不物化 = tool-wiring 按缺省启用）。
-    ...(options.config.pty === undefined ? {} : { pty: options.config.pty }),
     // GAP-3/GAP-4：显式 planRoot 才挂 plan/long_task（LOOM_PLAN_ROOT > plan.root；
     // 缺省不传 = 两工具不挂面，boot 已在函数头 info 行说明 disabled 原因）。
     ...(planRootResolution.planRoot === undefined
@@ -827,7 +859,7 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       ? {}
       : { subagentMaxTurns: options.config.subagent.maxTurns }),
     extraTools: [
-      // P1：插件工具贡献（当前只有 todo 的 todowrite；其余四项仍是 P0 元数据）。
+      // P1：插件工具贡献（todowrite + pty 五件套；task/plan/inbox 仍是 P0 元数据）。
       ...pluginHost.contributions().tools,
       compactContextTool,
       ...(skillsWiring === undefined ? [] : [skillsWiring.tool]),
@@ -836,6 +868,10 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     ...(inboxTools.length === 0 ? {} : { mainOnlyTools: inboxTools }),
     ...(skillsWiring === undefined ? {} : { extraHooks: [skillsWiring.hook] }),
   });
+  ptyAuthorize = (command, args, workdir) =>
+    toolWiring.executor
+      .authorizeTool("pty_spawn", [command, ...args].join(" "), workdir)
+      .then(() => undefined);
   toolStream = createToolOutputStream({
     resolveHub: (sessionId) => registry.hubOf(sessionId),
     workspaceRoot: toolWiring.workspaceReal,

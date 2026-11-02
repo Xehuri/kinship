@@ -19,6 +19,7 @@ const opened: Booted[] = [];
 let seq = 0;
 
 const EXPECTED_IDS = ["todo", "pty", "task", "plan", "inbox"] as const;
+const PTY_NAMES = ["pty_kill", "pty_list", "pty_read", "pty_spawn", "pty_write"] as const;
 
 function tempWork(): string {
   return mkdtempSync(join(tmpdir(), "loom-plugin-boot-"));
@@ -127,7 +128,9 @@ describe("plugin host boot", () => {
       });
     }
     const contributions = booted.app.pluginHost.contributions();
-    expect(contributions.tools.map((tool) => tool.name)).toEqual(["todowrite"]);
+    expect(contributions.tools.map((tool) => tool.name).sort()).toEqual(
+      ["todowrite", ...PTY_NAMES].sort(),
+    );
     expect(contributions.hooks).toEqual([]);
     expect(contributions.routes).toEqual([]);
   }, 40_000);
@@ -149,16 +152,49 @@ describe("plugin host boot", () => {
     for (const plugin of plugins.filter((candidate) => candidate["id"] !== "todo")) {
       expect(plugin).toMatchObject({ enabled: true, state: "running" });
     }
-    expect(booted.app.tools.map((tool) => tool.name)).toEqual(
-      baselineNames.filter((name) => name !== "todowrite"),
-    );
+    const names = booted.app.tools.map((tool) => tool.name);
+    expect(names).not.toContain("todowrite");
+    for (const name of PTY_NAMES) expect(names).toContain(name);
+    expect(names).toEqual(baselineNames.filter((name) => name !== "todowrite"));
   }, 60_000);
 
-  it("P1 contributions：仅 todo 提供 todowrite 工具，Hook/路由仍为空", async () => {
+  it("plugins.pty.enabled=false：pty disabled，五件套缺席，todowrite 仍在", async () => {
+    const booted = await boot(tempWork(), "plugins:\n  pty:\n    enabled: false");
+    const res = await status(booted);
+    expect(res.status).toBe(200);
+    const plugins = pluginsOf(res.body);
+    expect(plugins.find((plugin) => plugin["id"] === "pty")).toMatchObject({
+      enabled: false,
+      state: "disabled",
+    });
+    const names = booted.app.tools.map((tool) => tool.name);
+    expect(names).toContain("todowrite");
+    for (const name of PTY_NAMES) expect(names).not.toContain(name);
+    const contributions = booted.app.pluginHost.contributions();
+    expect(contributions.tools.map((tool) => tool.name)).toEqual(["todowrite"]);
+  }, 60_000);
+
+  it("pty.enabled=false：既有 pty 配置同样关闭五件套，todowrite 仍在", async () => {
+    const booted = await boot(tempWork(), "pty:\n  enabled: false");
+    const res = await status(booted);
+    expect(res.status).toBe(200);
+    const plugins = pluginsOf(res.body);
+    expect(plugins.find((plugin) => plugin["id"] === "pty")).toMatchObject({
+      enabled: false,
+      state: "disabled",
+    });
+    const names = booted.app.tools.map((tool) => tool.name);
+    expect(names).toContain("todowrite");
+    for (const name of PTY_NAMES) expect(names).not.toContain(name);
+  }, 60_000);
+
+  it("P1 contributions：todo + pty 提供工具，Hook/路由仍为空", async () => {
     const booted = await boot(tempWork());
     expect(booted.app.tools.length).toBeGreaterThan(0);
     const contributions = booted.app.pluginHost.contributions();
-    expect(contributions.tools.map((tool) => tool.name)).toEqual(["todowrite"]);
+    expect(contributions.tools.map((tool) => tool.name).sort()).toEqual(
+      ["todowrite", ...PTY_NAMES].sort(),
+    );
     expect(contributions.hooks).toEqual([]);
     expect(contributions.routes).toEqual([]);
   }, 40_000);

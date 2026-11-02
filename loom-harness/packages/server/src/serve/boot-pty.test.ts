@@ -2,10 +2,10 @@
  * serve 工具面 pty 五件套接线端到端（fake-model 离线，直驱 wiring）。
  *
  * Given: 临时 workspace（realpath）+ stateRoot + FakeModel。
- * When:  createServeToolWiring 以缺省 / enabled:false / caps / onPtyExit 多路装配，
- *        并直调 pty_spawn/pty_read/pty_kill 驱动真 PTY。
- * Then:  缺省面含五件套、enabled:false 全缺席；pty_spawn 只授权不执行（permission +
- *        cwd 围栏）；真进程退出经 onPtyExit 送出 <pty_exited>；caps 上限真拒绝。
+ * When:  createPtyFeature 造五件套（caps / onExit / 惰性授权闭包）后经 extraTools 进
+ *        createServeToolWiring，并直调 pty_spawn/pty_read/pty_kill 驱动真 PTY。
+ * Then:  五件套全部进面；pty_spawn 只授权不执行（permission + cwd 围栏）；
+ *        真进程退出经 onExit 送出 <pty_exited>；caps 上限真拒绝。
  */
 
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
@@ -15,7 +15,10 @@ import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { HarnessTool, HookContext } from "@axeuh/loom-core";
 import { createFakeModel, createTestContext, type FakeModel } from "@axeuh/loom-core/testing";
+import { createPtyFeature, type PtyCaps, type PtyExitNotifier, type PtyFeature } from "@axeuh/loom-tools/pty";
 import { SeamDeniedError } from "@axeuh/loom-tools/seam";
+
+import type { ServeToolWiring } from "./tool-wiring.js";
 
 // 加载纪律（同 boot-tools.test）：boot/tool-wiring 图必须动态 import，
 // 避免 core 桶经 server 环先实例化（ConvergenceGate "is not a constructor" 稳定复现）。
@@ -38,6 +41,7 @@ interface ExitEvent {
 const models: FakeModel[] = [];
 const roots: string[] = [];
 const cleanups: PtyCleanup[] = [];
+const features: PtyFeature[] = [];
 
 beforeAll(async () => {
   const mod = await import("./tool-wiring.js");
@@ -52,6 +56,7 @@ afterEach(async () => {
       // 已显式清理/已消失的会话无需二次处理。
     }
   }
+  for (const feature of features.splice(0)) feature.dispose();
   for (const m of models.splice(0)) m.teardown();
   for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
 });
@@ -111,15 +116,38 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Pr
   }
 }
 
+async function makePtyWiring(
+  ws: string,
+  stateRoot: string,
+  opts: { caps?: Partial<PtyCaps>; onExit?: PtyExitNotifier } = {},
+): Promise<{ wiring: ServeToolWiring; pty: PtyFeature }> {
+  let wiring: ServeToolWiring | undefined;
+  const pty = createPtyFeature({
+    defaultWorkdir: ws,
+    workspaceRoot: ws,
+    ...(opts.caps === undefined ? {} : { caps: opts.caps }),
+    ...(opts.onExit === undefined ? {} : { onExit: opts.onExit }),
+    validateSpawn: async (command, args, workdir) => {
+      if (wiring === undefined) throw new Error("wiring is not ready");
+      await wiring.executor.authorizeTool("pty_spawn", [command, ...args].join(" "), workdir);
+    },
+  });
+  features.push(pty);
+  const created = await createServeToolWiring({
+    workspaceRoot: ws,
+    stateRoot,
+    model: makeModel(),
+    llmOptions: {},
+    extraTools: pty.tools,
+  });
+  wiring = created;
+  return { wiring: created, pty };
+}
+
 describe("serve 工具面 pty 接线", () => {
-  it("缺省启用：五件套全部进面（键缺席 = enabled !== false）", async () => {
+  it("五件套经 extraTools 全部进面", async () => {
     const { ws, stateRoot } = makeWorkspace();
-    const wiring = await createServeToolWiring({
-      workspaceRoot: ws,
-      stateRoot,
-      model: makeModel(),
-      llmOptions: {},
-    });
+    const { wiring } = await makePtyWiring(ws, stateRoot);
 
     const names = wiring.tools.map((t) => t.name);
     expect(names.filter((n) => n.startsWith("pty_")).sort()).toEqual([...PTY_NAMES].sort());
@@ -127,29 +155,9 @@ describe("serve 工具面 pty 接线", () => {
     expect(names).toContain("task");
   }, 30_000);
 
-  it("enabled:false：五件套全部缺席", async () => {
-    const { ws, stateRoot } = makeWorkspace();
-    const wiring = await createServeToolWiring({
-      workspaceRoot: ws,
-      stateRoot,
-      model: makeModel(),
-      llmOptions: {},
-      pty: { enabled: false },
-    });
-
-    const names = wiring.tools.map((t) => t.name);
-    for (const name of PTY_NAMES) expect(names).not.toContain(name);
-    expect(names).toContain("bash");
-  }, 30_000);
-
   it("serve-pty 允许规则：pty_spawn 放行、未登记工具 default-deny（kind=permission）", async () => {
     const { ws, stateRoot } = makeWorkspace();
-    const wiring = await createServeToolWiring({
-      workspaceRoot: ws,
-      stateRoot,
-      model: makeModel(),
-      llmOptions: {},
-    });
+    const { wiring } = await makePtyWiring(ws, stateRoot);
 
     await expect(
       wiring.executor.authorizeTool("pty_spawn", "echo hi", ws),
@@ -168,12 +176,7 @@ describe("serve 工具面 pty 接线", () => {
 
   it("sandbox cwd：workdir 越出 workspace → pty_spawn 拒绝且不落进程", async () => {
     const { ws, stateRoot } = makeWorkspace();
-    const wiring = await createServeToolWiring({
-      workspaceRoot: ws,
-      stateRoot,
-      model: makeModel(),
-      llmOptions: {},
-    });
+    const { wiring } = await makePtyWiring(ws, stateRoot);
     const { ctx } = createTestContext({ sessionId: "owner-a" });
 
     await expect(
@@ -206,13 +209,7 @@ describe("serve 工具面 pty 接线", () => {
       return new Promise<ExitEvent>((resolve) => waiters.push(resolve));
     };
 
-    const wiring = await createServeToolWiring({
-      workspaceRoot: ws,
-      stateRoot,
-      model: makeModel(),
-      llmOptions: {},
-      onPtyExit,
-    });
+    const { wiring } = await makePtyWiring(ws, stateRoot, { onExit: onPtyExit });
     const { ctx } = createTestContext({ sessionId: "owner-a" });
 
     const spawned = await run(
@@ -244,12 +241,8 @@ describe("serve 工具面 pty 接线", () => {
 
   it("caps：maxSessionsPerLoomSession=1 → 第二次 spawn 被上限拒绝", async () => {
     const { ws, stateRoot } = makeWorkspace();
-    const wiring = await createServeToolWiring({
-      workspaceRoot: ws,
-      stateRoot,
-      model: makeModel(),
-      llmOptions: {},
-      pty: { maxSessionsPerLoomSession: 1, maxSessionsTotal: 2 },
+    const { wiring } = await makePtyWiring(ws, stateRoot, {
+      caps: { maxSessionsPerLoomSession: 1, maxSessionsTotal: 2 },
     });
     const { ctx } = createTestContext({ sessionId: "owner-a" });
 
