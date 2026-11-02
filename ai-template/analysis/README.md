@@ -41,6 +41,19 @@
 | `audio_mimo_analyzer.py {date} --time HH:MM` 或 `--hours A~B` / `--ranges` | 按时间窗选段并调用 MiMo，输出说话人、主题与时间线 |
 | `mimo_audio_sweep.py [--dry-run]` | 清理 `data/cache/mimo_audio/`：保留 Markdown 结果，保护在途任务，按天数与总量双约束 |
 
+## 索引工具
+
+| 脚本 | 功能 |
+|------|------|
+| `build_blocks.py [--date YYYY-MM-DD] [--source batch|legacy|review|all]` | 从批次/早期单体理解/周期报告切出 blocks；默认只收时间窗标题 |
+| `build_reports.py` | 扫描日报、周报、双周报、全程总结，生成 `reports.jsonl` |
+| `build_report_relations.py` | 生成报告→卡片、周报→日报、双周→周报、全程→报告的 `report_relations.jsonl` |
+| `build_relations.py` | 生成同日事件顺序、观察/发现回指事件卡的 `card_relations.jsonl` |
+| `card_admin.py {add-card|add-relation|deprecate-card}` | 写入卡片与卡片关系 |
+| `query_catalog.py` | 按概念/日期/时段/文本/金额查询卡片，可回指块 |
+| `query_reports.py [--type ...] [--layer ...] [--follow]` | 查询报告索引与报告关系 |
+| `validate_catalog.py` | 校验索引表、源文件、哈希和关系引用 |
+
 ## 记忆工具
 
 > 核心流水线只依赖 `memory_write` / `memory_retrieve` / `memory_audit` / `memory_consolidate` / `memory_finalize`；`memory_index*` 是可选实验侧车，默认不参与注入，不应视为当前生产主链。
