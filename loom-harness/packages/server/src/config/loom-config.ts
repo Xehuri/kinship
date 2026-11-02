@@ -18,6 +18,8 @@ import {
   type McpConfig,
   type ModelConfig,
   type PlanConfig,
+  type PluginEnableConfig,
+  type PluginsConfig,
   type PricingConfig,
   type ProviderEndpoints,
   type PtyConfig,
@@ -36,6 +38,7 @@ import {
   checkMcp,
   checkModels,
   checkPlan,
+  checkPlugins,
   checkPricing,
   checkProviders,
   checkPty,
@@ -74,6 +77,8 @@ export type {
   ModelConfig,
   ModelId,
   PlanConfig,
+  PluginEnableConfig,
+  PluginsConfig,
   PricingConfig,
   ProviderEndpoint,
   ProviderEndpoints,
@@ -177,6 +182,14 @@ export interface LoomConfig {
    * inbox/defaults.ts 与消费层，schema 面不造假值。
    */
   readonly inbox?: InboxConfig | undefined;
+  /**
+   * Feature Plugin 开关表（loom.yaml `plugins`；W2a）。
+   * 整段缺省 = undefined = 不物化（缺省语义"builtin 全启用"收敛在 PluginHost）。
+   * P0 只影响 Host 登记状态，不改变既有 feature 构造；P1 才成为真正的启用开关。
+   * 键 = 插件 id（`^[a-z0-9][a-z0-9._-]*$`），值只允许 `enabled` 布尔键，
+   * 未知键 fail-fast（公开契约面，与邻居各段的静默容忍不同）。
+   */
+  readonly plugins?: PluginsConfig | undefined;
 }
 
 /** 配置校验失败：errors 汇总全部问题，避免一次只报一个。 */
@@ -236,6 +249,7 @@ export function parseLoomConfig(
   const flow = checkFlow(doc["flow"], errors);
   const scheduling = checkScheduling(doc["scheduling"], errors);
   const inbox = checkInbox(doc["inbox"], errors);
+  const plugins = checkPlugins(doc["plugins"], errors);
 
   if (errors.length > 0) {
     throw new LoomConfigError(source, errors);
@@ -276,6 +290,8 @@ export function parseLoomConfig(
     ...(scheduling === undefined ? {} : { scheduling }),
     // inbox 段：缺席 = 键不物化（运行期缺省归 inbox/defaults.ts；schema 不造假值）。
     ...(inbox === undefined ? {} : { inbox }),
+    // plugins 段：缺席 = 键不物化（"builtin 全启用"的缺省收敛在 PluginHost；schema 不造假值）。
+    ...(plugins === undefined ? {} : { plugins }),
   };
 }
 

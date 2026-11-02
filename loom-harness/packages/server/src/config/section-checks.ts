@@ -2194,3 +2194,53 @@ export function checkInbox(raw: unknown, errors: string[]): InboxConfig | undefi
     ...(metricsIntervalMs === undefined ? {} : { metricsIntervalMs }),
   };
 }
+
+/** 单个插件的启用开关（loom.yaml `plugins.<id>`）。P0 只承载 enable 标志。 */
+export interface PluginEnableConfig {
+  readonly enabled?: boolean;
+}
+
+/**
+ * Feature Plugin 开关表：键 = 插件 id，值 = 该插件自己的 enable 标志。
+ * 插件私有配置不在这里，避免把 feature 配置抄成第二份真源。
+ */
+export type PluginsConfig = Readonly<Record<string, PluginEnableConfig>>;
+
+/** 插件 id 字符集：与 SDK manifest 契约 `[a-z0-9][a-z0-9._-]*` 一致。 */
+const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+/**
+ * plugins 段校验（Feature Plugin P0）：整段缺省 = undefined；存在必为映射。
+ * 键必须匹配插件 id 正则；值必须为映射且只允许 `enabled` 布尔键（严格模式，
+ * 未知键 fail-fast——与邻居各段的"未知键静默容忍"不同，插件配置是公开契约面）。
+ * 所有非法条目逐条报错并点名精确键，不因单个条目失败而跳过其余条目。
+ */
+export function checkPlugins(raw: unknown, errors: string[]): PluginsConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push("plugins: 需要映射");
+    return undefined;
+  }
+  const out: Record<string, PluginEnableConfig> = {};
+  for (const [id, value] of Object.entries(raw)) {
+    if (!PLUGIN_ID_RE.test(id)) {
+      errors.push(
+        `plugins[${JSON.stringify(id)}]: 非法插件 id，需要匹配 ${PLUGIN_ID_RE.source}`,
+      );
+      continue;
+    }
+    const where = `plugins.${id}`;
+    if (!isRecord(value)) {
+      errors.push(`${where}: 需要映射`);
+      continue;
+    }
+    for (const key of Object.keys(value)) {
+      if (key !== "enabled") {
+        errors.push(`${where}.${key}: 未知键（plugins 条目仅允许 enabled）`);
+      }
+    }
+    const enabled = optionalBool(value["enabled"], `${where}.enabled`, errors);
+    out[id] = enabled === undefined ? {} : { enabled };
+  }
+  return out;
+}

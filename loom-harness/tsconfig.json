@@ -3,6 +3,7 @@
   "files": [],
   "references": [
     { "path": "packages/core" },
+    { "path": "packages/plugin-sdk" },
     { "path": "packages/tools" },
     { "path": "packages/adapters" },
     { "path": "packages/server" }

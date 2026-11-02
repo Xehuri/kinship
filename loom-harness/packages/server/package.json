@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@axeuh/loom-core": "*",
+    "@axeuh/loom-plugin-sdk": "*",
     "@axeuh/loom-adapters": "*",
     "@axeuh/loom-tools": "*",
     "yaml": "*"

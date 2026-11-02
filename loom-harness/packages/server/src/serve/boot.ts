@@ -62,6 +62,8 @@ import { InboxJournalStore } from "../inbox/journal-store.js";
 import { createInboxPolicyEngine, registerInboxRoutes } from "../inbox/routes.js";
 import { createInboxTools } from "../inbox/tools.js";
 import { registerOpsRoutes } from "../ops-api/index.js";
+import { BUILTIN_PLUGINS } from "../plugin-host/builtins.js";
+import { PluginHost, toPluginStatusReport } from "../plugin-host/index.js";
 import {
   assembleContextManifest,
   registerSessionRoutes,
@@ -224,6 +226,11 @@ export interface LoomApp {
   readonly contextManifest: ContextManifest;
   /** L6 flow 真源（flow.enabled=false 时 undefined：零 store、零 flow 面）。 */
   readonly flowStore: JsonFlowStore | undefined;
+  /**
+   * Feature Plugin P0 Host（五个 builtin 元数据已登记并 start）。
+   * P0 只承载状态与生命周期，不接管 feature 构造；`contributions()` 恒为空。
+   */
+  readonly pluginHost: PluginHost;
   /** 停机扩展点：外部持有资源关停（当前 = MCP 子进程收尸；boot 停机序列消费，幂等）。 */
   closeExtras(): Promise<void>;
 }
@@ -286,6 +293,18 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   // 块整体上移：tool 装配（childSessionStore 注入）先于引擎/registry 需要 store 句柄。
   const layout = new StateLayout({ root: options.stateRoot });
   layout.ensureDirs();
+  // Feature Plugin P0：Host 只登记/启动 builtin 元数据，五个 feature 的构造仍在下方
+  // 原路径（P1 才迁移）；start() 抛错 = critical builtin 失败，boot 随之失败。
+  const pluginHost = new PluginHost({
+    dataRoot: join(options.stateRoot, "plugins"),
+    config: options.config.plugins ?? {},
+    log: (level, msg, fields) => log(level, msg, fields ?? {}),
+  });
+  for (const plugin of BUILTIN_PLUGINS) {
+    const enabled = options.config.plugins?.[plugin.manifest.id]?.enabled ?? true;
+    pluginHost.register(plugin, { enabled });
+  }
+  await pluginHost.start();
   // L6 flow 真源：段在场且 enabled=true 才构造（关机 = 零扫描零文件，旧行为逐字节）；
   // 构造即水合 stateRoot/session/{sid}/flow 下的主体文件，坏文件装配期响亮抛。
   const flowEnabled = options.config.flow?.enabled === true;
@@ -1508,6 +1527,10 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   runReminders = createRunReminderRouter({ registry, log });
 
   const router = new Router({ tokens: options.tokens });
+  // Feature Plugin P0 状态面：鉴权继承 Router 前置（无未鉴权路径），只报元数据状态。
+  router.add("GET", "/plugins/status", (_req, res) => {
+    sendJson(res, 200, toPluginStatusReport(pluginHost.status()));
+  });
   registerOpsRoutes(router, {
     getConfig: () => options.store.get(),
     hotStore: options.store,
@@ -1720,7 +1743,16 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       return buildContextManifest();
     },
     flowStore,
+    pluginHost,
     closeExtras: async () => {
+      // Feature Plugin P0：先停 Host（best-effort，失败只留痕），再拆既有调度/账本资源。
+      try {
+        await pluginHost.stop();
+      } catch (error) {
+        log("warn", "loom plugin host stop failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       // flow 面才接管调度器收尾；默认关闭面保持旧 closeExtras 语义。
       schedulingClosed = true;
       if (flowStore !== undefined) wakeScheduler?.dispose();

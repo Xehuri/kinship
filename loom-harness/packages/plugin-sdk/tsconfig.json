@@ -1,0 +1,11 @@
+{
+  "//": "loom-plugin-sdk：Feature Plugin 公开契约（P0 T01/T02）",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [{ "path": "../core" }],
+  "include": ["src/**/*.ts"]
+}
