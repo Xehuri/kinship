@@ -257,17 +257,37 @@ def build_review(root: Path, date_filter: str | None) -> tuple[set[str], list[di
             continue
         source_kind = "biweekly" if path.name.startswith("深度回顾-") else "weekly"
         entries.append((end_date, path, source_kind))
+    # 日报（daily/ 下的复盘-{date}.md）也进 blocks。生产约定：报告作为观测层，也可切卡片。
+    # 单独前缀 R-{date}-DNN，和周期报告（R-{date}-NN）分开计数，避免同日互相顶号。
+    daily_dir = root / "data" / "daily"
+    if daily_dir.is_dir():
+        for path in sorted(daily_dir.glob("*/复盘-*.md")):
+            stem = path.stem
+            if not stem.startswith("复盘-"):
+                continue
+            end_date = stem[len("复盘-"):]
+            if not DATE_RE.match(end_date):
+                continue
+            if date_filter is not None and end_date != date_filter:
+                continue
+            entries.append((end_date, path, "daily"))
     entries.sort(key=lambda entry: (entry[0], entry[1].name))
-    counters: dict[str, int] = {}
+    counters: dict[tuple[str, str], int] = {}
     rows: list[dict] = []
     for end_date, path, source_kind in entries:
         rel = relative_path(path, root)
         for section in heading_sections(path):
-            counters[end_date] = counters.get(end_date, 0) + 1
+            bucket = "daily" if source_kind == "daily" else "period"
+            counters[(end_date, bucket)] = counters.get((end_date, bucket), 0) + 1
             text = section["text"]
+            block_id = (
+                f"R-{end_date.replace('-', '')}-D{counters[(end_date, bucket)]:02d}"
+                if bucket == "daily"
+                else f"R-{end_date.replace('-', '')}-{counters[(end_date, bucket)]:02d}"
+            )
             rows.append(
                 {
-                    "block_id": f"R-{end_date.replace('-', '')}-{counters[end_date]:02d}",
+                    "block_id": block_id,
                     "source_type": "review",
                     "source_kind": source_kind,
                     "file": rel,

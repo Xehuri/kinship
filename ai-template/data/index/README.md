@@ -18,7 +18,9 @@
 ## 契约
 
 - `block.file` 相对 AI 根目录，例如 `data/daily/2026-10-31/理解-2026-10-31-批次-16.md`。
-- `block.block_id` 前缀：`B-` 批次块，`L-` 早期单体理解块，`R-` 周报/双周报块；`source_type` 对应 `batch` / `legacy` / `review`。
+- `block.block_id` 前缀：`B-` 批次块，`L-` 早期单体理解块，`R-` 报告块；`source_type` 对应 `batch` / `legacy` / `review`。
+- `R-` 分两种编号，互不顶号：**周期报告** `R-{YYYYMMDD}-NN`（周报/双周，`source_kind=weekly|biweekly`）；**日报复盘** `R-{YYYYMMDD}-DNN`（`data/daily/{date}/复盘-{date}.md`，`source_kind=daily`）。日报复盘也进 blocks，可用 `build_blocks.py --source review --date {date}` 单独切。
+- 报告块可作卡片证据：`card_admin.py add-evidence --card-id … --block-id R-…` 给已有卡追加一条 `role=corroboration` 的证据（与 `add-card` 的 `role=evidence` 区分），用于「报告佐证同一件事」。
 - `blocks.text` 必须与源文件 `line_start..line_end`（从 1 开始，含两端）逐字一致；`text_sha256` 是该段文本的 SHA-256。
 - `card_blocks.quote_sha` 必须等于对应 `blocks.text_sha256`。
 - 只有叶子概念可以被卡片引用。父概念只用于查询时递归展开。
@@ -38,7 +40,9 @@
   - P1：吃饭/点单、运动、上课/训练、工作/项目里程碑、家务/跑腿。
   - P2：娱乐、常规社交闲聊、常规自学。
   - P3（不得单独建卡）：被动传感器、纯 App/手机使用、睡眠传感器分段、可用性/元信息。
-- **每日上限**：每天最多 3 张新事件卡；显式 `major_event`（旅行/维修/考试/就医/申请）可放宽到 5 张。当天没有 P0~P2 事件时 cards=0 允许，但必须写一行原因。
+- **建卡不报批**：索引编目与补编一律自动执行，不再逐条等用户确认；**叶子缺失自行新增**（`owner=YYYY-MM-DD-expansion`、`version=1`、必填 required_slots，加完立刻 validate）；人名/写法有歧义时按证据择一（优先带学号或本人自填的备注），另一写法写进卡 `slots.note` 或 statement，**不因歧义停手**。
+- **每日上限：无**。按 P0~P2 判定见一条建一条，不再按天卡数量；**质量门不变**：重复、缺行动者+动作+对象/地点、引用块内无断言动作、事件时间出界一律不建。当天没有 P0~P2 事件时 cards=0 允许，但必须写一行原因。
+- **槽位 `people` / `topic`（强烈建议）**：卡片 `statement` 里出现的第三人写进 `slots.people`（数组或字符串，用正式称呼：某人／家人），主题写 `slots.topic`（如 `维修`、`学习`、`检索层`）。这两个槽位是「某人某类事」问题的检索入口：`query.py --slot people=某人 --from … --to …`、`query_catalog.py --slot topic=维修`。旧卡未回填，查到空就说明该问题目前只到事件级。
 - **状态卡**：只收带起点与证据的持续状态，不收瞬时片段。
 - **决定卡**：只收明确的未来计划/承诺，尽量带行动者与 `plan_date`。
 - **观察卡**：必须有 `period_start`/`period_end`，且至少跨 2 天或聚合 >=3 个事件；单个事件不建观察卡。

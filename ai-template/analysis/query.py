@@ -73,6 +73,7 @@ class Hit:
     related_ids: list[str] = field(default_factory=list)
     text_tier: int = 3
     score: float = 0.0
+    alt_score: float = 0.0
 
     @property
     def layer_priority(self) -> int:
@@ -238,23 +239,48 @@ def _report_refs(row: dict, blocks: dict[str, dict], root: Path,
     return refs
 
 
+MAX_META_WEIGHT_CHARS = 2000
+META_LONG_WEIGHT = 0.25
+
+
+def _grep_tokens(grep: str) -> list[str]:
+    """空格分词；单 token 时与旧的整串匹配等价。"""
+    return [token for token in grep.split() if token]
+
+
 def _rank(hit: Hit, grep: str | None) -> Hit:
     if not grep:
         hit.text_tier = 3
         hit.score = 0.0
         return hit
-    title_hits = hit.title.count(grep)
-    snippet_hits = hit.snippet.count(grep)
-    meta_hits = json.dumps(hit.meta, ensure_ascii=False).count(grep)
-    if title_hits:
-        hit.text_tier = 0
-    elif snippet_hits:
-        hit.text_tier = 1
-    elif meta_hits:
-        hit.text_tier = 2
-    else:
+    tokens = _grep_tokens(grep)
+    if not tokens:
         hit.text_tier = 3
-    hit.score = float(title_hits * 2 + snippet_hits + meta_hits)
+        hit.score = 0.0
+        return hit
+    meta_text = json.dumps(hit.meta, ensure_ascii=False)
+    # 长块（如复盘时间线整段）把无关命中拉进来，按长度降权
+    meta_weight = META_LONG_WEIGHT if len(meta_text) > MAX_META_WEIGHT_CHARS else 1.0
+    score = 0.0
+    alt_score = 0.0
+    tiers: list[int] = []
+    for token in tokens:
+        title_hits = hit.title.count(token)
+        snippet_hits = hit.snippet.count(token)
+        meta_hits = meta_text.count(token)
+        contrib = title_hits * 2 + snippet_hits + meta_hits * meta_weight
+        alt_score += contrib
+        if not (title_hits or snippet_hits or meta_hits):
+            # 任一 token 无命中 → AND 不成立；alt_score 留作 OR 兜底
+            hit.text_tier = 3
+            hit.score = 0.0
+            hit.alt_score = float(alt_score)
+            return hit
+        score += contrib
+        tiers.append(0 if title_hits else (1 if snippet_hits else 2))
+    hit.text_tier = min(tiers)
+    hit.score = float(score)
+    hit.alt_score = float(alt_score)
     return hit
 
 
@@ -342,7 +368,8 @@ def _card_hits(scope: str, args: argparse.Namespace, tables: dict[str, Any],
                 str(card.get("statement") or ""),
                 query_catalog.block_text(card_id, tables["card_blocks"], tables["blocks"]),
             ])
-            if args.grep not in haystack:
+            # 预筛放到 OR 级（任一 token 命中），AND/OR 判定交 _rank
+            if not any(token in haystack for token in _grep_tokens(args.grep)):
                 continue
         card_start, _ = query_catalog.card_range(card)
         statement = str(card.get("statement") or "")
@@ -411,7 +438,8 @@ def _report_hits(args: argparse.Namespace, tables: dict[str, Any]) -> list[Hit]:
                 str(row.get("file") or ""),
                 _source_text(args.root, str(row.get("file") or "")),
             ])
-            if args.grep not in haystack:
+            # 预筛放到 OR 级（任一 token 命中），AND/OR 判定交 _rank
+            if not any(token in haystack for token in _grep_tokens(args.grep)):
                 continue
         period_start = str(row.get("period_start") or "") or None
         relations = []
@@ -466,7 +494,8 @@ def _evidence_hits(args: argparse.Namespace, tables: dict[str, Any]) -> list[Hit
                 str(block.get("file") or ""),
                 text,
             ])
-            if args.grep not in haystack:
+            # 预筛放到 OR 级（任一 token 命中），AND/OR 判定交 _rank
+            if not any(token in haystack for token in _grep_tokens(args.grep)):
                 continue
         snippet, _ = _clip_utf8(text, MAX_EVIDENCE_SNIPPET)
         digest = str(block.get("text_sha256") or _sha256(text))
@@ -596,7 +625,8 @@ def _chat_hits(args: argparse.Namespace) -> list[Hit]:
         tools = turn.get("tools") or []
         if args.grep is not None:
             haystack = "\n".join([content, "\n".join(str(tool) for tool in tools)])
-            if args.grep not in haystack:
+            # 预筛放到 OR 级（任一 token 命中），AND/OR 判定交 _rank
+            if not any(token in haystack for token in _grep_tokens(args.grep)):
                 continue
         message_id = str(turn.get("id") or "")
         turn_session = str(turn.get("session_id") or session_id)
@@ -937,6 +967,25 @@ def _run(args: argparse.Namespace, requested: Sequence[str]) -> int:
             warnings.append(f"{scope} unavailable: {exc}")
     if all_mode and attempted and attempted == failed:
         raise DataUnavailable("all requested layers are unavailable")
+
+    if args.grep:
+        multi = len(_grep_tokens(args.grep)) > 1
+        for scope in list(hits_by_scope):
+            if scope not in {"event", "observation", "report", "evidence", "memory"}:
+                continue
+            graded = hits_by_scope[scope]
+            and_hits = [hit for hit in graded if hit.score > 0]
+            if and_hits or not multi:
+                hits_by_scope[scope] = and_hits
+                continue
+            # AND 全空 → 退回 OR（任一 token 命中），并记 warning，避免多词查询直接空
+            or_hits = [hit for hit in graded if hit.alt_score > 0]
+            if or_hits:
+                for hit in or_hits:
+                    hit.score = hit.alt_score
+                    hit.text_tier = 2
+                warnings.append(f"{scope}: grep AND 无命中，已退回 OR")
+            hits_by_scope[scope] = or_hits
 
     candidates = sum(len(hits) for hits in hits_by_scope.values())
     for scope in hits_by_scope:

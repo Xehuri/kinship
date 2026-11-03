@@ -593,6 +593,44 @@ def add_relation(index_dir: Path, from_card: str, to_card: str, relation: str, n
     return 0
 
 
+def add_evidence(
+    index_dir: Path, card_id: str, block_id: str, role: str, note: str, dry_run: bool
+) -> int:
+    """给已有卡追加一条证据块（报告块 R- 也可作佐证）。"""
+    cards_rows = read_jsonl(index_dir / TABLE_CARDS)
+    block_rows = read_jsonl(index_dir / TABLE_BLOCKS)
+    rows = read_jsonl(index_dir / TABLE_CARD_BLOCKS)
+    cards = {row.get("card_id") for row in cards_rows}
+    blocks = {row.get("block_id"): row for row in block_rows}
+    errors = []
+    if card_id not in cards:
+        errors.append(f"unknown card_id: {card_id}")
+    if block_id not in blocks:
+        errors.append(f"unknown block_id: {block_id}")
+    if any(row.get("card_id") == card_id and row.get("block_id") == block_id for row in rows):
+        errors.append(f"duplicate card_blocks row: {(card_id, block_id)}")
+    if errors:
+        for message in errors:
+            print(f"error: {message}", file=sys.stderr)
+        return 1
+    if dry_run:
+        print(f"dry-run: {card_id} <- {block_id} ({role}); wrote 0")
+        return 0
+    row = {
+        "card_id": card_id,
+        "block_id": block_id,
+        "role": role,
+        "quote_sha": blocks[block_id].get("text_sha256"),
+    }
+    if note:
+        row["note"] = note
+    rows = dedupe(rows + [row], ("card_id", "block_id"))
+    rows.sort(key=lambda item: (str(item.get("card_id") or ""), str(item.get("block_id") or "")))
+    atomic_write_jsonl(index_dir / TABLE_CARD_BLOCKS, rows)
+    print(f"wrote evidence: {card_id} <- {block_id} ({role})")
+    return 0
+
+
 def deprecate_card(index_dir: Path, card_id: str, status: str, dry_run: bool) -> int:
     if status not in {"deprecated", "superseded"}:
         print(f"error: bad deprecate status: {status!r}", file=sys.stderr)
@@ -644,6 +682,15 @@ def main(argv: list[str] | None = None) -> int:
     relation.add_argument("--note", default="")
     relation.add_argument("--dry-run", action="store_true")
 
+    evidence = subparsers.add_parser("add-evidence", help="append one evidence block to an existing card")
+    evidence.add_argument("--root", default=str(Path(__file__).resolve().parents[1]))
+    evidence.add_argument("--index-dir", default=None)
+    evidence.add_argument("--card-id", required=True)
+    evidence.add_argument("--block-id", required=True)
+    evidence.add_argument("--role", default="corroboration")
+    evidence.add_argument("--note", default="")
+    evidence.add_argument("--dry-run", action="store_true")
+
     deprecate = subparsers.add_parser("deprecate-card", help="mark a card deprecated or superseded")
     deprecate.add_argument("--root", default=str(Path(__file__).resolve().parents[1]))
     deprecate.add_argument("--index-dir", default=None)
@@ -661,6 +708,14 @@ def main(argv: list[str] | None = None) -> int:
             else load_payload(args.json_path)
         )
         return run_locked(index_dir, args.dry_run, lambda: add_cards(index_dir, payload, args.dry_run))
+    if args.command == "add-evidence":
+        return run_locked(
+            index_dir,
+            args.dry_run,
+            lambda: add_evidence(
+                index_dir, args.card_id, args.block_id, args.role, args.note, args.dry_run
+            ),
+        )
     if args.command == "add-relation":
         return run_locked(
             index_dir,

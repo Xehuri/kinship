@@ -173,7 +173,9 @@ def main(argv: list[str] | None = None) -> int:
                     block_text(str(card.get("card_id") or ""), card_blocks, blocks),
                 ]
             )
-            if args.grep not in haystack:
+            # 空格分词 AND：全部 token 命中才算命中（单 token 等价旧行为）
+            tokens = [token for token in args.grep.split() if token]
+            if not all(token in haystack for token in tokens):
                 continue
         selected.append(card)
 

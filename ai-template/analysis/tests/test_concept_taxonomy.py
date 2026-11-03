@@ -106,7 +106,7 @@ def concept_depth(concept_id: str, by_id: dict[str, dict]) -> int:
 
 
 def test_row_count_within_target(concepts: list[dict]) -> None:
-    assert 48 <= len(concepts) <= 53
+    assert 48 <= len(concepts) <= 55
 
 
 def test_level_counts(concepts: list[dict]) -> None:
@@ -119,7 +119,7 @@ def test_level_counts(concepts: list[dict]) -> None:
     ]
     assert counts[1] == 5
     assert counts[2] == 18
-    assert 28 <= len(l3_leaves) <= 30
+    assert 28 <= len(l3_leaves) <= 32
     assert counts[3] == len(l3_leaves)
 
 

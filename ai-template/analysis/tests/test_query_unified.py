@@ -370,6 +370,29 @@ def test_relevance_with_asc_is_usage_error(corpus, capsys):
     assert "relevance" in err
 
 
+def test_multi_token_grep_requires_all_tokens(corpus, capsys):
+    rc, payload, err = _json(
+        capsys, *_args(corpus, "--scope", "event", "--from", "2026-10-30",
+                       "--to", "2026-11-02", "--grep", "电脑 主板", "--format", "json"),
+    )
+    assert rc == 0, err
+    assert _ids(payload) == ["C-E1"]
+    assert payload["warnings"] == []
+    assert payload["items"][0]["rank"]["text_tier"] == 0
+
+
+def test_multi_token_grep_falls_back_to_or_with_warning(corpus, capsys):
+    rc, payload, err = _json(
+        capsys, *_args(corpus, "--scope", "event", "--from", "2026-10-30",
+                       "--to", "2026-11-02", "--grep", "主板 睡眠", "--format", "json"),
+    )
+    assert rc == 0, err
+    assert _ids(payload) == ["C-E1"]
+    assert payload["items"][0]["rank"]["text_tier"] == 2
+    assert payload["items"][0]["rank"]["score"] > 0
+    assert payload["warnings"] == ["event: grep AND 无命中，已退回 OR"]
+
+
 # ---------------------------------------------------------------- grouping
 
 

@@ -106,3 +106,68 @@ def test_text_unknown_field_fails():
             "card_id: C-1\nkind: event\ntitle: x\nstatement: y\nunknown: z\n"
         )
     assert "unknown field" in str(exc.value)
+
+
+def _seed_card(index: Path) -> None:
+    write_jsonl(index / "cards.jsonl", [{"card_id": "C-1", "kind": "event"}])
+
+
+def _read_rows(path: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def test_add_evidence_dry_run_then_write(index: Path, capsys):
+    _seed_card(index)
+    args = [
+        "add-evidence", "--index-dir", str(index),
+        "--card-id", "C-1", "--block-id", "B-1",
+    ]
+
+    rc = card_admin.main([*args, "--dry-run"])
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    assert out.startswith("dry-run: C-1 <- B-1 (corroboration); wrote 0")
+    assert _read_rows(index / "card_blocks.jsonl") == []
+
+    rc = card_admin.main([*args, "--note", "报告佐证"])
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    assert out.startswith("wrote evidence: C-1 <- B-1 (corroboration)")
+    assert _read_rows(index / "card_blocks.jsonl") == [{
+        "card_id": "C-1",
+        "block_id": "B-1",
+        "role": "corroboration",
+        "quote_sha": sha("测试块"),
+        "note": "报告佐证",
+    }]
+
+
+def test_add_evidence_rejects_duplicate_and_unknown_refs(index: Path, capsys):
+    _seed_card(index)
+    base = ["add-evidence", "--index-dir", str(index), "--block-id", "B-1"]
+
+    rc = card_admin.main([*base, "--card-id", "C-1"])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = card_admin.main([*base, "--card-id", "C-1"])
+    _, err = capsys.readouterr()
+    assert rc == 1
+    assert "duplicate card_blocks row" in err
+
+    rc = card_admin.main([*base, "--card-id", "C-NOPE"])
+    _, err = capsys.readouterr()
+    assert rc == 1
+    assert "unknown card_id" in err
+
+    rc = card_admin.main([
+        "add-evidence", "--index-dir", str(index),
+        "--card-id", "C-1", "--block-id", "B-NOPE",
+    ])
+    _, err = capsys.readouterr()
+    assert rc == 1
+    assert "unknown block_id" in err
