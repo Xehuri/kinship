@@ -80,6 +80,29 @@ describe("onContextOverflow event", () => {
     fake.teardown();
   });
 
+  it("fires on a 413 payload-too-large error", async () => {
+    const fake = createFakeModel([
+      {
+        content: [],
+        throwError: new Error(
+          "413 payload too large (46391520 bytes > 16777216 limit)",
+        ),
+      },
+    ]);
+    const seen: ContextOverflowInput[] = [];
+    const session = new AgentSession({
+      model: fake,
+      tools: [],
+      hooks: [watcher(seen)],
+    });
+    await session.run("hi");
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.stopReason).toBe("error");
+    expect(seen[0]!.errorMessage).toContain("413 payload too large");
+    fake.teardown();
+  });
+
   it("does NOT fire on a non-overflow error (e.g. auth failure)", async () => {
     const fake = createFakeModel([
       { content: [], throwError: new Error("401 Unauthorized: invalid api key") },
@@ -219,6 +242,17 @@ describe("defaultIsContextOverflow", () => {
     expect(
       defaultIsContextOverflow("InvalidParameter: Range of input length should be [1, 30000]"),
     ).toBe(true);
+  });
+
+  it("classifies gateway 413 payload-too-large as overflow", () => {
+    expect(
+      defaultIsContextOverflow("413 payload too large (46391520 bytes > 16777216 limit)"),
+    ).toBe(true);
+    expect(defaultIsContextOverflow("413 Request Entity Too Large")).toBe(true);
+    expect(defaultIsContextOverflow("413 Content Too Large")).toBe(true);
+    expect(defaultIsContextOverflow("HTTP 413: request body too large")).toBe(true);
+    expect(defaultIsContextOverflow("413 status code from upstream")).toBe(false);
+    expect(defaultIsContextOverflow("payload size threshold exceeded")).toBe(false);
   });
 
   it("rejects empty and unrelated errors", () => {

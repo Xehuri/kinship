@@ -33,6 +33,8 @@ import {
  */
 const KERNEL_EXTRA_PATTERNS: ReadonlyArray<RegExp> = [
   /range of input length/i, // DashScope/Qwen: "Range of input length should be [1, N]"
+  /\b413\b[^\n]*(?:payload|request entity|content|request body|body)[^\n]*\btoo large\b/i,
+  /\b(?:payload|request entity|content|request body) too large\b/i,
 ];
 
 const ZERO_USAGE: AssistantMessage["usage"] = {

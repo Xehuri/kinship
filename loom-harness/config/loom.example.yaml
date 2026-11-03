@@ -214,6 +214,8 @@ mcp:
 # （9 段模板 + completeText 非流式，maxContextTokens/triggerRatio/summaryTimeoutMs 仅此路径生效）。
 # 值域：fallbackTokens 正整数（LLM 调用前估算 ≥ 该值触发 fallback）；watermark.levels 每档 ≥1000、
 # 严格递增且全部 < fallbackTokens（跨档向 _messages 追加一次性 system-reminder）；keepRecent ≥1；
+# fallbackTokens 是 token 阈值，不知道部署网关的 HTTP 请求体上限。若网关限制为 16 MB（例如 new-api），
+# 需按部署把 fallbackTokens 调到实际序列化请求体稳定低于该上限；否则会先收到 413 而不是触发压缩。
 # keepRecentTokens ≥0（recent tail token 预算，与条数下限取更长 tail）；resummarizeEvery ≥1；
 # summaryChunkTokens ≥1（仅 chunked / auto 递归叶子回退用）；summaryMode auto|single|chunked
 # （缺省 auto，single/auto 必须能解析预算）；summaryPerspectives 可选（仅 worker）：摘要视角，
