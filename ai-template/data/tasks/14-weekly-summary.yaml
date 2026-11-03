@@ -1,5 +1,5 @@
 name: 周报总结
-enabled: true
+enabled: false
 schedule:
   weekly:
     days: mon

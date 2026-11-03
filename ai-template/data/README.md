@@ -25,19 +25,20 @@ tags: [指南, 配置]
 | `uploads/` | 用户上传文件 |
 | `circuitjs-examples/` | CircuitJS1 官方示例电路（供 ```circuitjs 输出参考）；`CircuitJS1-格式规范.md` 为**电路文本格式权威参考**（画前先查）。体积大，模板不分发，按需自行准备 |
 
-## 默认固定时间任务清单
+## 默认调度（Loom 主计划）
 
-> 模板默认使用固定时间任务（12-15 + `data_check_scheduler.py`）。若采用 Loom 主计划（推荐生产模式），先按下方「Loom 主计划接管」停用 12-15 与 `data_check_scheduler.py`，避免两套调度同时触发。
+> 模板默认使用 Loom 主计划（plan mode）调度：生产排班真源是 `plan/master.json`，由 plan 工具按锚点唤醒；首版用 `{Python解释器路径} {AI目录}/analysis/master_plan_seed.py --root {AI目录}/data` 播种。`tasks/` 下的 12-15 固定时间 YAML 与 `data_check_scheduler.py` 都是回滚/示范用途，默认 `enabled: false`，不要与主计划同时运行。
 
 | 时间 | 任务 | 说明 |
 |------|------|------|
-| 00:00 / 06:00 / 08:00 / 12:00 / 16:00 / 20:00 / 22:00 | 数据检查 | 由 `data_check_scheduler.py` 生成 prompt 触发（7 窗口）；00 点覆盖前一天 22:00~00:00，06 点覆盖 00:00~06:00；领域任务由 `{AI目录}/memory/self/tasks/` 声明、子智能体按触发条件自动挂载 |
-| 00:40 | 今日复盘 | `12-daily-review.yaml`（复盘昨天） |
-| 每月 1/15 18:30 | 双周回顾 | `13-biweekly-review.yaml` |
-| 每周一 03:00 | 周报总结 | `14-weekly-summary.yaml` |
-| 每天 02:00 | 夜间审计 | `15-night-audit.yaml`（默认 `enabled: false`；审昨天，跑 `audit_collector.py`，结果写复盘审计小节） |
-| 每天 05:00 | 日计划（Loom Plan mode 示例） | `05-plan-wake.yaml`（默认 `enabled: false`；只读 + plan commit，不执行 care，不发用户通知） |
-| 每天 07:30 | 计划复核（Loom Plan mode 示例） | `07-plan-review.yaml`（默认 `enabled: false`；只读 + plan revise，不执行 care，不发用户通知） |
+| 00:00 / 06:00 / 08:00 / 12:00 / 16:00 / 20:00 / 22:00 | 数据检查 | 由 `plan/master.json` 的 coverage 检查点 `cov-00/06/08/12/16/20/22` 驱动；cov-00 读前一天 22:00~00:00，cov-06 覆盖 00:00~06:00；领域任务由 `{AI目录}/memory/self/tasks/` 声明、子智能体按触发条件自动挂载 |
+| 00:40 | 今日复盘 | `review.daily`（`12-daily-review.yaml` 为回滚示例，默认关闭；复盘昨天） |
+| 每天 02:00 | 夜间审计 | `audit.night`（默认关闭；审昨天，跑 `audit_collector.py`，结果写复盘审计小节） |
+| 每周一 03:00 | 周报总结 | `review.weekly`（`14-weekly-summary.yaml` 为回滚示例，默认关闭；总结上周一~上周日） |
+| 每天 05:00 | 日计划 | `plan.build`（Plan mode：只读 + plan commit，不执行 care，不发用户通知；`05-plan-wake.yaml` 为示例，默认关闭） |
+| 每天 07:00 | 每日天气 | `weather.morning`（可选，默认关闭；运行 `weather_brief.py`，stdout 经 `ai-mcp_send_notification` 发送） |
+| 每天 07:30 | 计划复核 | `plan.review`（Plan mode：只读 + plan revise，不执行 care，不发用户通知；`07-plan-review.yaml` 为示例，默认关闭） |
+| 每月 1/15 18:30 | 双周回顾 | `review.biweekly`（`13-biweekly-review.yaml` 为回滚示例，默认关闭） |
 
 > 数据检查批次内联反馈转达（01 步骤 7）；领域任务由 `{AI目录}/memory/self/tasks/` 挂载（01 步骤 8）。复盘前会自动补齐数据缺口。
 >
@@ -47,13 +48,16 @@ tags: [指南, 配置]
 >
 > `05-plan-wake.yaml` / `07-plan-review.yaml` 是 Loom 主计划的 Plan mode 示例，默认关闭；主计划接管后由计划锚点驱动，固定时间 YAML 仅留作示范与回滚。
 >
-> **Loom 主计划接管（推荐生产模式，可选）**：先用 `{Python解释器路径} {AI目录}/analysis/master_plan_seed.py --root {AI目录}/data` 播种 `plan/master.json`，再停用 12-15 与 `data_check_scheduler.py`；固定时间任务与 Loom 主计划不得同时运行。
+> **主计划播种**：首次部署用 `{Python解释器路径} {AI目录}/analysis/master_plan_seed.py --root {AI目录}/data` 播种 `plan/master.json`；确认 coverage 与任务都已进入计划后再启动 Loom。固定时间任务与 Loom 主计划不得同时运行。
 >
 > **可选 QQ 集成**：模板不随附 QQ 网关与 QQ 任务，需要时自行添加；QQ 号与 token 只写本地 gitignored 配置。
 
 > 常驻脚本任务（Python 自定义脚本，FileWatcher 自动管理）：
-> - **数据检查调度器**（`data_check_scheduler.py`）：每天 7 个窗口（00:00/06:00/08:00/12:00/16:00/20:00/22:00）触发数据检查流水线；00 点目标前一天。
+> - **数据检查调度器**（`data_check_scheduler.py`）：回滚/legacy，默认关。生产由 Loom 主计划的 coverage 检查点 `cov-00/06/08/12/16/20/22` 取代；仅未接主计划时手动启用。
 > - **会话压缩器**（`session_compactor.py`）：每天 04:00 向主会话发送一次"整理信息"提醒；可以压缩会话，也可以不压缩，不自动调用压缩接口。
+> - **唤醒监控**（`17-wake-watch.py`）：默认关，可选。全天盯手机状态，长时间息屏后首次真解锁唤醒主会话一次；早晨唤醒附带天气准备，其他时段只做"有事才说"的准备。
+> - **夜间主动联系**（`18-night-checkin.py`）：默认关，可选。21:00 / 22:30 各主动联系一次，时间槽在脚本顶部 `SLOTS` 配置。
+> - **健康同步回调**（`19-health-sync-watch.py`）：默认关，可选。轮询 `users/{用户}/health/{日期}/cloud.json`，末样本前移 ≥5 分钟记一行，补上 ≥60 分钟空档时触发一次会话通知；用户目录由脚本顶部 `USER_SEGMENT` 配置。
 > - **DeepSeek余额告警器**（`deepseek_balance_monitor.py`）：默认关。每 30 分钟查一次余额，低于阈值发 App 通知；余额每累计消耗一定金额写入一条 perception 数据（`type=balance`）。阈值、密钥路径、状态路径可用环境变量覆盖；API key 存 `deepseek_key.txt`（同目录，gitignored）。
 > - **前台时长监控**（`foreground_watch.py`）：默认关。每 60 秒回放当日 `perception.jsonl`，按设备×应用累计「前台且亮屏」时长，超过阈值（默认 60 分钟）且不在黑名单时提醒；阈值、黑名单、状态文件路径可配置，状态存 `.foreground_watch_state.json`。
 > - **小米云健康拉取**（`xiaomi_cloud_health.py`）：默认关。按水位增量拉小米云健康数据直写 `HealthStore` 的 `cloud` 分片；凭据走 `config.yaml` 的 `health.cloud.*`；接入见 `docs/数据源-小米健康云.md`。
@@ -117,7 +121,7 @@ tags: [指南, 配置]
 
 ## 如何添加新任务
 
-在 `tasks/` 下新建 `.yaml` 文件（命名建议 `{序号}-{名称}.yaml`，现有 `12-daily-review.yaml` / `13-biweekly-review.yaml` / `14-weekly-summary.yaml` / `15-night-audit.yaml`）。最少写三个字段：
+在 `tasks/` 下新建 `.yaml` 文件（命名建议 `{序号}-{名称}.yaml`，现有 `12-daily-review.yaml` / `13-biweekly-review.yaml` / `14-weekly-summary.yaml` / `15-night-audit.yaml` / `16-weather-morning.yaml`；这些模板任务默认 `enabled: false`，仅作示例）。最少写三个字段：
 
 | 字段 | 说明 |
 |------|------|

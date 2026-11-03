@@ -252,7 +252,7 @@ def run(context):
 
 ## 现有任务与脚本
 
-> 模板默认使用固定时间任务。生产可由 Loom 主计划接管；接管后下表固定时间 YAML 与 `data_check_scheduler.py` 都应设为 `enabled: false`，由 plan 唤醒驱动，避免双触发。模板默认值保留固定时间模式，便于未接 Loom 主计划的实例直接启动。
+> 模板默认使用 Loom 主计划（plan mode）调度：排班真源是 `data/plan/master.json`，由 plan 工具按锚点唤醒，首版用 `{Python解释器路径} {AI目录}/analysis/master_plan_seed.py --root {AI目录}/data` 播种。固定时间 YAML（12-15）与 `data_check_scheduler.py` 是回滚/示范用途，默认 `enabled: false`；固定时间任务与 Loom 主计划不要同时运行，两套调度叠加会重复触发。
 
 ### YAML 定时任务
 
@@ -260,26 +260,36 @@ def run(context):
 |------|------|------|------|
 | `05-plan-wake.yaml` | 每天 05:00 | 日计划（Loom Plan mode：只读 + plan commit，不执行 care，不发用户通知） | enabled: false |
 | `07-plan-review.yaml` | 每天 07:30 | 计划复核（Loom Plan mode：只读 + plan revise，不执行 care，不发用户通知） | enabled: false |
-| `12-daily-review.yaml` | 每天 00:40 | 今日复盘（复盘昨天） | enabled |
-| `13-biweekly-review.yaml` | 每月 1/15 18:30 | 双周深度回顾 | enabled |
-| `14-weekly-summary.yaml` | 每周一 03:00 | 周报总结（上周一~上周日） | enabled |
+| `12-daily-review.yaml` | 每天 00:40 | 今日复盘（复盘昨天；生产由主计划 `review.daily` 覆盖） | enabled: false（回滚/示范） |
+| `13-biweekly-review.yaml` | 每月 1/15 18:30 | 双周深度回顾（生产由主计划 `review.biweekly` 覆盖） | enabled: false（回滚/示范） |
+| `14-weekly-summary.yaml` | 每周一 03:00 | 周报总结（上周一~上周日；生产由主计划 `review.weekly` 覆盖） | enabled: false（回滚/示范） |
 | `15-night-audit.yaml` | 每天 02:00 | 夜间审计（审昨天，跑 `audit_collector.py`，结果写复盘审计小节；FAIL 由主会话发一条警告） | enabled: false |
+| `16-weather-morning.yaml` | 每天 07:00 | 每日天气（可选；运行 `weather_brief.py`，stdout 经 `ai-mcp_send_notification` 发送） | enabled: false（可选） |
 
 > 复盘/审计任务（12-15）不写 `model` / `provider`，统一使用后端全局默认；通过 `task(subagent_type="reviewer", ...)` 委托 `{AI目录}/agents/02-daily-review.md` / `03-biweekly-review.md` / `04-weekly-review.md` / `05-audit.md` 规范执行。
+>
+> 12-15 默认关闭，仅作主计划的回滚/示范；主计划由 `data/plan/master.json` 的 fixed entries 与 `cov-00/06/08/12/16/20/22` 驱动。
 >
 > 15 号任务默认关闭；它依赖 `{AI目录}/analysis/audit_collector.py` 与 `{AI目录}/agents/05-audit.md`，两者随模板提供，实例若删除过需先补齐再启用。
 >
 > 05/07 是 Loom 主计划的 Plan mode 示例任务，默认关闭；主计划接管后由计划锚点驱动，固定时间 YAML 仅留作示范与回滚。
+>
+> 16 是可选天气任务骨架，默认关闭；只播脚本 stdout 的事实，不猜天气，不发 QQ。
 
 ### 常驻 Python 脚本（FileWatcher 自动管理）
 
 | 脚本 | 频率 | 用途 |
 |------|------|------|
-| `data_check_scheduler.py` | 每天 **7 窗口**（00/06/08/12/16/20/22 点，2026-10-27 v4；00 点读取前一天 22:00~00:00） | 触发数据检查流水线 |
+| `data_check_scheduler.py` | 每天 **7 窗口**（00/06/08/12/16/20/22 点；00 点读取前一天 22:00~00:00） | 回滚/legacy，默认关；生产由 Loom 主计划的 coverage 检查点 `cov-00/06/08/12/16/20/22` 取代，仅未接主计划时手动启用 |
 | `session_compactor.py` | 每天 04:00 | 向主会话发送一次"整理信息"提醒；可以压缩会话，也可以不压缩；不自动调用压缩接口 |
+| `17-wake-watch.py` | 每 45 秒轮询 | 默认关，可选。唤醒监控：长时间息屏后首次真解锁触发一次唤醒；早晨唤醒附带天气准备，其他时段提示主会话不要主动发消息；状态存 `.wake_watch_state.json` |
+| `18-night-checkin.py` | 每天 21:00 / 22:30（脚本顶部 `SLOTS` 可配） | 默认关，可选。夜间主动联系：按配置的时间槽各触发一次主动开口；状态存 `.night_checkin_state.json` |
+| `19-health-sync-watch.py` | 每 300 秒 | 默认关，可选。健康同步回调：轮询 `users/{用户}/health/{日期}/cloud.json`，末样本前移 ≥5 分钟记一行，补上 ≥60 分钟空档时触发一次会话通知；用户目录由脚本顶部 `USER_SEGMENT` 配置；状态存 `.health_sync_state.json` |
 | `deepseek_balance_monitor.py` | 30 分钟 | 查 DeepSeek 余额，低于阈值发 App 通知；余额每累计消耗一定金额写一条 perception 数据（`type=balance`）；阈值与 key 路径可用环境变量覆盖，默认关 |
 | `foreground_watch.py` | 每 60 秒扫描 | 前台时长监控：回放当日 `perception.jsonl`（app 切换 + screen 亮灭边沿 + heartbeat 锁屏断言），按设备×应用累计「前台且亮屏」时长；超阈值（默认 60 分钟）且不在黑名单的应用经 `trigger_task` 提醒，同一段使用每再累计 60 分钟补发一档；阈值/黑名单/状态文件路径可配置，默认关 |
 | `xiaomi_cloud_health.py` | 每 `health.cloud_poll_interval_min` 分钟 | 小米云健康拉取：按水位增量直写 `HealthStore` 的 `cloud` 分片（`users/{user}/health/{date}/cloud.json`）；**默认关**（`enabled: false`），凭据走 `config.yaml` 的 `health.cloud.*`；接入见 `docs/数据源-小米健康云.md` |
+
+> 17-19 是从生产个人自动化脱敏后的可选任务骨架（`enabled: false`），只作示例，不是开箱即用的个人自动化：统一用 `ai-mcp_send_notification` 发通知，不含 QQ 发送、个人日期/称呼/QQ 号或实例绝对路径；启用前按实际用户目录与通知渠道核对。
 
 ### 非任务 / 停用脚本
 
@@ -292,9 +302,9 @@ def run(context):
 
 > 余额 key 存同目录 `deepseek_key.txt`（gitignored，不提交）。发通知/写感知数据走后端接口（`/api/notification/send`、`/api/screen/stt/perception-event`），token 从 `backend/config/auth.json` 本地读取。
 
-## Loom 主计划接管（推荐生产模式，可选）
+## Loom 主计划（默认调度）
 
-启用 Loom 主计划前，先用 `{Python解释器路径} {AI目录}/analysis/master_plan_seed.py --root {AI目录}/data` 播种 `data/plan/master.json`，确认 coverage 与任务都已进入计划；然后把 12-15 四个 YAML 与 `data_check_scheduler.py` 设为 `enabled: false`。固定时间任务与 Loom 主计划不要同时运行，两套调度叠加会重复触发。旧任务文件保留作回滚，不要删除。
+模板默认由 Loom 主计划驱动。首次部署先用 `{Python解释器路径} {AI目录}/analysis/master_plan_seed.py --root {AI目录}/data` 播种 `data/plan/master.json`，确认 coverage 与任务都已进入计划后再启动 Loom。12-15 四个 YAML 与 `data_check_scheduler.py` 默认已关闭，保留作回滚，不要删除；固定时间任务与 Loom 主计划不要同时运行，两套调度叠加会重复触发。
 
 ## 可选 QQ 集成
 

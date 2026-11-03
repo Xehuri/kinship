@@ -1,7 +1,7 @@
 name: 今日复盘
 schedule:
   daily: "00:40"
-enabled: true
+enabled: false
 prompt: |-
   【今日复盘】 按复盘子智能体调度流程执行。
 

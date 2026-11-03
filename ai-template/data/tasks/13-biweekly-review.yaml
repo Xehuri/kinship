@@ -3,7 +3,7 @@ schedule:
   monthly:
     1: "18:30"
     15: "18:30"
-enabled: true
+enabled: false
 prompt: |-
   【双周深度回顾 - 每月1日/15日 18:30执行】 按子智能体调度流程执行。
 
