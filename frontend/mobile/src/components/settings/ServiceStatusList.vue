@@ -53,10 +53,11 @@
           class="services-panel__row"
           :data-service-id="service.id"
           :data-service-state="service.state"
+          :data-service-external="service.external ? 'true' : undefined"
         >
           <span
             class="services-panel__dot"
-            :class="`services-panel__dot--${dotTone(service.state)}`"
+            :class="`services-panel__dot--${dotTone(service)}`"
             aria-hidden="true"
           />
           <span class="services-panel__name">
@@ -74,7 +75,7 @@
               去配置
             </button>
             <button
-              v-else-if="service.state === 'failed'"
+              v-else-if="service.state === 'failed' && !service.external"
               class="services-panel__button"
               type="button"
               :disabled="retryingId !== ''"
@@ -85,8 +86,9 @@
             </button>
           </span>
           <span class="services-panel__meta">
-            <span class="services-panel__state">{{ stateText(service.state) }}</span>
+            <span class="services-panel__state">{{ stateText(service) }}</span>
             <span v-if="service.state === 'ready'">{{ pidText(service.pid) }}</span>
+            <span v-else-if="service.external">{{ externalNote(service) }}</span>
             <span v-else-if="service.state === 'blocked'">
               {{ reasonText(service.reason_code) }}
             </span>
@@ -212,16 +214,21 @@ function serviceName(serviceId: string): string {
   return SERVICE_NAMES[serviceId] ?? serviceId
 }
 
-function stateText(state: string): string {
-  return STATE_TEXT[state] ?? '状态待确认'
+function stateText(service: ServiceStatusEntry): string {
+  return service.external ? '外部运行' : STATE_TEXT[service.state] ?? '状态待确认'
+}
+
+function externalNote(service: ServiceStatusEntry): string {
+  return service.note.trim() || '未受管'
 }
 
 function reasonText(reasonCode: string): string {
   return REASON_TEXT[reasonCode] ?? '状态待确认'
 }
 
-function dotTone(state: string): string {
-  switch (state) {
+function dotTone(service: ServiceStatusEntry): string {
+  if (service.external) return 'external'
+  switch (service.state) {
     case 'ready':
       return 'ready'
     case 'blocked':

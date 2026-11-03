@@ -67,6 +67,10 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
+.services-panel__dot--external {
+  background: var(--muted);
+}
+
 .services-panel__dot--pending {
   background: var(--warning);
 }
@@ -177,6 +181,10 @@
 
 .services-panel__row[data-service-state='failed'] .services-panel__state {
   color: var(--danger);
+}
+
+.services-panel__row[data-service-external='true'] .services-panel__state {
+  color: var(--muted);
 }
 
 .services-panel__row--skeleton {

@@ -3,10 +3,12 @@
  *
  * 对应后端 GET /api/services (T9):
  *   200 { orchestrator: "on"|"off", services: [{ id, state, reason_code, detail,
- *         pid, started_at, retry_count, next_retry_at, requires, critical }] }
+ *         pid, started_at, retry_count, next_retry_at, requires, critical,
+ *         external?, note? }] }
  *   401/404/500 { detail }
  *
  * 状态与 reason_code 一律原样透传后端值；前端不推断服务是否可用。
+ * external/note 是后端给出的展示补充，只用于外部进程占用端口的 Loom。
  * 契约见 backend/routers/services_status.py 文件头。
  */
 
@@ -49,6 +51,10 @@ export interface ServiceStatusEntry {
   next_retry_at: string | null
   requires: string[]
   critical: boolean
+  /** 后端标记的外部进程占用端口；仅展示用，不改变 state。 */
+  external: boolean
+  /** 外部进程展示说明；仅 external=true 时有意义。 */
+  note: string
 }
 
 export interface ServicesStatusPayload {
@@ -104,6 +110,8 @@ function normalizeEntry(value: unknown): ServiceStatusEntry | null {
     next_retry_at: typeof value.next_retry_at === 'string' ? value.next_retry_at : null,
     requires,
     critical: value.critical === true,
+    external: value.external === true,
+    note: asString(value.note),
   }
 }
 

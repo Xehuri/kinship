@@ -28,6 +28,8 @@ interface RawService {
   next_retry_at: string | null
   requires: string[]
   critical: boolean
+  external?: boolean
+  note?: string
 }
 
 function service(overrides: Partial<RawService> & Pick<RawService, 'id' | 'state'>): RawService {
@@ -112,6 +114,7 @@ describe('ServicesPanel', () => {
     expect(rows[1].find('[data-service-action="retry"]').exists()).toBe(false)
 
     expect(rows[2].attributes('data-service-state')).toBe('failed')
+    expect(rows[2].attributes('data-service-external')).toBeUndefined()
     expect(rows[2].text()).toContain('异常')
     expect(rows[2].text()).toContain('AI 助手启动失败，端口被占用')
     expect(rows[2].find('[data-service-action="retry"]').exists()).toBe(true)
@@ -119,6 +122,32 @@ describe('ServicesPanel', () => {
     // 原始 reason_code 与人话并存会让面板泄漏技术词，断言只出现翻译后的文本。
     expect(wrapper.text()).not.toContain('disabled')
     expect(wrapper.text()).not.toContain('spawn_failed')
+  })
+
+  it('外部 Loom 显示外部运行与未受管说明，不显示红色异常或重试', async () => {
+    apiGetVerbose.mockResolvedValue(
+      success([
+        service({
+          id: 'loom',
+          state: 'failed',
+          reason_code: 'spawn_failed',
+          detail: 'port_in_use: 127.0.0.1:5100 (pid=4321)',
+          external: true,
+          note: '外部进程占用端口，未受管',
+        }),
+      ]),
+    )
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const row = wrapper.find('[data-service-id="loom"]')
+    expect(row.attributes('data-service-state')).toBe('failed')
+    expect(row.attributes('data-service-external')).toBe('true')
+    expect(row.text()).toContain('外部运行')
+    expect(row.text()).toContain('外部进程占用端口，未受管')
+    expect(row.text()).not.toContain('异常')
+    expect(row.find('[data-service-action="retry"]').exists()).toBe(false)
+    expect(row.find('.services-panel__dot--external').exists()).toBe(true)
   })
 
   it('绝不展示堆栈原文，失败详情回退为 reason 的人话', async () => {
