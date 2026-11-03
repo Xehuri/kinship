@@ -67,6 +67,20 @@ def loom_instance_root(config: Config) -> Path:
     return Path(config.AI_ROOT).resolve()
 
 
+def _bypass_child_entry() -> bool:
+    """Windows 下不经 ``child_entry`` 转发，直接 spawn 目标。
+
+    ``child_entry`` 以 ``os.execvp`` 交给目标进程，而 CPython 在 Windows 上
+    用 ``_wexecvp`` 拼命令行时**不会**给含空格的参数加引号：``C:\\Program Files\\
+    nodejs\\node.EXE`` 会被目标进程看成 ``C:\\Program`` + ``Files\\nodejs\\node.EXE``，
+    node 于是把后半段当脚本去加载并报 ``MODULE_NOT_FOUND``，Loom 永远起不来。
+
+    Windows 的父死亡保护由父进程侧 Job Object 承担（见 ``child_entry`` 模块注释），
+    不依赖 exec 路径，所以这里绕过不影响那层保护。
+    """
+    return os.name == "nt"
+
+
 def build_start_command(
     node: str,
     cli: Path | str,
@@ -87,6 +101,8 @@ def build_start_command(
         "--config",
         str(config_path),
     ]
+    if _bypass_child_entry():
+        return target
     return [
         python or sys.executable,
         "-m",
@@ -294,7 +310,11 @@ async def _start_loom() -> dict[str, Any]:
                 % (health.get("error") or "Loom 未通过 /health"),
             }
 
-        target_argv = argv[argv.index("--target") + 1:]
+        # 绕过 child_entry 时 argv 里没有 "--target"，目标即整条 argv
+        if "--target" in argv:
+            target_argv = argv[argv.index("--target") + 1:]
+        else:
+            target_argv = list(argv)
         await _write_pid_record(pid, target_argv, config_path)
 
         return {

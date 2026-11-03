@@ -148,7 +148,9 @@ def test_opencode_backend_marks_spec_blocked_and_never_calls_start(tmp_path):
     assert entries[0]["reason_code"] == "disabled"
 
 
-def test_build_start_command_wraps_node_after_child_entry(tmp_path):
+def test_build_start_command_wraps_node_after_child_entry(tmp_path, monkeypatch):
+    # 钉死非 Windows 路径：Windows 上会绕过 child_entry，见 test_build_start_command_windows_bypasses_child_entry
+    monkeypatch.setattr(loom_spec, "_bypass_child_entry", lambda: False)
     cli = tmp_path / "cli.js"
     config_path = tmp_path / "config.yaml"
 
@@ -204,6 +206,8 @@ def test_child_log_path_is_fixed_under_backend_data():
 
 
 def test_start_spawns_wrapped_argv_with_loom_harness_cwd(monkeypatch, tmp_path):
+    # 钉死非 Windows 路径：本用例断言经 child_entry 包裹的 argv
+    monkeypatch.setattr(loom_spec, "_bypass_child_entry", lambda: False)
     cfg = _cfg(tmp_path)
     config_path = Path(cfg.AI_ROOT) / ".loom" / "config.yaml"
     config_path.parent.mkdir(parents=True)
@@ -400,3 +404,38 @@ def test_register_is_idempotent_and_rejects_conflicting_declaration():
     )
     with pytest.raises(ValueError):
         loom_spec.register_loom_spec()
+
+
+def test_build_start_command_windows_bypasses_child_entry(tmp_path, monkeypatch):
+    """Windows 下不经 child_entry，直接 spawn 目标。
+
+    ``child_entry`` 用 ``os.execvp`` 转发，而 CPython 在 Windows 上不给含空格的
+    参数加引号，``C:\\Program Files\\nodejs\\node.EXE`` 会被拆成两段，node 把后半段
+    当脚本加载并报 MODULE_NOT_FOUND。
+    """
+    monkeypatch.setattr(loom_spec, "_bypass_child_entry", lambda: True)
+    cli = tmp_path / "cli.js"
+    config_path = tmp_path / "config.yaml"
+
+    argv = loom_spec.build_start_command(
+        r"C:\Program Files\nodejs\node.EXE",
+        cli,
+        port=5100,
+        host="127.0.0.1",
+        config_path=config_path,
+        python="/venv/python",
+    )
+
+    assert "services.orchestrator.child_entry" not in argv
+    assert "--target" not in argv
+    assert argv == [
+        r"C:\Program Files\nodejs\node.EXE",
+        str(cli),
+        "serve",
+        "--port",
+        "5100",
+        "--hostname",
+        "127.0.0.1",
+        "--config",
+        str(config_path),
+    ]
