@@ -5,6 +5,7 @@ export {
   LETTER_CLASSES,
   LETTER_STATES,
   LETTER_TRUSTS,
+  UNREAD_LETTER_STATES,
   INBOX_ROUTES,
   INBOX_POLICY_REASONS,
   type InboxCoalesceDecision,
@@ -42,6 +43,9 @@ export {
   DEFAULT_MAX_PENDING,
   DEFAULT_MAX_PRINCIPAL_CHARS,
   DEFAULT_MAX_REF_BYTES,
+  DEFAULT_MAX_THREAD_ID_CHARS,
+  DEFAULT_MAX_THREAD_KIND_CHARS,
+  DEFAULT_MAX_THREAD_NAME_CHARS,
   DEFAULT_MAX_TITLE_CHARS,
   DEFAULT_NOTIFY_BURST,
   DEFAULT_NOTIFY_WINDOW_MS,
@@ -59,6 +63,7 @@ export {
 export {
   LetterValidationError,
   SOURCE_KEY_RE,
+  THREAD_KIND_RE,
   validateLetterInput,
   type LetterFieldError,
   type LetterValidationOptions,
@@ -91,6 +96,19 @@ export {
   type InboxSuppressedEvent,
   type InboxTornTail,
 } from "./journal-store.js";
+
+export {
+  DEFAULT_THREAD_KIND,
+  THREAD_LABEL_NAME_MAX_CHARS,
+  compareLettersOldestFirst,
+  summarizeThreads,
+  threadDisplayName,
+  threadIdOf,
+  threadKey,
+  threadKind,
+  type ThreadIdentity,
+  type ThreadView,
+} from "./thread.js";
 
 export {
   classify,

@@ -86,3 +86,30 @@ describe("renderDigestEnvelope task.trigger", () => {
     expect(text).toContain("…（已截断）");
   });
 });
+
+describe("信封线程标签", () => {
+  it("显式线程元数据渲染为 thread=名称(id)，机器 marker 不变", () => {
+    const text = renderLetterEnvelope(
+      record({ thread_id: "123456", thread_name: "群一", thread_kind: "group" }),
+      "preview",
+      counts(),
+    );
+    expect(text).toContain("thread=群一(123456)");
+    expect(text).toContain("[loom-inbox:letter=l1]");
+  });
+
+  it("无线程元数据时回退为 principal(source:principal)", () => {
+    const text = renderLetterEnvelope(record(), "preview", counts());
+    expect(text).toContain("thread=backend(backend.tasks:backend)");
+  });
+
+  it("线程名截断到 80 码点，标签长度有界", () => {
+    const text = renderLetterEnvelope(
+      record({ thread_id: "g1", thread_name: "名".repeat(120) }),
+      "preview",
+      counts(),
+    );
+    expect(text).toContain(`thread=${"名".repeat(80)}…(g1)`);
+    expect(text).not.toContain("名".repeat(81));
+  });
+});

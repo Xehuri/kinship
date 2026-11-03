@@ -22,6 +22,12 @@ export const DEFAULT_MAX_PRINCIPAL_CHARS = 256;
 export const DEFAULT_MAX_KIND_CHARS = 64;
 /** causation_depth 上限（防转发链无限增长）。 */
 export const DEFAULT_MAX_CAUSATION_DEPTH = 32;
+/** thread_id 字符上限（线程身份与来源组合唯一）。 */
+export const DEFAULT_MAX_THREAD_ID_CHARS = 128;
+/** thread_name 字符上限（展示名，单行）。 */
+export const DEFAULT_MAX_THREAD_NAME_CHARS = 200;
+/** thread_kind 字符上限（`[a-z0-9_.-]`）。 */
+export const DEFAULT_MAX_THREAD_KIND_CHARS = 32;
 
 /** 未 ack 积压上限；超过后 policy 抑制新信件（防止内存/账本无界增长）。 */
 export const DEFAULT_MAX_PENDING = 1_000;

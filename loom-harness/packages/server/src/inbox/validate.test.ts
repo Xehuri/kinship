@@ -91,6 +91,38 @@ describe("validateLetterInput", () => {
     ).toContain("body");
   });
 
+  it("thread_id/thread_name 非空、无控制字符且有长度上限", () => {
+    expect(fieldsOf(() => validateLetterInput(letter({ thread_id: "" })))).toContain("thread_id");
+    expect(fieldsOf(() => validateLetterInput(letter({ thread_id: "a\nb" })))).toContain(
+      "thread_id",
+    );
+    expect(fieldsOf(() => validateLetterInput(letter({ thread_id: "g".repeat(129) })))).toContain(
+      "thread_id",
+    );
+    expect(fieldsOf(() => validateLetterInput(letter({ thread_name: "" })))).toContain(
+      "thread_name",
+    );
+    expect(fieldsOf(() => validateLetterInput(letter({ thread_name: "a\nb" })))).toContain(
+      "thread_name",
+    );
+    expect(
+      fieldsOf(() => validateLetterInput(letter({ thread_name: "n".repeat(201) }))),
+    ).toContain("thread_name");
+  });
+
+  it("thread_kind 只接受 [a-z0-9_.-]{1,32}", () => {
+    for (const bad of ["Group", "a b", "a/b", "", "x".repeat(33)]) {
+      expect(fieldsOf(() => validateLetterInput(letter({ thread_kind: bad })))).toContain(
+        "thread_kind",
+      );
+    }
+    expect(
+      validateLetterInput(
+        letter({ thread_id: "123456", thread_name: "群一", thread_kind: "group" }),
+      ),
+    ).toMatchObject({ thread_id: "123456", thread_name: "群一", thread_kind: "group" });
+  });
+
   it("title ≤200 码点且不允许控制字符/换行", () => {
     expect(fieldsOf(() => validateLetterInput(letter({ title: "x".repeat(201) })))).toContain(
       "title",

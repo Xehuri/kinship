@@ -34,6 +34,14 @@ export const LETTER_STATES = [
 ] as const;
 export type LetterState = (typeof LETTER_STATES)[number];
 
+/** 未读状态（邮箱概览/线程批量读共用）：read 不算未读，终态/旁路永不未读。 */
+export const UNREAD_LETTER_STATES: ReadonlySet<LetterState> = new Set([
+  "pending",
+  "routed",
+  "delivered",
+  "deferred",
+]);
+
 /** 调用方提交的信件字段（服务端字段 id/created_at/state/attempts 不在其中）。 */
 export interface LetterInput {
   readonly source: string;
@@ -41,6 +49,16 @@ export interface LetterInput {
   readonly class: LetterClass;
   readonly trust: LetterTrust;
   readonly principal: string;
+  /**
+   * 会话/线程标识（可选）：QQ 群号、联系人 id、B 站会话/评论 id、GitHub repo#number 等。
+   * 线程身份是 `(source, thread_id)`；缺席时由 thread.ts 回退到 `source:principal`，
+   * 仅为分组/展示解析，不回写记录。上限 128 字符，非空且无控制字符。
+   */
+  readonly thread_id?: string;
+  /** 线程展示名：群名、联系人名、B 站标题/用户、GitHub issue 标题。上限 200 字符，单行。 */
+  readonly thread_name?: string;
+  /** 线程类别：group/contact/dm/comment/mention/issue/pr/notification/task 等，`[a-z0-9_.-]{1,32}`。 */
+  readonly thread_kind?: string;
   readonly not_before?: number;
   readonly expires_at?: number;
   readonly title?: string;

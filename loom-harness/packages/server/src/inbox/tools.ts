@@ -13,13 +13,27 @@ import { Type } from "@axeuh/loom-core";
 import type { HarnessTool, HookContext, ToolExecResult } from "@axeuh/loom-core";
 
 import type { InboxConfig } from "../config/section-checks.js";
-import { DEFAULT_MAX_BODY_BYTES } from "./defaults.js";
+import {
+  DEFAULT_MAX_BODY_BYTES,
+  DEFAULT_MAX_THREAD_ID_CHARS,
+  DEFAULT_MAX_THREAD_KIND_CHARS,
+} from "./defaults.js";
 import type { InboxJournalStore } from "./journal-store.js";
-import type { LetterClass, LetterRecord, LetterState } from "./types.js";
+import {
+  compareLettersOldestFirst,
+  summarizeThreads,
+  threadDisplayName,
+  threadIdOf,
+  threadKind,
+} from "./thread.js";
+import { UNREAD_LETTER_STATES, type LetterRecord, type LetterState } from "./types.js";
+import { THREAD_KIND_RE } from "./validate.js";
 
 const LIST_DEFAULT_LIMIT = 20;
 const LIST_MAX_LIMIT = 50;
 const READ_MAX_IDS = 20;
+const THREAD_READ_DEFAULT_LIMIT = 20;
+const THREAD_READ_MAX_LIMIT = 50;
 const READ_MAX_BODY_BYTES = 64 * 1024;
 const MUTATE_MAX_IDS = 50;
 const MAX_DEFERS_PER_LETTER = 3;
@@ -27,19 +41,14 @@ const MAX_DEFER_MS = 24 * 60 * 60 * 1000;
 const MAX_EVIDENCE_CHARS = 1024;
 const MAX_NOTE_CHARS = 2048;
 
-const UNRESOLVED_STATES: ReadonlySet<LetterState> = new Set([
-  "pending",
-  "routed",
-  "delivered",
+/** 线程批量读的口径：默认未读；include_read 只额外放开 read，终态永不可读。 */
+const THREAD_READ_STATES: ReadonlySet<LetterState> = new Set([
+  ...UNREAD_LETTER_STATES,
   "read",
-  "deferred",
 ]);
 
 const ACK_OUTCOMES = ["replied", "acted", "deferred", "no_action", "failed"] as const;
 type AckOutcome = (typeof ACK_OUTCOMES)[number];
-
-const LIST_STATES = ["pending", "acked", "all"] as const;
-type ListState = (typeof LIST_STATES)[number];
 
 export interface InboxToolsOptions {
   readonly store: InboxJournalStore;
@@ -70,60 +79,43 @@ export function createInboxTools(options: InboxToolsOptions): readonly HarnessTo
   const listTool: HarnessTool = {
     name: "inbox_list",
     description:
-      "List inbox letter metadata only (never bodies). Filter by class (digest|notify|interrupt), " +
-      "source, and state (pending|acked|all; default pending, or all in shadow mode so observed " +
-      "rows stay visible). Returns an as_of timestamp, " +
-      "pending class/source counts, oldest_age_ms, included_ids, still_pending, and per-letter " +
-      "metadata (id, source, kind, class, trust, state, created_at, attempts, title). " +
-      "Use inbox_read to fetch bodies.",
+      "Mailbox overview grouped by conversation thread (metadata only, never bodies or letter ids). " +
+      "Only threads with unread letters (pending/routed/delivered/deferred) appear. Filter by " +
+      "source and thread_kind. Returns as_of, total_unread, and per-thread " +
+      "{source, thread_id, thread_name, thread_kind, unread, latest_at, oldest_unread_at}, " +
+      "sorted by latest_at desc and capped to limit (truncated=true when more threads exist). " +
+      "Use inbox_read with source+thread_id to fetch a thread's full letter bodies.",
     parameters: Type.Object({
-      class: Type.Optional(
-        Type.Union([Type.Literal("digest"), Type.Literal("notify"), Type.Literal("interrupt")], {
-          description: "Letter class contract: digest | notify | interrupt.",
-        }),
-      ),
       source: Type.Optional(Type.String({ description: "Registered source key." })),
-      state: Type.Optional(
-        Type.Union([Type.Literal("pending"), Type.Literal("acked"), Type.Literal("all")], {
-          description: "pending (unresolved, default) | acked | all.",
+      thread_kind: Type.Optional(
+        Type.String({
+          description:
+            "Thread kind filter, e.g. group | contact | dm | comment | mention | issue | pr | notification | task.",
         }),
       ),
       limit: Type.Optional(
         Type.Integer({
           minimum: 1,
           maximum: LIST_MAX_LIMIT,
-          description: `Maximum rows to return (default ${String(LIST_DEFAULT_LIMIT)}, max ${String(LIST_MAX_LIMIT)}).`,
+          description: `Maximum threads to return (default ${String(LIST_DEFAULT_LIMIT)}, max ${String(LIST_MAX_LIMIT)}).`,
         }),
       ),
     }),
     isConcurrencySafe: () => true,
     async execute(args, ctx): Promise<ToolExecResult> {
       assertMainSession("inbox_list", ctx);
-      const state = parseListState(args.state, options.config.mode === "shadow" ? "all" : "pending");
-      const letterClass = parseOptionalClass(args.class);
       const source = optionalNonEmptyString(args.source, "source");
+      const kind = parseThreadKindFilter(args.thread_kind);
       const limit = clampInteger(args.limit, LIST_DEFAULT_LIMIT, 1, LIST_MAX_LIMIT, "limit");
-      const now = nowOf();
-      const snapshot = options.store.snapshot({ now, knownSources: knownSources(options.config) });
-      const matched = options.store
-        .list({
-          ...(letterClass === undefined ? {} : { class: letterClass }),
-          ...(source === undefined ? {} : { source }),
-        })
-        .filter((record) => matchesListState(record, state));
-      const page = matched.slice(0, limit);
-      const includedUnresolved = page.filter((record) => UNRESOLVED_STATES.has(record.state)).length;
+      const records = options.store.list(source === undefined ? {} : { source });
+      const threads = summarizeThreads(records, kind);
+      const totalUnread = threads.reduce((sum, thread) => sum + thread.unread, 0);
+      const page = threads.slice(0, limit);
       return textResult({
-        as_of: snapshot.as_of,
-        state,
-        pending: snapshot.pending,
-        by_class: snapshot.by_class,
-        by_source: snapshot.by_source,
-        oldest_age_ms: snapshot.oldest_age_ms,
-        matched: matched.length,
-        included_ids: page.map((record) => record.id),
-        still_pending: Math.max(0, snapshot.pending - includedUnresolved),
-        letters: page.map(metadataOf),
+        as_of: nowOf(),
+        total_unread: totalUnread,
+        threads: page,
+        truncated: threads.length > page.length,
       });
     },
   };
@@ -131,48 +123,91 @@ export function createInboxTools(options: InboxToolsOptions): readonly HarnessTo
   const readTool: HarnessTool = {
     name: "inbox_read",
     description:
-      "Read full bodies for up to 20 inbox letters by id. Each body is capped at 64KB with a " +
-      "truncated flag. Marks letter.read for pending/routed/delivered letters (no ack). " +
-      "Unknown ids reject the whole call before any read marker is written. " +
-      "After acting on an action letter you MUST call inbox_ack with evidence_ref.",
+      "Read full letter bodies either by ids (max 20) or by one thread (source+thread_id, oldest " +
+      "first, limit default 20/max 50). Bodies are capped at 64KB with a truncated flag. " +
+      "Thread mode returns only unread letters (pending/routed/delivered/deferred) unless " +
+      "include_read=true (adds read; terminal states are never returned). Each body is marked " +
+      "letter.read when mark_read=true (default) but never acked. Unknown ids reject the whole " +
+      "call before any read marker is written. After acting on an action letter you MUST call " +
+      "inbox_ack with evidence_ref.",
     parameters: Type.Object({
-      ids: Type.Array(Type.String(), {
-        minItems: 1,
-        maxItems: READ_MAX_IDS,
-        description: `Letter ids to read (max ${String(READ_MAX_IDS)}).`,
-      }),
+      ids: Type.Optional(
+        Type.Array(Type.String(), {
+          minItems: 1,
+          maxItems: READ_MAX_IDS,
+          description: `Letter ids to read (max ${String(READ_MAX_IDS)}).`,
+        }),
+      ),
+      thread_id: Type.Optional(
+        Type.String({
+          maxLength: DEFAULT_MAX_THREAD_ID_CHARS,
+          description: "Thread id for batch read; requires source and cannot be combined with ids.",
+        }),
+      ),
+      source: Type.Optional(
+        Type.String({ description: "Registered source key for the thread; requires thread_id." }),
+      ),
+      limit: Type.Optional(
+        Type.Integer({
+          minimum: 1,
+          maximum: THREAD_READ_MAX_LIMIT,
+          description: `Maximum thread letters to return (default ${String(THREAD_READ_DEFAULT_LIMIT)}, max ${String(THREAD_READ_MAX_LIMIT)}).`,
+        }),
+      ),
+      include_read: Type.Optional(
+        Type.Boolean({ description: "Thread mode: include already-read letters (default false)." }),
+      ),
+      mark_read: Type.Optional(
+        Type.Boolean({ description: "Mark returned unread letters as read (default true)." }),
+      ),
     }),
     isConcurrencySafe: () => false,
     async execute(args, ctx): Promise<ToolExecResult> {
       assertMainSession("inbox_read", ctx);
-      const ids = parseIds(args.ids, READ_MAX_IDS, "ids");
-      const records = requireRecords(options.store, ids, "inbox_read");
+      const threadId = parseThreadIdSelector(args.thread_id);
+      const source = optionalNonEmptyString(args.source, "source");
+      const includeRead = parseBoolean(args.include_read, "include_read", false);
+      const markRead = parseBoolean(args.mark_read, "mark_read", true);
+      const limit = clampInteger(
+        args.limit,
+        THREAD_READ_DEFAULT_LIMIT,
+        1,
+        THREAD_READ_MAX_LIMIT,
+        "limit",
+      );
       const now = nowOf();
-      for (const record of records) {
-        if (
-          record.state === "pending" ||
-          record.state === "routed" ||
-          record.state === "delivered"
-        ) {
-          options.store.appendEvent({
-            schema: 1,
-            event: "letter.read",
-            at: now,
-            id: record.id,
-            read_at: now,
-          });
+
+      if (args.ids !== undefined) {
+        if (threadId !== undefined || source !== undefined) {
+          throw new Error("inbox_read: ids cannot be combined with source/thread_id");
         }
+        const ids = parseIds(args.ids, READ_MAX_IDS, "ids");
+        const records = requireRecords(options.store, ids, "inbox_read");
+        if (markRead) markRecordsRead(options.store, records, now);
+        return textResult({
+          letters: records.map((record) => letterWithBody(options.store, record)),
+          truncated: false,
+          remaining: 0,
+        });
       }
+
+      if (threadId === undefined || source === undefined) {
+        throw new Error("inbox_read: provide ids, or both source and thread_id");
+      }
+
+      const states = includeRead ? THREAD_READ_STATES : UNREAD_LETTER_STATES;
+      const matched = options.store
+        .list({ source })
+        .filter((record) => threadIdOf(record) === threadId && states.has(record.state))
+        .sort(compareLettersOldestFirst);
+      const page = matched.slice(0, limit);
+      if (markRead) markRecordsRead(options.store, page, now);
       return textResult({
-        letters: records.map((record) => {
-          const current = options.store.get(record.id) ?? record;
-          const body = truncateUtf8(record.body, READ_MAX_BODY_BYTES);
-          return {
-            ...metadataOf(current),
-            body: body.text,
-            truncated: body.truncated,
-          };
-        }),
+        source,
+        thread_id: threadId,
+        letters: page.map((record) => letterWithBody(options.store, record)),
+        truncated: matched.length > page.length,
+        remaining: matched.length - page.length,
       });
     },
   };
@@ -349,46 +384,76 @@ function metadataOf(record: LetterRecord): Record<string, unknown> {
     created_at: record.created_at,
     attempts: record.attempts,
     title: record.title ?? null,
+    thread_id: threadIdOf(record),
+    thread_name: threadDisplayName(record),
+    thread_kind: threadKind(record),
   };
 }
 
-function matchesListState(record: LetterRecord, state: ListState): boolean {
-  switch (state) {
-    case "pending":
-      return UNRESOLVED_STATES.has(record.state);
-    case "acked":
-      return record.state === "acked";
-    case "all":
-      return true;
-    default: {
-      const _exhaustive: never = state;
-      return _exhaustive;
-    }
+function letterWithBody(
+  store: InboxJournalStore,
+  record: LetterRecord,
+): Record<string, unknown> {
+  const current = store.get(record.id) ?? record;
+  const body = truncateUtf8(record.body, READ_MAX_BODY_BYTES);
+  return {
+    ...metadataOf(current),
+    body: body.text,
+    truncated: body.truncated,
+  };
+}
+
+function markRecordsRead(
+  store: InboxJournalStore,
+  records: readonly LetterRecord[],
+  now: number,
+): void {
+  for (const record of records) {
+    if (!UNREAD_LETTER_STATES.has(record.state)) continue;
+    store.appendEvent({
+      schema: 1,
+      event: "letter.read",
+      at: now,
+      id: record.id,
+      read_at: now,
+    });
   }
 }
 
-function knownSources(config: InboxConfig): readonly string[] {
-  return Object.keys(config.sources ?? {});
-}
-
-function parseListState(value: unknown, fallback: ListState): ListState {
-  if (value === undefined) return fallback;
-  if (typeof value === "string" && (LIST_STATES as readonly string[]).includes(value)) {
-    return value as ListState;
-  }
-  throw new Error(`inbox_list: state must be one of ${LIST_STATES.join("|")}`);
-}
-
-function parseOptionalClass(value: unknown): LetterClass | undefined {
+function parseThreadKindFilter(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (
-    value === "digest" ||
-    value === "notify" ||
-    value === "interrupt"
+    typeof value !== "string" ||
+    value.length === 0 ||
+    Array.from(value).length > DEFAULT_MAX_THREAD_KIND_CHARS ||
+    !THREAD_KIND_RE.test(value)
   ) {
-    return value;
+    throw new Error(
+      `inbox_list: thread_kind must match ${String(THREAD_KIND_RE)} with at most ${String(DEFAULT_MAX_THREAD_KIND_CHARS)} characters`,
+    );
   }
-  throw new Error("inbox_list: class must be one of digest|notify|interrupt");
+  return value;
+}
+
+function parseThreadIdSelector(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error("thread_id must be a non-empty string");
+  }
+  if (Array.from(value).length > DEFAULT_MAX_THREAD_ID_CHARS) {
+    throw new Error(
+      `thread_id must be at most ${String(DEFAULT_MAX_THREAD_ID_CHARS)} characters`,
+    );
+  }
+  return value;
+}
+
+function parseBoolean(value: unknown, field: string, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value !== "boolean") {
+    throw new Error(`${field} must be a boolean`);
+  }
+  return value;
 }
 
 function parseAckOutcome(value: unknown): AckOutcome {
@@ -511,6 +576,8 @@ export const INBOX_TOOL_LIMITS = {
   listDefaultLimit: LIST_DEFAULT_LIMIT,
   listMaxLimit: LIST_MAX_LIMIT,
   readMaxIds: READ_MAX_IDS,
+  threadReadDefaultLimit: THREAD_READ_DEFAULT_LIMIT,
+  threadReadMaxLimit: THREAD_READ_MAX_LIMIT,
   readMaxBodyBytes: READ_MAX_BODY_BYTES,
   mutateMaxIds: MUTATE_MAX_IDS,
   maxDefersPerLetter: MAX_DEFERS_PER_LETTER,

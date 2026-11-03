@@ -368,7 +368,7 @@ describe("inbox boot modes", () => {
     booted.app.registry.ensure(sessionID);
     const fake = booted.app.model.model as unknown as { push(...responses: unknown[]): void };
     fake.push({
-      content: [{ type: "toolCall", name: "inbox_list", arguments: { state: "pending" } }],
+      content: [{ type: "toolCall", name: "inbox_list", arguments: {} }],
     });
     fake.push({
       content: [{ type: "toolCall", name: "inbox_read", arguments: { ids: ["l1"] } }],

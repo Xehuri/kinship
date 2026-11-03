@@ -9,6 +9,11 @@
  *   - 信封只含 class 契约、来源标签、计数；绝不输出 policy 的内部数值权重。
  */
 
+import {
+  THREAD_LABEL_NAME_MAX_CHARS,
+  threadDisplayName,
+  threadIdOf,
+} from "./thread.js";
 import type { InboxSnapshot, LetterClass, LetterRecord } from "./types.js";
 
 const PREVIEW_CHARS = 500;
@@ -47,8 +52,18 @@ function escapeExternalFence(text: string): string {
   return text.replace(/<\/external_content/gi, "<\\/external_content");
 }
 
+function boundedThreadName(name: string): string {
+  const cps = Array.from(name);
+  if (cps.length <= THREAD_LABEL_NAME_MAX_CHARS) return name;
+  return `${cps.slice(0, THREAD_LABEL_NAME_MAX_CHARS).join("")}…`;
+}
+
+function threadLabel(record: LetterRecord): string {
+  return `${boundedThreadName(threadDisplayName(record))}(${threadIdOf(record)})`;
+}
+
 function labelLine(record: LetterRecord, marker: string): string {
-  return `${marker} [source=${record.source} trust=${record.trust} principal=${record.principal} kind=${record.kind} class=${record.class}]`;
+  return `${marker} [source=${record.source} trust=${record.trust} principal=${record.principal} kind=${record.kind} class=${record.class} thread=${threadLabel(record)}]`;
 }
 
 function renderBody(record: LetterRecord, full: boolean): string[] {

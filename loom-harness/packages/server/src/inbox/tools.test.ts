@@ -118,74 +118,178 @@ describe("inbox tool guard", () => {
 });
 
 describe("inbox_list", () => {
-  it("只返回元数据、计数、included_ids 与 still_pending，绝不返回正文", async () => {
-    const first = add({ kind: "action", body: "SECRET-ACTION", title: "action title" });
-    const second = add({ kind: "fyi", class: "digest", body: "SECRET-FYI" });
-    const tools = makeTools();
-    const { json, text } = await call(tools, "inbox_list", { state: "pending" });
-    expect(text).not.toContain("SECRET-ACTION");
-    expect(text).not.toContain("SECRET-FYI");
-    expect(json["as_of"]).toBe(clock);
-    expect(json["pending"]).toBe(2);
-    expect(json["by_class"]).toEqual({ digest: 1, notify: 1, interrupt: 0 });
-    expect(json["by_source"]).toEqual({ svc: 2 });
-    expect(json["included_ids"]).toEqual([first, second]);
-    expect(json["still_pending"]).toBe(0);
-    const letters = json["letters"] as Array<Record<string, unknown>>;
-    expect(letters).toHaveLength(2);
-    expect(letters[0]).toMatchObject({
-      id: first,
-      source: "svc",
-      kind: "action",
-      class: "notify",
-      trust: "user",
-      state: "pending",
-      created_at: clock,
-      attempts: 0,
-      title: "action title",
+  it("按线程聚合未读，只返回线程元数据，绝不返回正文或信件 id", async () => {
+    add({
+      thread_id: "g1",
+      thread_name: "群一",
+      thread_kind: "group",
+      principal: "123",
+      body: "SECRET-GROUP-1",
     });
-    expect("body" in letters[0]!).toBe(false);
-  });
-
-  it("limit 截断 rows，但 matched 保留过滤后总数、still_pending 扣减已含项", async () => {
-    const first = add();
-    add();
+    clock += 1000;
+    add({
+      thread_id: "g1",
+      thread_name: "群一",
+      thread_kind: "group",
+      principal: "123",
+      body: "SECRET-GROUP-2",
+    });
+    clock += 1000;
+    add({
+      thread_id: "u9",
+      thread_name: "小明",
+      thread_kind: "contact",
+      principal: "u9",
+      body: "SECRET-DM",
+    });
     const tools = makeTools();
-    const { json } = await call(tools, "inbox_list", { limit: 1 });
-    expect(json["matched"]).toBe(2);
-    expect(json["included_ids"]).toEqual([first]);
-    expect(json["still_pending"]).toBe(1);
+    const { json, text } = await call(tools, "inbox_list", {});
+    expect(text).not.toContain("SECRET-GROUP-1");
+    expect(text).not.toContain("SECRET-GROUP-2");
+    expect(text).not.toContain("SECRET-DM");
+    expect(json["as_of"]).toBe(clock);
+    expect(json["total_unread"]).toBe(3);
+    expect(json["truncated"]).toBe(false);
+    const threads = json["threads"] as Array<Record<string, unknown>>;
+    expect(threads).toEqual([
+      {
+        source: "svc",
+        thread_id: "u9",
+        thread_name: "小明",
+        thread_kind: "contact",
+        unread: 1,
+        latest_at: T0 + 2000,
+        oldest_unread_at: T0 + 2000,
+      },
+      {
+        source: "svc",
+        thread_id: "g1",
+        thread_name: "群一",
+        thread_kind: "group",
+        unread: 2,
+        latest_at: T0 + 1000,
+        oldest_unread_at: T0,
+      },
+    ]);
+    for (const thread of threads) {
+      expect("body" in thread).toBe(false);
+      expect("id" in thread).toBe(false);
+      expect("title" in thread).toBe(false);
+    }
   });
 
-  it("shadow 模式默认 all：observed 行可见但 pending 计数仍为 0", async () => {
-    const observed = store.recordObserved(input({ kind: "fyi" }), { now: clock });
-    const tools = makeTools({ ...CONFIG, mode: "shadow" });
+  it("只有 read/acked/observed 的线程不出现在邮箱概览", async () => {
+    const readId = add({ thread_id: "read", thread_name: "已读", thread_kind: "group" });
+    const tools = makeTools();
+    await call(tools, "inbox_read", { ids: [readId] });
+    const ackId = add({
+      kind: "fyi",
+      thread_id: "acked",
+      thread_name: "已确认",
+      thread_kind: "group",
+    });
+    await call(tools, "inbox_ack", { ids: [ackId], outcome: "no_action" });
+    store.recordObserved(
+      input({ thread_id: "obs", thread_name: "旁路", thread_kind: "group" }),
+      { now: clock },
+    );
     const { json } = await call(tools, "inbox_list", {});
-    expect(json["included_ids"]).toEqual([observed.id]);
-    expect(json["pending"]).toBe(0);
-    expect((json["letters"] as Array<Record<string, unknown>>)[0]?.["state"]).toBe("observed");
+    expect(json["total_unread"]).toBe(0);
+    expect(json["threads"]).toEqual([]);
+    expect(json["truncated"]).toBe(false);
   });
 
-  it("state=acked 只看已 ack；state=all 含终态", async () => {
-    const first = add({ kind: "fyi" });
-    add();
+  it("线程按 latest_at 倒序，limit 截断线程但 total_unread 为截断前总和", async () => {
+    add({ thread_id: "a", thread_name: "A", thread_kind: "group" });
+    clock += 1000;
+    add({ thread_id: "b", thread_name: "B", thread_kind: "group" });
+    clock += 1000;
+    add({ thread_id: "b", thread_name: "B", thread_kind: "group" });
+    clock += 1000;
+    add({ thread_id: "c", thread_name: "C", thread_kind: "group" });
     const tools = makeTools();
-    await call(tools, "inbox_ack", { ids: [first], outcome: "no_action" });
-    const acked = await call(tools, "inbox_list", { state: "acked" });
-    expect(acked.json["included_ids"]).toEqual([first]);
-    const all = await call(tools, "inbox_list", { state: "all" });
-    expect((all.json["letters"] as unknown[]).length).toBe(2);
+    const { json } = await call(tools, "inbox_list", { limit: 2 });
+    expect(json["total_unread"]).toBe(4);
+    expect(json["truncated"]).toBe(true);
+    const threads = json["threads"] as Array<Record<string, unknown>>;
+    expect(threads.map((thread) => thread["thread_id"])).toEqual(["c", "b"]);
+  });
+
+  it("无 thread 元数据时按 source+principal 回退归组，名称/类别取最新有值者", async () => {
+    add({ principal: "alice" });
+    clock += 1000;
+    add({ principal: "alice" });
+    clock += 1000;
+    add({ principal: "bob" });
+    clock += 1000;
+    add({ source: "other", principal: "alice" });
+    clock += 1000;
+    add({
+      principal: "carol",
+      thread_id: "c1",
+      thread_name: "Carol",
+      thread_kind: "group",
+    });
+    clock += 1000;
+    add({ principal: "carol", thread_id: "c1" });
+    const tools = makeTools();
+    const { json } = await call(tools, "inbox_list", {});
+    const threads = json["threads"] as Array<Record<string, unknown>>;
+    expect(threads).toHaveLength(4);
+    expect(threads.find((thread) => thread["thread_id"] === "svc:alice")).toMatchObject({
+      thread_name: "alice",
+      thread_kind: "contact",
+      unread: 2,
+    });
+    expect(threads.some((thread) => thread["thread_id"] === "svc:bob")).toBe(true);
+    expect(threads.some((thread) => thread["thread_id"] === "other:alice")).toBe(true);
+    expect(threads.find((thread) => thread["thread_id"] === "c1")).toMatchObject({
+      thread_name: "Carol",
+      thread_kind: "group",
+      unread: 2,
+    });
+  });
+
+  it("source 与 thread_kind 过滤同时影响 visible threads 与 total_unread", async () => {
+    add({ source: "svc", thread_id: "g1", thread_name: "群", thread_kind: "group" });
+    clock += 1000;
+    add({ source: "other", thread_id: "dm1", thread_name: "私聊", thread_kind: "dm" });
+    clock += 1000;
+    add({ source: "other", thread_id: "g2", thread_name: "群二", thread_kind: "group" });
+    const tools = makeTools();
+    const bySource = await call(tools, "inbox_list", { source: "other" });
+    expect(bySource.json["total_unread"]).toBe(2);
+    expect(
+      (bySource.json["threads"] as Array<Record<string, unknown>>).map(
+        (thread) => thread["thread_id"],
+      ),
+    ).toEqual(["g2", "dm1"]);
+    const byKind = await call(tools, "inbox_list", { thread_kind: "group" });
+    expect(byKind.json["total_unread"]).toBe(2);
+    expect(
+      (byKind.json["threads"] as Array<Record<string, unknown>>).map(
+        (thread) => thread["thread_id"],
+      ),
+    ).toEqual(["g2", "g1"]);
   });
 });
 
 describe("inbox_read", () => {
-  it("返回正文并标记 read（不改 ack）", async () => {
-    const id = add({ body: "hello body" });
+  it("按 id 返回正文并标记 read（不改 ack），回填线程字段", async () => {
+    const id = add({ body: "hello body", thread_id: "g1", thread_name: "群一", thread_kind: "group" });
     const tools = makeTools();
     const before = store.size;
     const { json } = await call(tools, "inbox_read", { ids: [id] });
     const letters = json["letters"] as Array<Record<string, unknown>>;
-    expect(letters[0]).toMatchObject({ id, body: "hello body", truncated: false, state: "read" });
+    expect(letters[0]).toMatchObject({
+      id,
+      body: "hello body",
+      truncated: false,
+      state: "read",
+      thread_id: "g1",
+      thread_name: "群一",
+      thread_kind: "group",
+    });
     expect(store.get(id)?.state).toBe("read");
     expect(store.get(id)?.acked_at).toBeUndefined();
     expect(store.size).toBe(before + 1);
@@ -219,6 +323,119 @@ describe("inbox_read", () => {
       /unknown letter id\(s\): missing/,
     );
     expect(store.get(id)?.state).toBe("pending");
+  });
+
+  it("按线程批量读取：旧到新返回、标记 read、未读线程消失", async () => {
+    const first = add({
+      body: "first",
+      thread_id: "g1",
+      thread_name: "群一",
+      thread_kind: "group",
+    });
+    clock += 1000;
+    const second = add({
+      body: "second",
+      thread_id: "g1",
+      thread_name: "群一",
+      thread_kind: "group",
+    });
+    const tools = makeTools();
+    const { json } = await call(tools, "inbox_read", { source: "svc", thread_id: "g1" });
+    const letters = json["letters"] as Array<Record<string, unknown>>;
+    expect(letters.map((letter) => letter["id"])).toEqual([first, second]);
+    expect(letters[0]).toMatchObject({
+      body: "first",
+      thread_id: "g1",
+      thread_name: "群一",
+      thread_kind: "group",
+      state: "read",
+    });
+    expect(json["truncated"]).toBe(false);
+    expect(json["remaining"]).toBe(0);
+    expect(store.get(first)?.state).toBe("read");
+    expect(store.get(second)?.state).toBe("read");
+    const mailbox = await call(tools, "inbox_list", {});
+    expect(mailbox.json["total_unread"]).toBe(0);
+    expect(mailbox.json["threads"]).toEqual([]);
+  });
+
+  it("线程读取默认跳过 read 与终态；include_read=true 只额外纳入 read", async () => {
+    const old = add({ thread_id: "g1", thread_name: "群一", thread_kind: "group" });
+    const tools = makeTools();
+    await call(tools, "inbox_read", { ids: [old] });
+    const acked = add({ kind: "fyi", thread_id: "g1", thread_name: "群一", thread_kind: "group" });
+    await call(tools, "inbox_ack", { ids: [acked], outcome: "no_action" });
+    clock += 1000;
+    const fresh = add({ thread_id: "g1", thread_name: "群一", thread_kind: "group" });
+
+    const unreadOnly = await call(tools, "inbox_read", { source: "svc", thread_id: "g1" });
+    expect(
+      (unreadOnly.json["letters"] as Array<Record<string, unknown>>).map((letter) => letter["id"]),
+    ).toEqual([fresh]);
+
+    const withRead = await call(tools, "inbox_read", {
+      source: "svc",
+      thread_id: "g1",
+      include_read: true,
+    });
+    expect(
+      (withRead.json["letters"] as Array<Record<string, unknown>>).map((letter) => letter["id"]),
+    ).toEqual([old, fresh]);
+  });
+
+  it("线程读取 limit 取最旧优先，truncated/remaining 反映未返回数量", async () => {
+    const ids = [add({ thread_id: "g1" })];
+    clock += 1000;
+    ids.push(add({ thread_id: "g1" }));
+    clock += 1000;
+    ids.push(add({ thread_id: "g1" }));
+    const tools = makeTools();
+    const { json } = await call(tools, "inbox_read", {
+      source: "svc",
+      thread_id: "g1",
+      limit: 2,
+    });
+    const letters = json["letters"] as Array<Record<string, unknown>>;
+    expect(letters.map((letter) => letter["id"])).toEqual([ids[0], ids[1]]);
+    expect(json["truncated"]).toBe(true);
+    expect(json["remaining"]).toBe(1);
+    expect(store.get(ids[0]!)?.state).toBe("read");
+    expect(store.get(ids[1]!)?.state).toBe("read");
+    expect(store.get(ids[2]!)?.state).toBe("pending");
+    const mailbox = await call(tools, "inbox_list", {});
+    expect(mailbox.json["total_unread"]).toBe(1);
+  });
+
+  it("mark_read=false 不写 read 事件", async () => {
+    const id = add({ thread_id: "g1" });
+    const tools = makeTools();
+    const before = store.size;
+    const { json } = await call(tools, "inbox_read", {
+      source: "svc",
+      thread_id: "g1",
+      mark_read: false,
+    });
+    const letters = json["letters"] as Array<Record<string, unknown>>;
+    expect(letters[0]).toMatchObject({ id, state: "pending" });
+    expect(store.size).toBe(before);
+    expect(store.get(id)?.state).toBe("pending");
+  });
+
+  it("ids 与线程参数互斥，线程读取必须同时给 source+thread_id", async () => {
+    const tools = makeTools();
+    await expect(
+      call(tools, "inbox_read", { ids: ["l1"], source: "svc", thread_id: "g1" }),
+    ).rejects.toThrow(/cannot be combined/);
+    await expect(call(tools, "inbox_read", { ids: ["l1"], source: "svc" })).rejects.toThrow(
+      /cannot be combined/,
+    );
+    await expect(call(tools, "inbox_read", { thread_id: "g1" })).rejects.toThrow(
+      /both source and thread_id/,
+    );
+    await expect(call(tools, "inbox_read", { source: "svc" })).rejects.toThrow(
+      /both source and thread_id/,
+    );
+    await expect(call(tools, "inbox_read", {})).rejects.toThrow(/provide ids/);
   });
 });
 

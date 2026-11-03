@@ -18,6 +18,9 @@ import {
   DEFAULT_MAX_KIND_CHARS,
   DEFAULT_MAX_PRINCIPAL_CHARS,
   DEFAULT_MAX_REF_BYTES,
+  DEFAULT_MAX_THREAD_ID_CHARS,
+  DEFAULT_MAX_THREAD_KIND_CHARS,
+  DEFAULT_MAX_THREAD_NAME_CHARS,
   DEFAULT_MAX_TITLE_CHARS,
 } from "./defaults.js";
 import { LETTER_CLASSES, LETTER_TRUSTS, type LetterClass, type LetterInput, type LetterTrust } from "./types.js";
@@ -49,6 +52,9 @@ export interface LetterValidationOptions {
   readonly maxPrincipalChars?: number;
   readonly maxKindChars?: number;
   readonly maxCausationDepth?: number;
+  readonly maxThreadIdChars?: number;
+  readonly maxThreadNameChars?: number;
+  readonly maxThreadKindChars?: number;
 }
 
 const ALLOWED_INPUT_KEYS: ReadonlySet<string> = new Set([
@@ -57,6 +63,9 @@ const ALLOWED_INPUT_KEYS: ReadonlySet<string> = new Set([
   "class",
   "trust",
   "principal",
+  "thread_id",
+  "thread_name",
+  "thread_kind",
   "not_before",
   "expires_at",
   "title",
@@ -90,6 +99,9 @@ const SCORE_KEYS: ReadonlySet<string> = new Set(["score", "weight", "priority", 
 const CONTROL_CHARS_RE = /[\u0000-\u001f\u007f]/;
 
 export const SOURCE_KEY_RE = /^[a-z0-9_.-]{1,64}$/;
+
+/** thread_kind 的字符集（长度由 maxThreadKindChars 单独钳制）。 */
+export const THREAD_KIND_RE = /^[a-z0-9_.-]+$/;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -142,6 +154,54 @@ function optionalKeyString(
   return v;
 }
 
+function optionalThreadString(
+  raw: Record<string, unknown>,
+  key: "thread_id" | "thread_name",
+  maxChars: number,
+  errors: LetterFieldError[],
+): string | undefined {
+  const v = raw[key];
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || v.trim().length === 0) {
+    errors.push({ field: key, message: "存在时需为非空字符串" });
+    return undefined;
+  }
+  if (codePointLength(v) > maxChars) {
+    errors.push({ field: key, message: `长度不得超过 ${maxChars}` });
+    return undefined;
+  }
+  if (!isControlFree(v)) {
+    errors.push({ field: key, message: "不允许控制字符/换行" });
+    return undefined;
+  }
+  return v;
+}
+
+function optionalThreadKind(
+  raw: Record<string, unknown>,
+  maxChars: number,
+  errors: LetterFieldError[],
+): string | undefined {
+  const v = raw["thread_kind"];
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || v.length === 0) {
+    errors.push({ field: "thread_kind", message: "存在时需为非空字符串" });
+    return undefined;
+  }
+  if (codePointLength(v) > maxChars) {
+    errors.push({ field: "thread_kind", message: `长度不得超过 ${maxChars}` });
+    return undefined;
+  }
+  if (!THREAD_KIND_RE.test(v)) {
+    errors.push({
+      field: "thread_kind",
+      message: `需要匹配 ${String(THREAD_KIND_RE)}（小写字母/数字/下划线/点/连字符）`,
+    });
+    return undefined;
+  }
+  return v;
+}
+
 /**
  * 校验并解析一封新信。失败抛出 LetterValidationError（errors 汇总全部问题）。
  * 选项缺省值集中在 defaults.ts；调用方（T3）可按配置 limits 覆盖。
@@ -164,6 +224,9 @@ export function validateLetterInput(
   const maxPrincipalChars = options.maxPrincipalChars ?? DEFAULT_MAX_PRINCIPAL_CHARS;
   const maxKindChars = options.maxKindChars ?? DEFAULT_MAX_KIND_CHARS;
   const maxCausationDepth = options.maxCausationDepth ?? DEFAULT_MAX_CAUSATION_DEPTH;
+  const maxThreadIdChars = options.maxThreadIdChars ?? DEFAULT_MAX_THREAD_ID_CHARS;
+  const maxThreadNameChars = options.maxThreadNameChars ?? DEFAULT_MAX_THREAD_NAME_CHARS;
+  const maxThreadKindChars = options.maxThreadKindChars ?? DEFAULT_MAX_THREAD_KIND_CHARS;
 
   for (const key of Object.keys(raw)) {
     if (SCORE_KEYS.has(key)) {
@@ -236,6 +299,10 @@ export function validateLetterInput(
   } else {
     principal = principalRaw;
   }
+
+  const threadId = optionalThreadString(raw, "thread_id", maxThreadIdChars, errors);
+  const threadName = optionalThreadString(raw, "thread_name", maxThreadNameChars, errors);
+  const threadKindValue = optionalThreadKind(raw, maxThreadKindChars, errors);
 
   const bodyRaw = raw["body"];
   let body: string | undefined;
@@ -342,6 +409,9 @@ export function validateLetterInput(
     class: letterClass,
     trust,
     principal,
+    ...(threadId === undefined ? {} : { thread_id: threadId }),
+    ...(threadName === undefined ? {} : { thread_name: threadName }),
+    ...(threadKindValue === undefined ? {} : { thread_kind: threadKindValue }),
     ...(notBefore === undefined ? {} : { not_before: notBefore }),
     ...(expiresAt === undefined ? {} : { expires_at: expiresAt }),
     ...(title === undefined ? {} : { title }),

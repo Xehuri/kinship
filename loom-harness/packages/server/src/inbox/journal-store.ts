@@ -365,6 +365,9 @@ const REPLAY_VALIDATION: LetterValidationOptions = {
   maxPrincipalChars: Number.MAX_SAFE_INTEGER,
   maxKindChars: Number.MAX_SAFE_INTEGER,
   maxCausationDepth: Number.MAX_SAFE_INTEGER,
+  maxThreadIdChars: Number.MAX_SAFE_INTEGER,
+  maxThreadNameChars: Number.MAX_SAFE_INTEGER,
+  maxThreadKindChars: Number.MAX_SAFE_INTEGER,
 };
 
 function parseStoredLetter(raw: unknown): LetterInput {

@@ -24,6 +24,9 @@
 | `class` | enum | `interrupt` / `notify` / `digest` | 路由决策 |
 | `trust` | enum | `external` / `trusted_service` / `user` | 来源信誉 |
 | `principal` | string | 发起方标识（QQ 号 / 服务名 / 用户）；必填、无控制字符 | 网关 |
+| `thread_id` | string? | 线程标识；线程身份为 `(source, thread_id)`。QQ 群号 / 联系人 id / B 站会话或评论 id / GitHub `repo#number`；≤128 字符，非空、无控制字符 | 来源 |
+| `thread_name` | string? | 线程展示名；QQ 群名 / 联系人名 / B 站标题或用户 / GitHub issue 标题；≤200 字符，单行、无控制字符 | 来源 |
+| `thread_kind` | string? | 线程类别；`[a-z0-9_.-]{1,32}`，如 `group` / `contact` / `dm` / `comment` / `mention` / `issue` / `pr` / `notification` / `task` | 来源 |
 | `created_at` | number(ms) | 入箱时刻 | 服务端 |
 | `not_before` | number(ms) | 最早可投递时刻（quietHours 生效前不推） | 调度 |
 | `expires_at` | number(ms) | 过期即丢弃/死信（参考 `wake-queue.ts:284` isExpired 口径） | 分类器 |
@@ -68,8 +71,8 @@
 
 | 工具 | 作用 | 关键纪律 |
 |------|------|----------|
-| `inbox_list` | 列待处理信件（按 `class`/`not_before` 过滤） | 不含已 ack；返回 `still_pending` 计数 |
-| `inbox_read` | 读取单封/批量信件全文 | 不消费（ack 由独立动作触发） |
+| `inbox_list` | 邮箱概览：按 `(source, thread_id)` 聚合未读线程（见 §11.2） | 只返回线程元数据；永不返回正文/信件 id；按 `latest_at` 倒序 |
+| `inbox_read` | 按 id（≤20）或按线程（`source`+`thread_id`，≤50）读取全文 | 默认只读未读；`include_read` 额外纳入 read；读 ≠ ack |
 | `inbox_ack` | 确认处理（见 §5 规则） | per-letter；`delivered != acked` |
 | `inbox_defer` | 延后到 `not_before` | 不改 `expires_at` 以上限 |
 
@@ -176,3 +179,103 @@ T3（同日）已落地：`POST /inbox/letters`、`GET /inbox/status`、interrup
 
 **仍未包含**：模型 pull 工具（`inbox_list/read/ack/defer`）与 batch-ack 生命周期——
 这些属于 T4；账本是 ledger，不新增 scheduler/queue/DB。
+
+## 11. 线程（thread）视图（2026-11-02）
+
+主会话先看到**按会话聚合的邮箱概览**，再按需批量读取某个线程的全文；
+不再把全部信件逐条塞进 `inbox_list`。归组与计数是 `store.list()` 之上的内存计算，
+不新增 store/index/queue/DB。
+
+### 11.1 线程字段与回退
+
+`thread_id` / `thread_name` / `thread_kind` 均为可选，旧信件缺少三者仍合法。
+读取时按以下规则解析，**不回写账本记录**：
+
+| 解析值 | 显式字段存在 | 缺席回退 |
+|--------|--------------|----------|
+| 线程 id | `thread_id` | `source + ":" + principal` |
+| 线程名 | `thread_name` | `principal` |
+| 线程类别 | `thread_kind` | `contact` |
+
+线程身份是二元组 `(source, thread_id)`；不同来源的同名 id 不会合并。
+同一线程的 `thread_name` / `thread_kind` 取**最新一封带该字段的信**，
+若整组都没有则用该组最新信的 `principal` / `contact` 回退。
+共享定义在 `loom-harness/packages/server/src/inbox/thread.ts`
+（`threadIdOf` / `threadDisplayName` / `threadKind` / `threadKey`），tools 与测试共用。
+
+### 11.2 `inbox_list`（邮箱概览）
+
+参数：`source?`、`thread_kind?`、`limit?`（线程数，1..50，默认 20）。
+只列**还有未读**的线程；未读状态 = `pending` / `routed` / `delivered` / `deferred`
+（`read` / `acked` / `expired` / `dead_letter` / `observed` 不算未读）。
+
+输出（JSON，仅元数据，无正文、无信件 id、无逐信标题）：
+
+```json
+{
+  "as_of": 1762000000000,
+  "total_unread": 7,
+  "threads": [
+    {
+      "source": "qq",
+      "thread_id": "123456789",
+      "thread_name": "某群",
+      "thread_kind": "group",
+      "unread": 5,
+      "latest_at": 1761999999000,
+      "oldest_unread_at": 1761990000000
+    }
+  ],
+  "truncated": false
+}
+```
+
+- `unread` = 该组未读信件数；`latest_at` = 组内最大 `created_at`；
+  `oldest_unread_at` = 组内未读最小 `created_at`。
+- 排序：`latest_at` 倒序，再按 `source`、`thread_id` 升序保证确定性。
+- `total_unread` 是**截断前**所有匹配线程的未读总和；
+  返回线程数超过 `limit` 时 `truncated=true`。
+- `source` / `thread_kind` 过滤同时作用于 `threads` 与 `total_unread`。
+
+### 11.3 `inbox_read`（线程批量读）
+
+两种互斥模式：
+
+- **按 id**：`ids: string[]`（1..20），沿用旧行为。
+- **按线程**：`source` + `thread_id` 必须同时提供，不能与 `ids` 同时出现。
+  可选 `limit`（1..50，默认 20）、`include_read`（默认 false）、`mark_read`（默认 true）。
+
+线程模式规则：
+
+- 默认只取未读（`pending` / `routed` / `delivered` / `deferred`）；
+  `include_read=true` 额外纳入 `read`；`acked` / `expired` / `dead_letter` / `observed` 永不返回。
+- 按 `created_at` 升序（旧→新）返回，最多 `limit` 封；超出时返回
+  `truncated=true` 与 `remaining`（本次未返回的匹配信件数）。
+- `mark_read=true` 时对返回的 `pending/routed/delivered/deferred` 写 `letter.read`；
+  `read` 是 no-op，终态永不标记。**读线程不等于 ack**：`inbox_ack` 仍按 id 逐封确认。
+- 每封信返回既有元数据加 `thread_id` / `thread_name` / `thread_kind`，
+  正文仍按 64KB 上限截断并带 `truncated` 标志。
+- 线程不存在或无匹配信件时返回空 `letters`、`truncated=false`、`remaining=0`（不报错）。
+
+### 11.4 来源映射
+
+| 来源 | `thread_id` | `thread_name` | `thread_kind` |
+|------|-------------|---------------|---------------|
+| QQ 群 | 群号 | 群名 | `group` |
+| QQ 私聊联系人 | 联系人 QQ 号 / 用户 id | 备注名 / 昵称 | `contact` |
+| B 站私信 | 会话 id（对端 uid） | 用户昵称 | `dm` |
+| B 站 @ | 动态/评论 id | 动态标题或用户名 | `mention` |
+| B 站评论 | 评论 id（或根评论 id） | 视频/动态标题或用户名 | `comment` |
+| GitHub issue | `owner/repo#number` | issue 标题 | `issue` |
+| GitHub PR | `owner/repo#number` | PR 标题 | `pr` |
+| GitHub 通知 | notification id 或 `owner/repo#number` | 仓库/主题标题 | `notification` |
+| 后端任务 | task id / `correlation_id` | 任务名 | `task` |
+
+调用方不传 `thread_*` 时保持旧行为：同一 `source` + `principal` 聚成一个线程
+（`thread_kind=contact`），因此未升级的来源仍能得到可用的邮箱概览。
+
+### 11.5 信封标签
+
+`labelLine` 在来源标签后追加 `thread=名称(id)`；名称截断到 80 码点，
+id 使用解析后的线程 id。机器 marker（`[loom-inbox:letter=...]`）不含线程字段，
+正文渲染不变。
