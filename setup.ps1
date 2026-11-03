@@ -11,6 +11,9 @@
 # -KernelMode:   full（默认，构建+内核 venv+依赖）| build（只构建）| skip
 # -SkipKernel:   -KernelMode skip 的别名
 # -NoReuseRunning: 即使 8768 上已有 Kinship 健康实例也按“端口占用”报告并非 0 退出
+# -AiRoot:       AI 根目录（data.ai_root）；相对路径按仓库根解析，
+#                未指定时读 AI_ROOT 环境变量，二者都没有才用 <repo>\ai
+# 复制 ai-template 仅在目标不存在时执行，绝不覆盖已有 AI 根。
 
 [CmdletBinding()]
 param(
@@ -27,6 +30,7 @@ param(
     [int]$Port = 8768,
     [switch]$NoBrowser,
     [switch]$NoReuseRunning,
+    [string]$AiRoot = '',
     [int]$HealthTimeoutSeconds = 120
 )
 
@@ -40,11 +44,28 @@ $script:RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Paren
 $script:ConfigExample = Join-Path $script:RepoRoot 'config.example.yaml'
 $script:ConfigPath = Join-Path $script:RepoRoot 'config.yaml'
 $script:AiTemplate = Join-Path $script:RepoRoot 'ai-template'
-$script:AiPath = Join-Path $script:RepoRoot 'ai'
+
+$aiRootValue = if (-not [string]::IsNullOrWhiteSpace($AiRoot)) {
+    $AiRoot
+} else {
+    [string]$env:AI_ROOT
+}
+if ([string]::IsNullOrWhiteSpace($aiRootValue)) {
+    $script:AiPath = Join-Path $script:RepoRoot 'ai'
+} elseif ([System.IO.Path]::IsPathRooted($aiRootValue)) {
+    $script:AiPath = [System.IO.Path]::GetFullPath($aiRootValue)
+} else {
+    $script:AiPath = [System.IO.Path]::GetFullPath((Join-Path $script:RepoRoot $aiRootValue))
+}
+
 if (-not (Test-Path -LiteralPath $script:ConfigPath) -and (Test-Path -LiteralPath $script:ConfigExample)) {
     Copy-Item -LiteralPath $script:ConfigExample -Destination $script:ConfigPath
 }
 if (-not (Test-Path -LiteralPath $script:AiPath) -and (Test-Path -LiteralPath $script:AiTemplate)) {
+    $aiParent = Split-Path -Parent $script:AiPath
+    if (-not [string]::IsNullOrWhiteSpace($aiParent) -and -not (Test-Path -LiteralPath $aiParent)) {
+        New-Item -ItemType Directory -Force -Path $aiParent | Out-Null
+    }
     Copy-Item -LiteralPath $script:AiTemplate -Destination $script:AiPath -Recurse
 }
 $script:RejectedPython = @()

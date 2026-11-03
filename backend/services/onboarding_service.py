@@ -1334,12 +1334,20 @@ def _count_files(root: Path) -> int:
 
 
 def copy_ai_template(
-    project_root: Path | str, overwrite: bool = False
+    project_root: Path | str,
+    overwrite: bool = False,
+    ai_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    """仅在 ``ai/`` 不存在时复制模板；已存在则无条件拒绝。"""
+    """仅在目标 AI 根不存在时复制模板；已存在则无条件拒绝。
+
+    ``ai_root`` 为空时取 ``config.AI_ROOT``（``data.ai_root`` / ``data.dir``），
+    因此缺省目标仍是配置的 AI 根而非固定的 ``<project_root>/ai``；相对路径
+    按 ``project_root`` 解析。暂存目录建在目标父目录内，保证 ``os.replace``
+    与目标同文件系统（外部 AI 根也能工作），且不覆盖或删除任何既有文件。
+    """
     root = _action_project_root(project_root)
     source = root / "ai-template"
-    target = root / "ai"
+    target = _resolve_ai_instance_target(root, ai_root)
     if not source.is_dir():
         raise OnboardingActionInvalid(
             "template_missing", f"未找到 ai-template 目录: {source}"
@@ -1347,19 +1355,33 @@ def copy_ai_template(
     if target.exists() or target.is_symlink():
         raise OnboardingActionConflict(
             "already_exists",
-            "ai/ 已存在（含空目录或符号链接），拒绝执行 copy_ai_template；"
-            "请先确认并移走现有 ai/，本操作不会覆盖或删除任何既有文件",
+            "AI 实例目录已存在（含空目录或符号链接），拒绝执行 "
+            "copy_ai_template；请先确认并移走现有目录，本操作不会覆盖或删除"
+            "任何既有文件",
         )
 
-    staging_root = Path(
-        tempfile.mkdtemp(prefix=".onboarding-ai-", dir=str(root))
+    staging_env = os.environ.get("AXEUH_PROJECT_ROOT", "").strip()
+    staging_root = (
+        Path(staging_env).expanduser().resolve() if staging_env else None
     )
-    staged = staging_root / "ai"
+    _assert_safe_ai_instance_target(target, staging_root, root)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise OnboardingActionInvalid(
+            "target_parent_invalid",
+            f"无法创建 AI 实例父目录: {target.parent}",
+        ) from exc
+
+    staging_dir = Path(
+        tempfile.mkdtemp(prefix=".onboarding-ai-", dir=str(target.parent))
+    )
+    staged = staging_dir / "ai"
     try:
         shutil.copytree(source, staged)
         os.replace(staged, target)
     finally:
-        shutil.rmtree(staging_root, ignore_errors=True)
+        shutil.rmtree(staging_dir, ignore_errors=True)
     return {
         "action": "copy_ai_template",
         "source": str(source),

@@ -158,6 +158,13 @@ def env(tmp_path, monkeypatch) -> Iterator[SimpleNamespace]:
     state_file = tmp_path / "state" / "onboarding_state.json"
     monkeypatch.setenv("AEUH_ONBOARDING_STATE", str(state_file))
 
+    project_root = _make_project(tmp_path / "project")
+    # Copy action defaults to config.AI_ROOT; keep it inside this test project
+    # so the API contract tests never touch a real AI instance.
+    monkeypatch.setenv(
+        "AXEUH_SETTINGS__DATA__AI_ROOT", str(project_root / "ai")
+    )
+
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
         yaml.safe_dump(BASE_CONFIG, allow_unicode=True), encoding="utf-8"
@@ -167,7 +174,6 @@ def env(tmp_path, monkeypatch) -> Iterator[SimpleNamespace]:
     config_module.set_config_path(str(config_file))
     config_module.get_config.cache_clear()
 
-    project_root = _make_project(tmp_path / "project")
     monkeypatch.setattr(
         system_onboarding, "_project_root", lambda: project_root
     )

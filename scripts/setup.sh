@@ -3,14 +3,17 @@ set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 PYTHON=${PYTHON:-python3}
+AI_ROOT=${AI_ROOT:-}
 CHECK=0
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/setup.sh [--check] [--python PATH]
+Usage: scripts/setup.sh [--check] [--python PATH] [--ai-root PATH]
 
 Create the local Python environment and initialize config.yaml and ai/ when absent.
-Existing config.yaml, ai/, and .venv are never overwritten.
+Copy ai-template to the configured AI root (data.ai_root); default <repo>/ai.
+Relative --ai-root/AI_ROOT paths resolve against the repo root.
+Existing config.yaml, AI root, and .venv are never overwritten.
 USAGE
 }
 
@@ -18,11 +21,18 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --check) CHECK=1 ;;
     --python) shift; PYTHON=${1:?missing value for --python} ;;
+    --ai-root) shift; AI_ROOT=${1:?missing value for --ai-root} ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
   shift
 done
+
+case "$AI_ROOT" in
+  '') AI_DIR=$ROOT/ai ;;
+  /*) AI_DIR=$AI_ROOT ;;
+  *) AI_DIR=$ROOT/$AI_ROOT ;;
+esac
 
 fail() { printf 'setup: %s\n' "$*" >&2; exit 4; }
 
@@ -52,11 +62,12 @@ else
   printf 'kept existing config.yaml\n'
 fi
 
-if [ ! -d "$ROOT/ai" ]; then
-  cp -a "$ROOT/ai-template" "$ROOT/ai"
-  printf 'created ai/ from ai-template/\n'
+if [ ! -e "$AI_DIR" ] && [ ! -L "$AI_DIR" ]; then
+  mkdir -p "$(dirname -- "$AI_DIR")"
+  cp -a "$ROOT/ai-template" "$AI_DIR"
+  printf 'created %s from ai-template/\n' "$AI_DIR"
 else
-  printf 'kept existing ai/\n'
+  printf 'kept existing %s\n' "$AI_DIR"
 fi
 
 [ -f "$ROOT/frontend/mobile/dist/index.html" ] || printf 'warning: frontend dist is missing; onboarding or a manual build is required\n'

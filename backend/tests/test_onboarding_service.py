@@ -1934,13 +1934,65 @@ def test_copy_ai_template_creates_ai_directory(tmp_path):
     root.mkdir()
     _make_template(root)
 
-    result = onboarding.copy_ai_template(root)
+    result = onboarding.copy_ai_template(root, ai_root=root / "ai")
 
     assert result["action"] == "copy_ai_template"
+    assert result["target"] == str((root / "ai").resolve())
     assert result["copied"] is True
     assert result["overwritten"] is False
     assert result["files"] == 2
     assert (root / "ai" / "AGENTS.md").read_text(encoding="utf-8") == "# template"
+
+
+def test_copy_ai_template_uses_configured_ai_root(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    _make_template(root)
+    configured = tmp_path / "data" / "ai"
+
+    result = onboarding.copy_ai_template(root, ai_root=configured)
+
+    assert result["action"] == "copy_ai_template"
+    assert result["target"] == str(configured.resolve())
+    assert result["files"] == 2
+    assert (configured / "AGENTS.md").read_text(encoding="utf-8") == "# template"
+    assert (configured / "data" / "tasks" / "sample.yaml").is_file()
+    assert not (root / "ai").exists()
+
+
+def test_copy_ai_template_resolves_relative_ai_root_against_project_root(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    _make_template(root)
+
+    result = onboarding.copy_ai_template(root, ai_root="data/ai")
+
+    target = root / "data" / "ai"
+    assert result["target"] == str(target.resolve())
+    assert result["files"] == 2
+    assert (target / "AGENTS.md").read_text(encoding="utf-8") == "# template"
+    assert not (root / "ai").exists()
+
+
+def test_copy_ai_template_defaults_to_configured_ai_root(
+    tmp_path, _isolated_env, monkeypatch
+):
+    root = tmp_path / "project"
+    root.mkdir()
+    _make_template(root)
+    configured = tmp_path / "configured-ai"
+    monkeypatch.delenv("AXEUH_SETTINGS__DATA__AI_ROOT", raising=False)
+    _reconfigure(
+        _isolated_env.config_file,
+        _alt_config(**{"data.ai_root": str(configured)}),
+    )
+
+    result = onboarding.copy_ai_template(root)
+
+    assert result["target"] == str(configured.resolve())
+    assert result["files"] == 2
+    assert (configured / "AGENTS.md").is_file()
+    assert not (root / "ai").exists()
 
 
 def test_copy_ai_template_refuses_non_empty_target_without_overwrite(tmp_path):
@@ -1951,7 +2003,7 @@ def test_copy_ai_template_refuses_non_empty_target_without_overwrite(tmp_path):
     (root / "ai" / "AGENTS.md").write_text("# user", encoding="utf-8")
 
     with pytest.raises(onboarding.OnboardingActionError) as excinfo:
-        onboarding.copy_ai_template(root)
+        onboarding.copy_ai_template(root, ai_root=root / "ai")
 
     assert excinfo.value.status_code == 409
     assert excinfo.value.code == "already_exists"
@@ -1968,7 +2020,7 @@ def test_copy_ai_template_blocks_existing_target_even_with_overwrite(tmp_path):
     (root / "ai" / "keep.txt").write_text("keep", encoding="utf-8")
 
     with pytest.raises(onboarding.OnboardingActionError) as excinfo:
-        onboarding.copy_ai_template(root, overwrite=True)
+        onboarding.copy_ai_template(root, overwrite=True, ai_root=root / "ai")
 
     assert excinfo.value.status_code == 409
     assert excinfo.value.code == "already_exists"
@@ -1989,7 +2041,7 @@ def test_copy_ai_template_blocks_existing_empty_ai_directory(tmp_path):
     (root / "ai").mkdir()
 
     with pytest.raises(onboarding.OnboardingActionError) as excinfo:
-        onboarding.copy_ai_template(root)
+        onboarding.copy_ai_template(root, ai_root=root / "ai")
 
     assert excinfo.value.status_code == 409
     assert excinfo.value.code == "already_exists"
@@ -2001,7 +2053,7 @@ def test_copy_ai_template_reports_missing_template(tmp_path):
     root.mkdir()
 
     with pytest.raises(onboarding.OnboardingActionError) as excinfo:
-        onboarding.copy_ai_template(root)
+        onboarding.copy_ai_template(root, ai_root=root / "ai")
 
     assert excinfo.value.status_code == 422
     assert excinfo.value.code == "template_missing"
