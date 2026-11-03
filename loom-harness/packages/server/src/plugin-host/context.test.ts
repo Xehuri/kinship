@@ -12,6 +12,7 @@ import type { HarnessTool, Hook } from "@axeuh/loom-core";
 import {
   LOOM_PLUGIN_API_VERSION,
   type LoomFeaturePlugin,
+  type PluginPermission,
   type PluginRoute,
 } from "@axeuh/loom-plugin-sdk";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -21,6 +22,7 @@ import {
   type PluginContributionSink,
   type PluginLogFn,
 } from "./context.js";
+import { PluginHostError } from "./validate.js";
 
 let root: string;
 
@@ -32,14 +34,14 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function plugin(id: string): LoomFeaturePlugin {
+function plugin(id: string, permissions: PluginPermission[] = []): LoomFeaturePlugin {
   return {
     manifest: {
       id,
       name: id,
       version: "1.0.0",
       apiVersion: LOOM_PLUGIN_API_VERSION,
-      permissions: [],
+      permissions,
     },
     setup: () => ({}),
   };
@@ -94,12 +96,12 @@ const route: PluginRoute = {
 describe("createPluginContext", () => {
   it("storage get/set/delete/list 按插件隔离且可重新加载", async () => {
     const contextA = createPluginContext({
-      plugin: plugin("alpha"),
+      plugin: plugin("alpha", ["storage:own"]),
       dataRoot: root,
       sink: sink(emptyCaptured()),
     });
     const contextB = createPluginContext({
-      plugin: plugin("beta"),
+      plugin: plugin("beta", ["storage:own"]),
       dataRoot: root,
       sink: sink(emptyCaptured()),
     });
@@ -122,7 +124,7 @@ describe("createPluginContext", () => {
     expect(readdirSync(join(root, "alpha"))).toEqual(["storage.json"]);
 
     const reloaded = createPluginContext({
-      plugin: plugin("alpha"),
+      plugin: plugin("alpha", ["storage:own"]),
       dataRoot: root,
       sink: sink(emptyCaptured()),
     });
@@ -131,7 +133,7 @@ describe("createPluginContext", () => {
 
   it("拒绝非 JSON 可序列化值与非法 key", async () => {
     const context = createPluginContext({
-      plugin: plugin("alpha"),
+      plugin: plugin("alpha", ["storage:own"]),
       dataRoot: root,
       sink: sink(emptyCaptured()),
     });
@@ -147,7 +149,7 @@ describe("createPluginContext", () => {
       logs.push(`${level}:${msg}:${String(fields?.["pluginId"])}`);
     };
     const context = createPluginContext({
-      plugin: plugin("alpha"),
+      plugin: plugin("alpha", ["events:own"]),
       dataRoot: root,
       sink: sink(emptyCaptured()),
       log,
@@ -191,7 +193,7 @@ describe("createPluginContext", () => {
   it("tools/hooks/routes 注册只汇入 sink，不直接生效", () => {
     const captured = emptyCaptured();
     const context = createPluginContext({
-      plugin: plugin("alpha"),
+      plugin: plugin("alpha", ["tools:register", "hooks:register", "routes:register"]),
       dataRoot: root,
       sink: sink(captured),
     });
@@ -199,5 +201,38 @@ describe("createPluginContext", () => {
     context.hooks.register(hook);
     context.routes.register(route);
     expect(captured).toEqual({ tools: [tool], hooks: [hook], routes: [route] });
+  });
+
+  it("未声明权限时 tools/hooks/routes/storage/events 全部 permission-denied", () => {
+    const context = createPluginContext({
+      plugin: plugin("alpha"),
+      dataRoot: root,
+      sink: sink(emptyCaptured()),
+    });
+    const attempts: Array<{ readonly permission: string; readonly run: () => unknown }> = [
+      { permission: "tools:register", run: () => context.tools.register(tool) },
+      { permission: "hooks:register", run: () => context.hooks.register(hook) },
+      { permission: "routes:register", run: () => context.routes.register(route) },
+      { permission: "storage:own", run: () => context.storage.get("key") },
+      { permission: "storage:own", run: () => context.storage.set("key", 1) },
+      { permission: "storage:own", run: () => context.storage.delete("key") },
+      { permission: "storage:own", run: () => context.storage.list() },
+      { permission: "events:own", run: () => context.events.on("tick", () => undefined) },
+      { permission: "events:own", run: () => context.events.emit("tick") },
+    ];
+    for (const attempt of attempts) {
+      let caught: unknown;
+      try {
+        attempt.run();
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(PluginHostError);
+      expect(caught).toMatchObject({
+        code: "permission-denied",
+        pluginId: "alpha",
+        message: expect.stringContaining(attempt.permission),
+      });
+    }
   });
 });

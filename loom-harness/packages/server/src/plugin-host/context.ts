@@ -4,14 +4,9 @@
  * 插件只能看到 SDK 定义的最小能力面：命名空间 storage / events、只增注册表、
  * 配置视图与 logger。原始 EventHub、WakeQueue、router、session registry、模型
  * 对象一律不注入。
- *
- * storage 是「每插件一个 JSON 对象文件」：`<dataRoot>/<pluginId>/storage.json`。
- * 值必须可 JSON 序列化（undefined、BigInt、循环引用会被拒绝）。写盘在进程内串行，
- * 用 tmp 文件 + rename 保证原子替换。
  */
 
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { rename, rm, writeFile } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { HarnessTool, Hook } from "@axeuh/loom-core";
@@ -21,15 +16,13 @@ import type {
   PluginEventBus,
   PluginEventListener,
   PluginLogger,
+  PluginPermission,
   PluginRoute,
   PluginStorage,
 } from "@axeuh/loom-plugin-sdk";
 
-import {
-  PluginHostError,
-  describeError,
-  isRecord,
-} from "./validate.js";
+import { FilePluginStorage } from "./storage.js";
+import { PluginHostError, isRecord } from "./validate.js";
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -57,8 +50,6 @@ export interface PluginContextOptions {
 const NOOP_LOG: PluginLogFn = () => {
   // 默认静默；Host 未注入 log 时保持与无日志环境一致。
 };
-
-let tmpCounter = 0;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -118,112 +109,59 @@ function createEventBus(pluginId: string, log: PluginLogFn): PluginEventBus {
   };
 }
 
-function loadStorage(pluginId: string, storagePath: string): Record<string, unknown> {
-  if (!existsSync(storagePath)) return {};
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(storagePath, "utf8"));
-  } catch (error) {
-    throw new PluginHostError(
-      "invalid-storage",
-      `storage.json is not valid JSON: ${describeError(error)}`,
-      pluginId,
-    );
-  }
-  if (!isRecord(parsed)) {
-    throw new PluginHostError(
-      "invalid-storage",
-      "storage.json must contain a JSON object",
-      pluginId,
-    );
-  }
-  return parsed;
+function requirePermission(
+  pluginId: string,
+  permissions: ReadonlySet<PluginPermission>,
+  permission: PluginPermission,
+): void {
+  if (permissions.has(permission)) return;
+  throw new PluginHostError(
+    "permission-denied",
+    `permission "${permission}" is required but not declared in manifest.permissions`,
+    pluginId,
+  );
 }
 
-function assertStorageKey(key: unknown): asserts key is string {
-  if (typeof key !== "string" || key.length === 0) {
-    throw new PluginHostError("invalid-storage", "storage key must be a non-empty string");
-  }
+/** storage 能力闸：只做权限检查，读写语义仍由 FilePluginStorage 承担。 */
+function gateStorage(
+  storage: PluginStorage,
+  require: (permission: PluginPermission) => void,
+): PluginStorage {
+  return {
+    get(key: string): Promise<unknown> {
+      require("storage:own");
+      return storage.get(key);
+    },
+    set(key: string, value: unknown): Promise<void> {
+      require("storage:own");
+      return storage.set(key, value);
+    },
+    delete(key: string): Promise<void> {
+      require("storage:own");
+      return storage.delete(key);
+    },
+    list(prefix?: string): Promise<string[]> {
+      require("storage:own");
+      return storage.list(prefix);
+    },
+  };
 }
 
-function assertJsonSerializable(value: unknown): void {
-  let encoded: string | undefined;
-  try {
-    encoded = JSON.stringify(value);
-  } catch (error) {
-    throw new PluginHostError(
-      "invalid-storage",
-      `storage value is not JSON-serializable: ${describeError(error)}`,
-    );
-  }
-  if (encoded === undefined) {
-    throw new PluginHostError(
-      "invalid-storage",
-      "storage value is not JSON-serializable (undefined or unsupported type)",
-    );
-  }
-}
-
-class FilePluginStorage implements PluginStorage {
-  private readonly data: Record<string, unknown>;
-  private writeChain: Promise<void> = Promise.resolve();
-
-  constructor(
-    private readonly pluginId: string,
-    private readonly storagePath: string,
-  ) {
-    this.data = loadStorage(pluginId, storagePath);
-  }
-
-  async get(key: string): Promise<unknown> {
-    assertStorageKey(key);
-    return this.data[key];
-  }
-
-  async set(key: string, value: unknown): Promise<void> {
-    assertStorageKey(key);
-    assertJsonSerializable(value);
-    this.data[key] = value;
-    await this.persist();
-  }
-
-  async delete(key: string): Promise<void> {
-    assertStorageKey(key);
-    if (!(key in this.data)) return;
-    delete this.data[key];
-    await this.persist();
-  }
-
-  async list(prefix?: string): Promise<string[]> {
-    const keys = Object.keys(this.data);
-    const filtered =
-      prefix === undefined ? keys : keys.filter((key) => key.startsWith(prefix));
-    return filtered.sort();
-  }
-
-  private persist(): Promise<void> {
-    // 每次 set/delete 都拍快照；队列保证磁盘写入顺序，读路径直接看内存最新值。
-    const snapshot = JSON.stringify(this.data);
-    const write = this.writeChain.then(() => this.writeSnapshot(snapshot));
-    this.writeChain = write.catch(() => {
-      // 失败不阻塞后续写入；错误已经通过返回的 promise 交给本次调用者。
-    });
-    return write;
-  }
-
-  private async writeSnapshot(content: string): Promise<void> {
-    tmpCounter += 1;
-    const tempPath = `${this.storagePath}.${process.pid}.${tmpCounter}.tmp`;
-    try {
-      await writeFile(tempPath, content, { encoding: "utf8", mode: 0o600 });
-      await rename(tempPath, this.storagePath);
-    } catch (error) {
-      await rm(tempPath, { force: true }).catch(() => {
-        // 清理失败不掩盖原始错误。
-      });
-      throw error;
-    }
-  }
+/** events 能力闸：listener 抛错吞掉并记日志的行为由 createEventBus 原样保留。 */
+function gateEventBus(
+  bus: PluginEventBus,
+  require: (permission: PluginPermission) => void,
+): PluginEventBus {
+  return {
+    on(event: string, listener: PluginEventListener): () => void {
+      require("events:own");
+      return bus.on(event, listener);
+    },
+    emit(event: string, payload?: unknown): void {
+      require("events:own");
+      bus.emit(event, payload);
+    },
+  };
 }
 
 function resolvePluginConfig(
@@ -247,7 +185,15 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
   mkdirSync(dataDir, { recursive: true });
 
   const log = options.log ?? NOOP_LOG;
-  const storage = new FilePluginStorage(id, join(dataDir, "storage.json"));
+  const permissions = new Set<PluginPermission>(plugin.manifest.permissions);
+  const requireCapability = (permission: PluginPermission): void => {
+    requirePermission(id, permissions, permission);
+  };
+  const storage = gateStorage(
+    new FilePluginStorage(id, join(dataDir, "storage.json")),
+    requireCapability,
+  );
+  const events = gateEventBus(createEventBus(id, log), requireCapability);
 
   return {
     plugin: {
@@ -259,20 +205,23 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     logger: createLogger(id, log),
     tools: {
       register(tool: HarnessTool): void {
+        requireCapability("tools:register");
         sink.registerTool(tool);
       },
     },
     hooks: {
       register(hook: Hook): void {
+        requireCapability("hooks:register");
         sink.registerHook(hook);
       },
     },
     routes: {
       register(route: PluginRoute): void {
+        requireCapability("routes:register");
         sink.registerRoute(route);
       },
     },
     storage,
-    events: createEventBus(id, log),
+    events,
   };
 }

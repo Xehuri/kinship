@@ -1,6 +1,8 @@
 // T07 loom.yaml 各段（server/models/pricing/workspace/exits）的类型与运行时校验。
 // credentials 段单独在 ./credentials.ts（凭据铁律）。
 
+import { isAbsolute } from "node:path";
+
 import type { LetterClass, LetterTrust } from "../inbox/types.js";
 
 /** 品牌类型：模型 id，区别于普通 string（跨模块传错 id 编译期即拒）。 */
@@ -2195,13 +2197,20 @@ export function checkInbox(raw: unknown, errors: string[]): InboxConfig | undefi
   };
 }
 
-/** 单个插件的启用开关（loom.yaml `plugins.<id>`）。P0 只承载 enable 标志。 */
+/**
+ * 单个插件条目（loom.yaml `plugins.<id>`）。
+ *
+ * `path` 声明一个 trusted 本地外部插件模块（绝对路径）；`trust` 在 P2a 只接受
+ * "trusted"，且必须与 path 同时出现。builtin 插件只使用 enabled。
+ */
 export interface PluginEnableConfig {
   readonly enabled?: boolean;
+  readonly path?: string;
+  readonly trust?: "trusted";
 }
 
 /**
- * Feature Plugin 开关表：键 = 插件 id，值 = 该插件自己的 enable 标志。
+ * Feature Plugin 开关表：键 = 插件 id，值 = 该插件的启用标志或外部模块声明。
  * 插件私有配置不在这里，避免把 feature 配置抄成第二份真源。
  */
 export type PluginsConfig = Readonly<Record<string, PluginEnableConfig>>;
@@ -2210,9 +2219,10 @@ export type PluginsConfig = Readonly<Record<string, PluginEnableConfig>>;
 const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
 
 /**
- * plugins 段校验（Feature Plugin P0）：整段缺省 = undefined；存在必为映射。
- * 键必须匹配插件 id 正则；值必须为映射且只允许 `enabled` 布尔键（严格模式，
- * 未知键 fail-fast——与邻居各段的"未知键静默容忍"不同，插件配置是公开契约面）。
+ * plugins 段校验（Feature Plugin P0/P2a）：整段缺省 = undefined；存在必为映射。
+ * 键必须匹配插件 id 正则；值必须为映射且只允许 `enabled` / `path` / `trust`
+ * （严格模式，未知键 fail-fast——与邻居各段的"未知键静默容忍"不同，插件配置是
+ * 公开契约面）。path 必须是非空绝对路径；trust 只允许 "trusted" 且不能脱离 path。
  * 所有非法条目逐条报错并点名精确键，不因单个条目失败而跳过其余条目。
  */
 export function checkPlugins(raw: unknown, errors: string[]): PluginsConfig | undefined {
@@ -2235,12 +2245,48 @@ export function checkPlugins(raw: unknown, errors: string[]): PluginsConfig | un
       continue;
     }
     for (const key of Object.keys(value)) {
-      if (key !== "enabled") {
-        errors.push(`${where}.${key}: 未知键（plugins 条目仅允许 enabled）`);
+      if (key !== "enabled" && key !== "path" && key !== "trust") {
+        errors.push(`${where}.${key}: 未知键（plugins 条目仅允许 enabled/path/trust）`);
       }
     }
     const enabled = optionalBool(value["enabled"], `${where}.enabled`, errors);
-    out[id] = enabled === undefined ? {} : { enabled };
+
+    let path: string | undefined;
+    if (value["path"] !== undefined) {
+      const rawPath = str(value["path"], `${where}.path`, errors);
+      if (rawPath !== undefined) {
+        if (isAbsolute(rawPath)) {
+          path = rawPath;
+        } else {
+          errors.push(
+            `${where}.path: 需要绝对路径，实际为 ${JSON.stringify(rawPath)}`,
+          );
+        }
+      }
+    }
+
+    let trust: "trusted" | undefined;
+    if (value["trust"] !== undefined) {
+      const rawTrust = value["trust"];
+      if (rawTrust === "sandboxed") {
+        errors.push(`${where}.trust: "sandboxed" 仅 P2b 支持，P2a 不支持`);
+      } else if (rawTrust !== "trusted") {
+        errors.push(
+          `${where}.trust: 仅支持 "trusted"，实际为 ${JSON.stringify(rawTrust) ?? "undefined"}`,
+        );
+      } else {
+        trust = rawTrust;
+      }
+      if (path === undefined) {
+        errors.push(`${where}.trust: 需要同时声明 path（trust 不能脱离外部插件）`);
+      }
+    }
+
+    out[id] = {
+      ...(enabled === undefined ? {} : { enabled }),
+      ...(path === undefined ? {} : { path }),
+      ...(trust === undefined ? {} : { trust }),
+    };
   }
   return out;
 }

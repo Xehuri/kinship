@@ -29,7 +29,9 @@ const CONTROL_OR_BACKSLASH_RE = /[\u0000-\u001f\u007f\\]/;
 
 export type PluginHostErrorCode =
   | "duplicate-id"
+  | "load-failed"
   | "invalid-manifest"
+  | "permission-denied"
   | "missing-dependency"
   | "dependency-cycle"
   | "invalid-contribution"

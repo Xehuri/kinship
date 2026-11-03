@@ -66,7 +66,11 @@ import { createPtyPlugin } from "../features/pty/plugin.js";
 import { createTaskPlugin } from "../features/task/plugin.js";
 import { createTodoPlugin } from "../features/todo/plugin.js";
 import { BUILTIN_PLUGINS } from "../plugin-host/builtins.js";
-import { PluginHost, toPluginStatusReport } from "../plugin-host/index.js";
+import {
+  PluginHost,
+  loadExternalPlugin,
+  toPluginStatusReport,
+} from "../plugin-host/index.js";
 import {
   assembleContextManifest,
   registerSessionRoutes,
@@ -475,6 +479,24 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     const configured = options.config.plugins?.[plugin.manifest.id]?.enabled ?? true;
     const featureEnabled = plugin.manifest.id === "pty" ? options.config.pty?.enabled !== false : true;
     pluginHost.register(plugin, { enabled: configured && featureEnabled });
+  }
+  // P2a：trusted 本地外部插件。只认显式 path（绝对路径）；disabled 条目不 import，
+  // 因此也不会出现在 /plugins/status。加载失败直接炸 boot（本地显式配置，不做静默跳过）。
+  const builtinIds = new Set(BUILTIN_PLUGINS.map((plugin) => plugin.manifest.id));
+  for (const [id, entry] of Object.entries(options.config.plugins ?? {})) {
+    if (entry.path === undefined) continue;
+    if (builtinIds.has(id)) {
+      throw new Error(
+        `plugins.${id}.path: "${id}" 是 builtin 插件 id，外部插件不得与 builtin 冲突`,
+      );
+    }
+    if (entry.enabled === false) continue;
+    const plugin = await loadExternalPlugin({
+      id,
+      path: entry.path,
+      ...(entry.trust === undefined ? {} : { trust: entry.trust }),
+    });
+    pluginHost.register(plugin, { enabled: true });
   }
   await pluginHost.start();
 

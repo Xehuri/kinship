@@ -21,6 +21,23 @@ let seq = 0;
 const EXPECTED_IDS = ["todo", "pty", "task", "plan", "inbox"] as const;
 const PTY_NAMES = ["pty_kill", "pty_list", "pty_read", "pty_spawn", "pty_write"] as const;
 
+const EXTERNAL_PLUGIN_SOURCE = [
+  'const manifest = {"id":"ext","name":"Ext","version":"1.0.0","apiVersion":1,"permissions":["tools:register"]};',
+  "const setup = (ctx) => {",
+  "  ctx.tools.register({",
+  '    name: "ext_echo",',
+  '    description: "external echo tool",',
+  '    parameters: { type: "object", properties: {}, additionalProperties: false },',
+  "    async execute() {",
+  '      return { content: [{ type: "text", text: "ext" }] };',
+  "    },",
+  "  });",
+  "  return {};",
+  "};",
+  "export default { manifest, setup };",
+  "",
+].join("\n");
+
 function tempWork(): string {
   return mkdtempSync(join(tmpdir(), "loom-plugin-boot-"));
 }
@@ -219,4 +236,79 @@ describe("plugin host boot", () => {
     expect(contributions.hooks).toEqual([]);
     expect(contributions.routes).toEqual([]);
   }, 40_000);
+
+  it("plugins.<id>.path：外部插件 running、source external、trust trusted 并贡献工具", async () => {
+    const work = tempWork();
+    const modulePath = join(work, "ext-plugin.mjs");
+    writeFileSync(modulePath, EXTERNAL_PLUGIN_SOURCE);
+
+    const booted = await boot(
+      work,
+      `plugins:\n  ext:\n    path: ${JSON.stringify(modulePath)}`,
+    );
+    const res = await status(booted);
+    expect(res.status).toBe(200);
+    const plugins = pluginsOf(res.body);
+    expect(plugins.map((plugin) => plugin["id"])).toEqual([...EXPECTED_IDS, "ext"]);
+    expect(plugins.find((plugin) => plugin["id"] === "ext")).toMatchObject({
+      source: "external",
+      trust: "trusted",
+      enabled: true,
+      state: "running",
+    });
+
+    const names = booted.app.tools.map((tool) => tool.name);
+    expect(names).toContain("ext_echo");
+    for (const name of ["todowrite", ...PTY_NAMES, "task_fetch"]) {
+      expect(names).toContain(name);
+    }
+    const contributions = booted.app.pluginHost.contributions().tools.map((tool) => tool.name);
+    expect(contributions.sort()).toEqual(
+      ["todowrite", ...PTY_NAMES, "task_fetch", "ext_echo"].sort(),
+    );
+  }, 60_000);
+
+  it("plugins.<id>.enabled=false：外部模块不 import，也不出现在 status", async () => {
+    const work = tempWork();
+    const modulePath = join(work, "disabled-plugin.mjs");
+    writeFileSync(modulePath, 'throw new Error("disabled external plugin must not load");\n');
+
+    const booted = await boot(
+      work,
+      `plugins:\n  ghost:\n    path: ${JSON.stringify(modulePath)}\n    enabled: false`,
+    );
+    const res = await status(booted);
+    expect(res.status).toBe(200);
+    expect(pluginsOf(res.body).map((plugin) => plugin["id"])).toEqual([...EXPECTED_IDS]);
+    expect(booted.app.tools.map((tool) => tool.name)).not.toContain("ext_echo");
+  }, 60_000);
+
+  it("builtin id 带 path：boot fail-fast", async () => {
+    const work = tempWork();
+    const modulePath = join(work, "collision-plugin.mjs");
+    writeFileSync(modulePath, EXTERNAL_PLUGIN_SOURCE);
+    try {
+      await expect(
+        boot(work, `plugins:\n  todo:\n    path: ${JSON.stringify(modulePath)}`),
+      ).rejects.toThrow(/builtin/);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("builtin id 带 path + enabled:false：仍 boot fail-fast", async () => {
+    const work = tempWork();
+    const modulePath = join(work, "collision-disabled-plugin.mjs");
+    writeFileSync(modulePath, EXTERNAL_PLUGIN_SOURCE);
+    try {
+      await expect(
+        boot(
+          work,
+          `plugins:\n  todo:\n    path: ${JSON.stringify(modulePath)}\n    enabled: false`,
+        ),
+      ).rejects.toThrow(/builtin/);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

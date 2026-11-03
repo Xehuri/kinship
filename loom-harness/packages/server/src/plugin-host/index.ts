@@ -54,3 +54,8 @@ export {
   type PluginStatusFields,
   type PluginStatusReport,
 } from "./status.js";
+
+export {
+  loadExternalPlugin,
+  type ExternalPluginSpec,
+} from "./loader.js";

@@ -62,6 +62,52 @@ plugins:
     expect(cfg.plugins).toEqual({ plan: { enabled: false } });
   });
 
+  it("path 绝对路径被接受；trust 缺省不物化", () => {
+    const cfg = parseLoomConfig(
+      `${BASE}\nplugins:\n  ext:\n    path: /opt/loom/plugins/ext.mjs\n`,
+      "<test>",
+    );
+    expect(cfg.plugins).toEqual({ ext: { path: "/opt/loom/plugins/ext.mjs" } });
+  });
+
+  it("path + trust trusted 被接受", () => {
+    const cfg = parseLoomConfig(
+      `${BASE}\nplugins:\n  ext:\n    path: /opt/loom/plugins/ext.mjs\n    trust: trusted\n`,
+      "<test>",
+    );
+    expect(cfg.plugins).toEqual({
+      ext: { path: "/opt/loom/plugins/ext.mjs", trust: "trusted" },
+    });
+  });
+
+  it("path 相对路径 fail-fast", () => {
+    const errs = errorsOf(() =>
+      parseLoomConfig(`${BASE}\nplugins:\n  ext:\n    path: ./ext.mjs\n`, "<test>"),
+    );
+    expect(
+      errs.some((e) => e.includes("plugins.ext.path") && e.includes("需要绝对路径")),
+    ).toBe(true);
+  });
+
+  it("trust 缺少 path fail-fast", () => {
+    const errs = errorsOf(() =>
+      parseLoomConfig(`${BASE}\nplugins:\n  ext:\n    trust: trusted\n`, "<test>"),
+    );
+    expect(
+      errs.some((e) => e.includes("plugins.ext.trust") && e.includes("需要同时声明 path")),
+    ).toBe(true);
+  });
+
+  it("trust sandboxed 在 P2a fail-fast 且点名 P2b", () => {
+    const errs = errorsOf(() =>
+      parseLoomConfig(
+        `${BASE}\nplugins:\n  ext:\n    path: /opt/loom/plugins/ext.mjs\n    trust: sandboxed\n`,
+        "<test>",
+      ),
+    );
+    expect(errs.some((e) => e.includes("plugins.ext.trust") && e.includes("P2b"))).toBe(true);
+  });
+
   it("空映射 = 空开关表；空条目 = 空对象", () => {
     const empty = parseLoomConfig(`${BASE}\nplugins: {}\n`, "<test>");
     expect(empty.plugins).toEqual({});
@@ -83,14 +129,21 @@ plugins:
     expect(errs.some((e) => e.includes("plugins.todo") && e.includes("需要映射"))).toBe(true);
   });
 
-  it("条目未知键 fail-fast（仅允许 enabled）", () => {
+  it("条目未知键 fail-fast（仅允许 enabled/path/trust）", () => {
     const errs = errorsOf(() =>
       parseLoomConfig(
         `${BASE}\nplugins:\n  todo:\n    enabled: true\n    extra: 1\n`,
         "<test>",
       ),
     );
-    expect(errs.some((e) => e.includes("plugins.todo.extra") && e.includes("未知键"))).toBe(true);
+    expect(
+      errs.some(
+        (e) =>
+          e.includes("plugins.todo.extra") &&
+          e.includes("未知键") &&
+          e.includes("enabled/path/trust"),
+      ),
+    ).toBe(true);
   });
 
   it("enabled 非布尔 fail-fast", () => {

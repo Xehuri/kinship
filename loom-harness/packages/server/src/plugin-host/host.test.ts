@@ -254,6 +254,7 @@ describe("PluginHost lifecycle", () => {
     const host = makeHost();
     host.register(
       makePlugin("bad", {
+        manifest: { permissions: ["tools:register"] },
         setup: (ctx) => {
           ctx.tools.register(tool("should-not-leak"));
           throw new Error("bad setup");
