@@ -174,6 +174,9 @@ def test_flag_on_sends_one_letter_with_expected_fields(monkeypatch, storage):
         "correlation_id",
         "dedupe_key",
         "ref",
+        "thread_id",
+        "thread_name",
+        "thread_kind",
     }
     assert letter["source"] == "backend.tasks"
     assert letter["kind"] == "task.trigger"
@@ -186,6 +189,9 @@ def test_flag_on_sends_one_letter_with_expected_fields(monkeypatch, storage):
     assert letter["correlation_id"] == "task:task_t8:1700000000:2"
     assert letter["dedupe_key"] == letter["correlation_id"]
     assert letter["ref"] == {"task_id": "task_t8", "run_count": 2}
+    assert letter["thread_id"] == "task_t8"
+    assert letter["thread_name"] == "T8任务"
+    assert letter["thread_kind"] == "task"
 
 
 def test_duplicate_200_counts_as_dispatched(monkeypatch, storage):

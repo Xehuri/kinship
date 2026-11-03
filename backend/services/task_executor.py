@@ -457,6 +457,9 @@ class TaskExecutor:
             "correlation_id": correlation_id,
             "dedupe_key": correlation_id,
             "ref": {"task_id": task.task_id, "run_count": task.run_count},
+            "thread_id": task.task_id,
+            "thread_name": task.task_name,
+            "thread_kind": "task",
         }
         return letter, correlation_id
     
