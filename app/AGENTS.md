@@ -1,6 +1,6 @@
 # Kinship 健康监测 - Android App
 
-**上次更新**: 2026-10-25
+**上次更新**: 2026-11-03
 **框架**: Kotlin + Jetpack Compose + Gradle
 **Android**: minSdk 26, targetSdk 36, compileSdk 36
 **包名**: `com.xehuri.kinship`
@@ -31,6 +31,12 @@ Kinship 的 Android 端数据采集 + 远程管理 App。提供 SettingsActivity
 2. **设计系统**：`KinshipTokens` 对齐 Web `tokens.css`（暖纸/赭石/radius 8-6/4-64 间距/120-180ms），浅色与深色跟随系统；设置页使用 `Theme.KinshipSettings` + `values-night`，CSS 对等测试锁定令牌。
 3. **登录态**：新增 `auth/SessionManager` 单一真源；登录页删除重复实现；登录门禁启动成功后直接进入 `MobileActivity`；401 失效同步 UI，不跳转 Activity。
 4. **多层网络**：`transport/` 新增 tier 模型/存储/迁移/探测/选择器/运行时/设置控制器；`TierRuntime` 替换旧 `TransportSelector`；旧 prefs 三键迁移后冻结；P2P 仅保留 `TierKind.P2P` + `Peer` 占位，零信令/数据面。
+
+2026-11-03 通知监听断连恢复：
+1. **自动重绑**：`collectNotificationSummary()` 在 `currentInstance == null` 时不再只打日志跳过；15s 宽限后，权限仍在则按 60s 节流调用 `NotificationListenerService.requestRebind()`。
+2. **恢复告警**：权限缺失，或已授权但断连持续 2 分钟仍无法恢复时，弹高优先级可点击通知（通道 `axeuh_notify_alert`，固定 ID 9006），点击直达 `Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS`；恢复连接后自动撤销。
+3. **状态语义**：运行状态/后台权限页的「通知读取」在功能开启时按「权限字符串 + 实际连接」判定；授权仍在但服务被解绑时显示「待处理」且可点击。通知页新增常驻「打开通知使用权设置」入口。
+4. 新增 `NotificationListenerRecovery` 纯策略与 9 条单测（宽限期/重绑节流/告警节流/恢复重置）。
 
 ## 版本与技术栈
 
@@ -114,13 +120,14 @@ app/
 │   │   ├── service/                     # 系统服务
 │   │   │   ├── DataCollectorService.kt  # 采集调度器（委托给 Collector + 健康定时调度；全 App 唯一常驻前台服务，兼保活）
 │   │   │   ├── AccessibilityService.kt  # 输入内容感知（无障碍服务）
-│   │   │   ├── NotificationListenerService.kt  # 通知监听（sbn.key 去重后转发上行）
+│   │   │   ├── NotificationListenerService.kt  # 通知监听（sbn.key 去重后转发上行）；提供授权查询 / requestRebind 恢复入口
 │   │   │   ├── state/                   # 状态管理层
 │   │   │   │   └── SensorStateHolder.kt # 统一 StateFlow 状态持有（18个状态；`SensorStateHolder.shared` 为进程内共享单例）
 │   │   │   ├── collectors/              # 数据采集器
 │   │   │   │   ├── BaseCollector.kt     # 抽象采集器基类
 │   │   │   │   ├── SystemStateCollector.kt   # WiFi/蓝牙/屏幕/前台应用/媒体
 │   │   │   │   ├── NotificationCollector.kt  # 通知计数轮询 + 内容上行（复用 PerceptionCache）
+│   │   │   │   ├── NotificationListenerRecovery.kt # 通知监听断连恢复纯策略（宽限/重绑/告警节流）
 │   │   │   │   ├── GpsCollector.kt           # GPS 定位（独立间隔默认5min + 5 项可配置行为）
 │   │   │   │   ├── HealthDataCollector.kt    # 手环健康数据（独立间隔 / 定时时段）
 │   │   │   │   ├── AudioCollector.kt         # 录音 + 固定分段（audio_segment_ms）+ checkpoint + 批量上传（含端侧唤醒按需推流）
@@ -327,13 +334,13 @@ TTS 音频由后端合成、在 WebView 内的网页播放器（Web Audio）播�
 
 | 模块 | 文件 | 功能 |
 |------|------|------|
-| **SettingsViewModel** | `ui/settings/SettingsViewModel.kt` | 70+ 个 StateFlow 状态管理（含 `installedApps` 已安装应用缓存、端侧唤醒/KWS 测试状态）；`securePrefsProvider` 注入缝（测试绕过 AndroidKeyStore） |
+| **SettingsViewModel** | `ui/settings/SettingsViewModel.kt` | 70+ 个 StateFlow 状态管理（含 `installedApps` 已安装应用缓存、端侧唤醒/KWS 测试状态）；`securePrefsProvider` 注入缝（测试绕过 AndroidKeyStore）；`refreshRunStatus` 的 `notificationGranted` 在功能开启时要求权限已授予且监听服务已连接 |
 | **CollectionControlPage** | `ui/settings/CollectionControlPage.kt` | 二级页：感知数据上传 / 离线缓存总开关 +「上传与调度间隔」。数据源开关与二级配置入口（含通知）在概览「采集与上传」分组，本页不重复渲染，也不提供跨页入口 |
 | **AudioSettingsPage / WakeWordSettingsPage** | `ui/settings/AudioSettingsPage.kt` / `WakeWordSettingsPage.kt` | 音频两条链路的二级配置页：前者 = 分段时长 + 上传频率 + 上传格式（WAV/FLAC 两档 ChoicePicker + 流量提醒）；后者 = 唤醒状态面板 + 识别参数（`KwsSettingsPanel(showMasterSwitch = false)`，总开关已提到列表行）；提示音/TTS 音量与「试听」已移至 `SoundPage` |
 | **GpsSettingsPage / SystemStateSettingsPage** | `ui/settings/GpsSettingsPage.kt` / `SystemStateSettingsPage.kt` | GPS 参数（间隔 / 精度优先级 / 最小位移 / 最大精度 / 定位超时 / 逆地理编码）与系统状态 4 子开关 + 间隔；使用情况访问 / 定位 / 蓝牙的权限引导在后一页 |
-| **NotificationPage** | `ui/settings/NotificationPage.kt` | **单个**总开关（合并原「通知感知」+「上传通知到后端」，`setNotificationEnabled()` 同时写两个 prefs）+ 通知检查间隔（`notify_ms`，与主循环上传间隔解耦）+ 敏感应用黑名单（已安装应用多选选择器，保留手动包名输入） |
+| **NotificationPage** | `ui/settings/NotificationPage.kt` | **单个**总开关（合并原「通知感知」+「上传通知到后端」，`setNotificationEnabled()` 同时写两个 prefs）+ 通知检查间隔（`notify_ms`，与主循环上传间隔解耦）+ 敏感应用黑名单（已安装应用多选选择器，保留手动包名输入）+ 「通知监听连接」入口（打开系统通知使用权设置；权限字符串仍在但服务被系统解绑时使用） |
 | **AccountPage / BackgroundPage / DevicePage / SoundPage / SecurityPage / AdvancedPage** | `ui/settings/` | 概览行对应的二级页：登录、后台运行与权限（电池优化 / 权限检查）、设备信息与名称、声音与播报、SSL、高级（OTA + 日志）。除 BackgroundPage 外均为 `SettingsSubPageScaffold` + `SettingsGroup` 的薄包装 |
-| **RunStatusPage / RunStatusModel / RunStatusCard** | `ui/settings/RunStatusPage.kt` / `RunStatusModel.kt` / `RunStatusCard.kt` | 运行状态页与纯模型：服务运行、网络摘要、权限矩阵与顶部状态卡；`BackgroundPage` 复用同一权限清单 |
+| **RunStatusPage / RunStatusModel / RunStatusCard** | `ui/settings/RunStatusPage.kt` / `RunStatusModel.kt` / `RunStatusCard.kt` | 运行状态页与纯模型：服务运行、网络摘要、权限矩阵与顶部状态卡；`BackgroundPage` 复用同一权限清单；「通知读取」项未连接时显示「待处理」并可点击 |
 | **NetworkSettingsPage** | `ui/settings/NetworkSettingsPage.kt` | 网络二级页：连接层列表（增删改 / 启停 / 上下移）、选择模式（AUTO_CHAIN / PINNED）、测试并应用；P2P 层可保存但恒显示“未接入，后续统一做”；所有写入只落 `network_config_v1` |
 | **SensitiveAppPicker** | `ui/settings/SensitiveAppPicker.kt` | 全屏选择 Dialog：搜索 + 应用图标/名称/包名 + 多选复选，选中项回写为逗号分隔包名 |
 | **HealthDataPage** | `ui/settings/HealthDataPage.kt` | 上传模式（定时时段/间隔）、时段列表或间隔、Gadgetbridge 数据库路径 |
@@ -548,6 +555,8 @@ Prefs（`data_collector`）与设置页对应：`local_kws_enabled`（开关，�
 - 命中 `notify_sensitive_apps`（包名黑名单，逗号/换行/分号分隔，由设置页「敏感应用选择器」从已安装应用多选中生成，同时保留手动包名输入）的通知只上报 `{package, ts, redacted:true}`，不携带标题/正文。
 - 敏感应用列表用 `PackageManager.getInstalledApplications(0)` 在 `Dispatchers.IO` 上枚举（标签取 `getApplicationLabel`，图标取 `loadIcon().toBitmap().asImageBitmap()`，结果缓存在 `installedApps` StateFlow）；`AndroidManifest.xml` 声明 `QUERY_ALL_PACKAGES`（`tools:ignore="QueryAllPackagesPermission"`），因原有 `<queries>` 仅暴露启动器应用、而通知来源含非启动器/系统应用。存储格式不变（逗号分隔包名，按 `[,\n;]` 解析），`NotificationCollector` 无需迁移。
 - 编译期无来源限制；运行期由 `PendingUploadQueue` 统一入队，**发送时机由主循环（`loop_ms`，默认 30s）统一决定**，`notify_upload_interval_ms` 自 2026-09-16 起不再参与限流（键保留以兼容旧配置）；失败由主循环落 `PerceptionCache`，下轮统一重放。
+- **断连恢复（2026-11-03）**：`collectNotificationSummary()` 发现 `NotificationListenerService.getInstance() == null` 时先给 15s 宽限；之后权限仍在则每 60s 调用 `requestRebind()`，权限缺失则告警；已授权但 2 分钟仍无法重绑也会告警（15 分钟节流）。恢复连接后撤销告警并记录「通知监听已恢复连接」。
+- `NotificationListenerService.isNotificationAccessGranted()`（API 27+ 用 `NotificationManager.isNotificationListenerAccessGranted`，API 26 回退 `Settings.Secure`）用于区分「权限被关」与「权限在但服务未绑定」；`requestSystemRebind()` 封装平台 `requestRebind` 并吞异常。
 
 ### 健康数据上传调度
 

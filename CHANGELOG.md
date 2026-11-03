@@ -15,6 +15,10 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 - **桌面端单窗口与 Token 自动登录**：设置视图作为子 `WebContentsView` 覆盖在主窗口上，系统设置行同窗打开桌面设置；PC 采集端作为认证代理，桌面端注入后端 Token 并支持无刷新续期，SPA 不需要重复登录。
 - **桌面端采集端健康与日志**：设置页新增常驻连接/登录状态条、登录失败原因与“测试登录”、桌面端/PC 采集端日志查看器（最近 300 行），并把“返回主界面”固定到左侧导航顶部。
 
+### 修复
+
+- **Android 通知监听断连恢复（2026-11-03）**：系统保留通知读取授权但解绑 `NotificationListenerService` 时，采集器不再静默跳过；15s 宽限后按 60s 节流 `requestRebind()`，权限缺失或 2 分钟仍未恢复时弹可点击通知直达通知使用权设置，恢复后自动撤销。设置页「通知读取」在功能开启时按「权限 + 实际连接」判定，未连接显示「待处理」并可点击；通知页新增「打开通知使用权设置」入口。新增 `NotificationListenerRecovery` 纯策略与 9 条单测（commit `d03f78c`）。APK：`Kinship-notif-recovery-2026-11-03.apk`（debug）。
+
 ### 变更
 
 - **plan 工具三件改进（2026-10-28）**：新增 `user_intent`（`diff`/`revise` 写入、`read` 回显，只记录不参与 coverage）；`read`/`base` 支持 `status`/`kind` 过滤（`anchor` 别名，`details.__plan` 保持完整）；新增或改写 care 的 `done_when` 必须可核验（`HH:MM` 或 `window`），否则拒绝并建议 `kind=note`。详见 `docs/dev/loom-scheduling-redesign-2026-10-28.md` §5.1。
@@ -40,6 +44,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 - **前端交互修复验证（2026-10-25）**：typecheck 通过；83 文件 / 884 单测通过；14 个 UI E2E 通过；真实报告 234 条、`data` 目录下根级 `opencode.json` 预览通过；生产 QA `consoleErrors=0`、`failedResponses=0`。
 - **对话生产修复验证（2026-10-25 09:30）**：typecheck 通过；88 文件 / 945 单测通过；全量 42 个 Playwright 场景通过（本轮相关 13 个）；后端定向 81 用例通过；生产 QA 1440/1024/390 显示 10.9% / 109,471 / 1,000,000，135 个子智能体仅列表滚动，压缩确认取消零请求，滚顶自动历史请求 1 次，`consoleErrors=0`、`failedResponses=0`。
 - **桌面端 1.0.0 包（2026-10-24）**：`<RELEASE_BASE_URL>/Kinship-Desktop-1.0.0-x64.zip`（未签名）；280 单测 + 12 E2E 通过。
+- **Android 通知监听恢复验证（2026-11-03）**：`NotificationListenerRecoveryTest` 9 条 + 既有 null-provider 用例通过；`:app:assembleDebug` 成功（APK 54.8 MB）；全量 690 单测 4 条既有失败（`NotificationCollectorTest` 2 条旧 HTTP 直发断言、`ServerConfigTest` / `PrefsContractSnapshotTest` 各 1 条）、15 skipped；无 adb 设备，真机恢复待安装后确认。
 
 ## [0.1.0] - 2026-10-29
 
