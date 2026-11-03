@@ -1,8 +1,12 @@
 # Loom Feature Plugin P0 设计
 
-状态：设计确认前草案  
-范围：PluginHost + Manifest + SDK 契约 + 内置插件元数据  
+状态：已完成（P0）；P1/P2a 已实现，P2b 设计完成但暂缓
+范围：PluginHost + Manifest + SDK 契约 + 内置插件元数据
 不包含：外部插件加载、沙箱、安装器、插件市场 UI
+
+后续文档：
+- [P2a trusted 本地外部插件](plugin-host-p2a.md)（已实现）
+- [P2b 沙箱化外部插件设计](plugin-host-p2b.md)（设计完成，2026-11-03 暂缓实现）
 
 ## 1. 目标
 
@@ -444,8 +448,16 @@ curl -s .../config | jq '.tools'
 - 静态索引、搜索、市场 API/UI。
 - 签名/审核/权限升级同意。
 
-## 13. 待确认
+## 13. 已确认（实现记录）
 
-1. SDK 包名用 `@axeuh/loom-plugin-sdk` 是否可以。
-2. P0 是否只注册五个 builtin（todo/pty/task/plan/inbox），还是把 skills/mcp 也纳入元数据。
-3. `GET /plugins/status` 是否放在 `/plugins/status`，还是并入现有 `/config`。
+1. SDK 包名采用 `@axeuh/loom-plugin-sdk`。
+2. P0 只注册五个 builtin（todo/pty/task/plan/inbox）；skills/mcp 暂不纳入元数据。
+3. 状态接口采用 `GET /plugins/status`。
+
+## 14. 后续状态
+
+- P0：已完成并提交（`4541f86`）。
+- P1：todo/pty/taskFetch 已抽离并提交（`54e75e1`、`b78db51`、`30152ba`）。
+- P2a：trusted 本地外部插件 loader 已实现并提交（`e7ea644`）。
+- P2b：沙箱化设计 + Oracle 安全评审完成，但 2026-11-03 决定暂缓实现；
+  当前外部插件入口只有 P2a trusted。详见 `plugin-host-p2b.md`。

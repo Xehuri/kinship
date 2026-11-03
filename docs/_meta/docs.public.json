@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-30",
+  "updated": "2026-11-03",
   "scope": "public-docs-only",
   "notes": "Only public documentation is listed. Internal, migration, production-topology, and research documents are intentionally absent.",
   "docs": [
@@ -121,6 +121,27 @@
       "title": "AI 系统架构",
       "audience": "contributor",
       "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/plugin-host-p0.md",
+      "title": "Loom 插件系统 P0",
+      "audience": "contributor",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "dev/plugin-host-p2a.md",
+      "title": "Loom 插件系统 P2a trusted loader",
+      "audience": "contributor",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "dev/plugin-host-p2b.md",
+      "title": "Loom 插件系统 P2b 沙箱设计（暂缓）",
+      "audience": "contributor",
+      "status": "ready",
       "language": "zh"
     },
     {

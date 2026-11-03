@@ -39,6 +39,7 @@
 | [dev/DATA_FORMAT.md](dev/DATA_FORMAT.md) | 感知与健康数据格式 |
 | [dev/AUDIO_PIPELINE.md](dev/AUDIO_PIPELINE.md) | 音频采集、分段与上传链路 |
 | [dev/AI_SYSTEM.md](dev/AI_SYSTEM.md) | AI 系统架构与三层工作流 |
+| [dev/plugin-host-p0.md](dev/plugin-host-p0.md) | Loom 插件系统：[P0](dev/plugin-host-p0.md) / [P2a trusted](dev/plugin-host-p2a.md) / [P2b 沙箱设计](dev/plugin-host-p2b.md)（暂缓） |
 | [dev/qq-gateway.md](dev/qq-gateway.md) | QQ 单 WS 网关契约 |
 | [dev/onboarding-v4-2026-10-27.md](dev/onboarding-v4-2026-10-27.md) | 初始化引导 v4 契约 |
 | [dev/add-a-service.md](dev/add-a-service.md) | 新增受管服务的模板与检查清单 |

@@ -69,6 +69,7 @@ Private or excluded from the public tree: `ai/`, `kernel/` source, `tools/moss-s
 | 脚本 Context 引擎 | `backend/services/scripts/context.py`（脚本运行时注入的 Context；旧 demo 原型已归档于 `archive/demo/`） |
 | 修改 AI 任务/行为 | `ai/data/tasks/*.yaml` + `ai/agents/*.md`                                          |
 | Loom 交互式 PTY | `../loom-harness/packages/tools/src/pty/`（五件套）+ `../loom-harness/packages/server/src/session-api/registry.ts`（退出唤醒 `deliverWake`）；配置 `ai/.loom/config.yaml` 的 `pty` 段 |
+| Loom Feature Plugin | `../loom-harness/packages/plugin-sdk/`（公开契约）+ `../loom-harness/packages/server/src/plugin-host/`（Host/loader/storage）+ `../loom-harness/packages/server/src/features/`（todo/pty/task 抽离）；P0-P2a 已实现，P2b 沙箱设计见 `docs/dev/plugin-host-p2b.md`（暂缓） |
 | Android 采集器    | `app/.../service/collectors/`                                                        |
 | Android UI 设置页 | `app/.../ui/settings/`（状态卡 + 5 组 20 行概览；主页面 `CollectionControlPage` / `DevicePage` / `BackgroundPage` / `SoundPage` / `RunStatusPage`，已退役 `DataCollectionPage` / `SystemPage` / `BatteryPage`） |
 | Android 登录态    | `app/.../auth/SessionManager.kt` + `app/.../ui/settings/LoginNavigationPolicy.kt`    |

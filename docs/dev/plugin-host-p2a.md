@@ -131,3 +131,7 @@ builtin 共用同一 PluginHost：依赖排序、工具/路由冲突校验、生
 P2b 才引入 `trust: "sandboxed"`、独立进程 runtime、capability RPC、安装/版本/市场
 机制。P2a 的 `"sandboxed"` 错误信息会明确指向 P2b，避免把“声明了 trust”误当成
 已经隔离。
+
+**当前状态（2026-11-03）**：P2b 设计完成并通过 Oracle 安全评审，但决定暂缓实现；
+P2a 的 `trust: "trusted"` 仍是 Loom 唯一的外部插件入口。详见
+[`plugin-host-p2b.md`](plugin-host-p2b.md)。
