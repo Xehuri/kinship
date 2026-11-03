@@ -1,11 +1,13 @@
 package com.xehuri.kinship.service.collectors
 
 import android.content.Context
+import android.os.SystemClock
 import android.service.notification.NotificationListenerService as AndroidNotificationListenerService
 import timber.log.Timber
 import com.xehuri.kinship.config.ServerConfig
 import com.xehuri.kinship.network.AppHttpClient
 import com.xehuri.kinship.service.DataCollectorService
+import com.xehuri.kinship.service.NotificationListenerService
 import com.xehuri.kinship.service.state.SensorStateHolder
 import com.xehuri.kinship.service.uploader.PerceptionCache
 import kotlinx.coroutines.CoroutineScope
@@ -73,6 +75,9 @@ class NotificationCollector(
 
     private var scope: CoroutineScope? = null
 
+    /** 断连恢复策略：宽限期 + 系统重绑节流 + 告警节流（纯逻辑，无 Android 依赖） */
+    private val recovery = NotificationListenerRecovery()
+
     /** 待上行通知 payload 队列（NLS 回调入队、采集循环批量发出） */
     private val pending = ArrayDeque<JSONObject>()
     private val batchLock = Any()
@@ -90,7 +95,7 @@ class NotificationCollector(
     override fun start() {
         if (scope != null) return
         // 注册 NLS 转发回调（按 sbn.key 去重已在 NLS 内完成），停止时注销
-        com.xehuri.kinship.service.NotificationListenerService.entryListener = { entry ->
+        NotificationListenerService.entryListener = { entry ->
             onNotificationEntry(entry)
         }
         lastUploadTs = System.currentTimeMillis()
@@ -114,7 +119,7 @@ class NotificationCollector(
     }
 
     override fun stop() {
-        com.xehuri.kinship.service.NotificationListenerService.entryListener = null
+        NotificationListenerService.entryListener = null
         scope?.cancel()
         scope = null
         Timber.i("通知采集已停止")
@@ -206,11 +211,33 @@ class NotificationCollector(
     /**
      * 单次采集入口（供内部循环和测试使用）。
      * 读取 activeNotifications 统计活跃通知总数并更新 [SensorStateHolder]。
+     *
+     * 服务实例缺失（`currentInstance == null`）时走断连恢复策略：宽限期内静默跳过，
+     * 之后按节流请求系统重绑，并在权限缺失或断连持续过久时发出恢复提醒。
      */
     internal suspend fun collectNotificationSummary() {
-        val nls = notificationServiceProvider() ?: run {
+        val now = SystemClock.elapsedRealtime()
+        val nls = notificationServiceProvider()
+        if (nls == null) {
+            val granted = NotificationListenerService.isNotificationAccessGranted(context)
+            val decision = recovery.onDisconnected(now, granted)
+            if (decision.requestRebind) {
+                val ok = NotificationListenerService.requestSystemRebind(context)
+                Timber.w("通知监听未连接（权限%s），请求系统重绑%s",
+                    if (granted) "已授予" else "未授予",
+                    if (ok) "已提交" else "失败")
+            }
+            if (decision.showAlert) {
+                DataCollectorService.showNotificationListenerLostAlert(context, granted)
+                Timber.w("通知监听持续未连接（权限%s），已发出恢复提醒",
+                    if (granted) "已授予" else "未授予")
+            }
             Timber.d("NotificationListenerService 未运行，跳过采集")
             return
+        }
+        if (recovery.onConnected(now)) {
+            DataCollectorService.cancelNotificationListenerLostAlert(context)
+            Timber.i("通知监听已恢复连接")
         }
         val sbns = nls.activeNotifications ?: run {
             Timber.d("activeNotifications 为 null，跳过采集")

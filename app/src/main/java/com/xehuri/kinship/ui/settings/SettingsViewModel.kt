@@ -22,6 +22,7 @@ import com.xehuri.kinship.ota.ApkInstaller
 import com.xehuri.kinship.ota.DownloadProgress as OtaDownloadProgress
 import com.xehuri.kinship.ota.InstallResult
 import com.xehuri.kinship.service.DataCollectorService
+import com.xehuri.kinship.service.NotificationListenerService
 import com.xehuri.kinship.service.collectors.AudioCollector
 import com.xehuri.kinship.service.state.SensorStateHolder
 import com.xehuri.kinship.config.ServerConfig
@@ -1382,7 +1383,11 @@ class SettingsViewModel(
                 healthEnabled = _healthEnabled.value,
                 audioEnabled = _audioEnabled.value,
                 bluetoothEnabled = _bluetoothEnabled.value,
-                notificationGranted = hasNotificationListenerPermission(appContext),
+                // 部分 ROM 会保留 Settings.Secure 里的授权条目却解绑监听服务：
+                // 只查权限字符串会误报「已授权」，并隐藏设置入口。因此功能开启时
+                // 还要求服务实例已绑定，否则按待处理展示（行可点击进系统设置修复）。
+                notificationGranted = hasNotificationListenerPermission(appContext) &&
+                    (!_notificationEnabled.value || NotificationListenerService.getInstance() != null),
                 usageStatsGranted = hasUsageStatsPermission(appContext),
                 accessibilityGranted = hasAccessibilityServiceEnabled(appContext),
                 locationGranted = hasLocationPermission(appContext),

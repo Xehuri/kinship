@@ -17,8 +17,10 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import timber.log.Timber
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.glance.appwidget.updateAll
 import com.xehuri.kinship.MainActivity
@@ -83,6 +85,15 @@ class DataCollectorService : Service() {
 
         /** 录音中断通知的 PendingIntent 请求码（固定以便更新） */
         private const val REQ_AUDIO_ALERT = 9005
+
+        /** 通知采集中断通知通道（高优先级，点击打开通知使用权设置） */
+        private const val CH_NOTIFY_ALERT = "axeuh_notify_alert"
+
+        /** 通知采集中断通知的固定 ID（更新而非刷屏） */
+        private const val NID_NOTIFY_ALERT = 9006
+
+        /** 通知采集中断通知的 PendingIntent 请求码（固定以便更新） */
+        private const val REQ_NOTIFY_ALERT = 9006
 
         /** 通知点击「恢复」时携带的 extra：请求重启音频采集链路 */
         const val EXTRA_RESTART_AUDIO = "restart_audio"
@@ -424,6 +435,60 @@ class DataCollectorService : Service() {
             var target = cal.timeInMillis
             if (target > now) target -= 24L * 60 * 60 * 1000
             return target in (last + 1)..now
+        }
+
+        /**
+         * 弹出「通知采集已中断」高优先级可点击通知（独立通道 axeuh_notify_alert）。
+         *
+         * 权限已授予但系统未绑定监听服务、或权限被关闭时触发；点击直接打开
+         * 系统「通知使用权」设置页，由用户手动关闭再开启 Kinship 完成恢复。
+         * 固定 ID + setOnlyAlertOnce 避免刷屏。
+         */
+        @JvmStatic
+        fun showNotificationListenerLostAlert(c: Context, permissionGranted: Boolean) {
+            try {
+                val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    nm.createNotificationChannel(NotificationChannel(CH_NOTIFY_ALERT, "Kinship 通知采集中断", NotificationManager.IMPORTANCE_HIGH).apply { setShowBadge(true); description = "通知监听断开或通知读取权限关闭时的恢复提醒" })
+                }
+                if (!NotificationManagerCompat.from(c).areNotificationsEnabled()) {
+                    Timber.w("通知监听告警无法显示：系统通知总开关已关闭")
+                    return
+                }
+                val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                val pi = PendingIntent.getActivity(
+                    c, REQ_NOTIFY_ALERT, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                val title = if (permissionGranted) "通知监听未连接" else "通知读取权限已关闭"
+                val text = if (permissionGranted) "点击打开通知使用权设置，关闭再开启 Kinship" else "点击重新开启通知读取权限"
+                nm.notify(
+                    NID_NOTIFY_ALERT,
+                    NotificationCompat.Builder(c, CH_NOTIFY_ALERT)
+                        .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                        .setContentTitle(title)
+                        .setContentText(text)
+                        .setContentIntent(pi)
+                        .setOnlyAlertOnce(true)
+                        .setAutoCancel(true)
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .build()
+                )
+            } catch (e: Exception) {
+                Timber.w("showNotificationListenerLostAlert: ${e.message}")
+            }
+        }
+
+        /** 撤销「通知采集已中断」通知（监听恢复连接后调用）。 */
+        @JvmStatic
+        fun cancelNotificationListenerLostAlert(c: Context) {
+            try {
+                (c.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(NID_NOTIFY_ALERT)
+            } catch (e: Exception) {
+                Timber.w("cancelNotificationListenerLostAlert: ${e.message}")
+            }
         }
     }
 
@@ -1124,6 +1189,7 @@ class DataCollectorService : Service() {
         nm.createNotificationChannel(NotificationChannel("axeuh_notification", "Kinship 系统通知", NotificationManager.IMPORTANCE_HIGH).apply { setShowBadge(true); description = "AI 推送通知" })
         // 录音中断通知：高优先级独立通道（通道重要性创建后不可变，故与常驻通知分通道）
         nm.createNotificationChannel(NotificationChannel(CH_AUDIO_ALERT, "Kinship 录音中断", NotificationManager.IMPORTANCE_HIGH).apply { setShowBadge(true); description = "录音中断时的可点击恢复提醒" })
+        nm.createNotificationChannel(NotificationChannel(CH_NOTIFY_ALERT, "Kinship 通知采集中断", NotificationManager.IMPORTANCE_HIGH).apply { setShowBadge(true); description = "通知监听断开或通知读取权限关闭时的恢复提醒" })
     }
 
     /** 常驻状态通知文案，由麦克风有效性状态决定 */

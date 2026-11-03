@@ -1,9 +1,12 @@
 package com.xehuri.kinship.service
 
 import android.app.Notification
+import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Context
+import android.os.Build
 import android.provider.Settings
-import android.service.notification.NotificationListenerService
+import android.service.notification.NotificationListenerService as PlatformNotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import java.util.LinkedHashMap
@@ -28,7 +31,7 @@ import java.util.LinkedList
  * notification.extras 可能缺少 EXTRA_TITLE 或 EXTRA_TEXT，代码已做 null 安全处理。
  * extras 本身也可能为 null（罕见但可能），已做 try-catch 保护。
  */
-class NotificationListenerService : NotificationListenerService() {
+class NotificationListenerService : PlatformNotificationListenerService() {
 
     /**
      * 通知条目数据类
@@ -81,6 +84,61 @@ class NotificationListenerService : NotificationListenerService() {
             } catch (_: Exception) { null }
             return enabled?.contains("com.xehuri.kinship/.service.NotificationListenerService") == true
         }
+
+        /**
+         * 判断通知读取权限是否已授予。
+         *
+         * 与 [isListenerEnabled] 的差异：本方法在 `currentInstance == null` 时优先向
+         * NotificationManager 查询**系统级授权状态**（API 27+），而不是只看服务实例。
+         * 用于区分两种断连原因：
+         * - 权限仍在但系统未绑定服务（可请求系统重绑）；
+         * - 权限被关闭（只能引导用户重新授权）。
+         */
+        @JvmStatic
+        fun isNotificationAccessGranted(context: Context): Boolean {
+            if (currentInstance != null) return true
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    val nm = context.getSystemService(NotificationManager::class.java)
+                    if (nm != null) nm.isNotificationListenerAccessGranted(componentName(context))
+                    else settingsListenerEnabled(context)
+                } else settingsListenerEnabled(context)
+            } catch (_: Exception) {
+                settingsListenerEnabled(context)
+            }
+        }
+
+        /**
+         * 本服务的组件名，供系统 API（授权查询 / 重绑请求）使用。
+         */
+        @JvmStatic
+        fun componentName(context: Context): ComponentName =
+            ComponentName(context, NotificationListenerService::class.java)
+
+        /**
+         * 请求系统重新绑定通知监听服务。
+         *
+         * 适用于「权限仍然授予，但系统未绑定服务（currentInstance == null）」的场景。
+         * 返回 true 表示请求已提交给系统（系统是否真正重绑由 ROM 决定），
+         * 返回 false 表示调用抛出异常（如 ROM 未实现该 API）。
+         */
+        @JvmStatic
+        fun requestSystemRebind(context: Context): Boolean = try {
+            PlatformNotificationListenerService.requestRebind(componentName(context))
+            true
+        } catch (e: Exception) {
+            Log.w("NotifListener", "requestRebind 失败: ${e.message}")
+            false
+        }
+
+        /**
+         * 回退判断：读取系统安全设置中已启用的通知监听器列表。
+         * 部分 ROM 的授权查询 API 不可靠（或 API 级别不足），以设置文本作为兜底。
+         */
+        private fun settingsListenerEnabled(context: Context): Boolean = try {
+            Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
+                ?.contains("com.xehuri.kinship.service.NotificationListenerService") == true
+        } catch (_: Exception) { false }
 
         /**
          * 获取 currentInstance（供 DataCollectorService 直接操作）

@@ -1,5 +1,6 @@
 package com.xehuri.kinship.ui.settings
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -93,6 +94,25 @@ fun NotificationPage(
                         "采集到的通知先入队，到点与其他感知事件一并上传。",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
+        }
+
+        // ── 监听连接修复入口（权限字符串可能仍在，但系统已解绑服务）────
+        item {
+            SettingsGroup(title = "通知监听连接") {
+                SettingsNavRow(
+                    title = "打开通知使用权设置",
+                    subtitle = "若状态显示已授权但仍无通知，请在此关闭再开启 Kinship 开关",
+                    onClick = {
+                        try {
+                            context.startActivity(
+                                permissionSettingsIntent(context, RunStatusModel.KEY_NOTIFICATION_LISTENER)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (_: Exception) {
+                        }
+                    },
                 )
             }
         }
