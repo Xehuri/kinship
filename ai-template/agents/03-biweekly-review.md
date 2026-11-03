@@ -367,7 +367,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 > 写入协议统一见 `{AI目录}/agents/公共-操作规范.md` §3（ADD/UPDATE/NOOP，先 `grep -rn` 查重）；本步骤只保留深掘对象与 profile 目标。
 
 1. **深掘对象**：本期跨日成立的稳定事实/属性（人物关系、常去地点、行为规律、健康基线、事项主线）、被证伪或需升级的既有条目，以及 02 逐日收割沉淀在 `{AI目录}/memory/self/认知.md` 中等待升格的观察条目
-2. **写入 profile**：确认稳定的增量按三态决策（ADD/UPDATE/NOOP，先 `grep -rn` 查重）写入 `{AI目录}/memory/profile/semantic/`（people/、事项/、属性四文件）与 `{AI目录}/memory/profile/state.md`；与 02 相同，画像条目写"浓缩真值 + `[MM-DD]` + → [[复盘-YYYY-MM-DD]] 指针"，不复制证据链
+2. **写入 profile**：确认稳定的增量按三态决策（ADD/UPDATE/NOOP，先 `grep -rn` 查重）写入 `{AI目录}/memory/profile/semantic/`（people/、事项/、属性四文件）与 `{AI目录}/memory/profile/state.md`（整文件覆盖，不追加日期快照；同步重写 `date` 与 `当前日期`）；与 02 相同，画像条目写"浓缩真值 + `[MM-DD]` + → [[复盘-YYYY-MM-DD]] 指针"，不复制证据链
 3. **自洽约束**：本步骤可正式改写 profile；自主探索（步骤 2b）仍**只写 `{AI目录}/memory/self/认知.md` 草稿，不得直接改 profile**，两者不得混淆
 
 ### 步骤 2d：索引层观察/发现卡（新增）

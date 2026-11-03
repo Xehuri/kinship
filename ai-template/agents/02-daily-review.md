@@ -348,8 +348,10 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 | 4 | 用户明确纠正了 AI 的**做法**错误（经验类；理解记录的事实错误见步骤 4b） | `{AI目录}/memory/self/纠错.md` | 带血案例 |
 | 5 | 用户明确认可/确认了某做法正确 | `{AI目录}/memory/self/价值校准.md` | 记场景与确认日期 |
 | 6 | 我们之间的共同经历/承诺/态度转折 | `{AI目录}/memory/self/关系.md` | 里程碑或承诺条目 |
-| 7 | 状态快照变化（当前推进事项/健康关注/行程意向） | 更新 `{AI目录}/memory/profile/state.md` | 覆盖刷新 |
+| 7 | 状态快照变化（当前推进事项/健康关注/行程意向） | 更新 `{AI目录}/memory/profile/state.md` | 整文件覆盖刷新（见下） |
 | 8 | 每日客观事件（供跨日检索，正文不动） | 由索引层承载：批次块 + 事件/观察/发现卡；复盘不再另写月度摘要 | 索引层脚本 |
+
+> **`profile/state.md` 硬规则**：只保留当前态。每次刷新必须整文件覆盖，禁止追加 `## YYYY-MM-DD 快照` 或任何按日期分节的历史；同时重写 frontmatter `date` 与正文 `当前日期：{date}`。旧状态只留在 git 与当日复盘。文件控制在 3KB 以内；确需归档时移入 `{AI目录}/memory/archive/`，不要把历史留在 state.md。
 
 > **收割完成后**：用 `read` 读 `{AI目录}/memory/self/必读.md`，若上述收割导致"当前任务/注意点/关系要点/状态锚点"变化，同步刷新必读（投影层，从源文件提炼）；再更新 `{AI目录}/memory/self/SELF-INDEX.md`（关键词→文件，重扫即可）；并刷新 `{AI目录}/memory/self/persona-lite.md`（从 `身份.md` + `价值校准.md` 提炼，≤6KB）与 `{AI目录}/memory/profile/core-lite.md`（从 `core.md` + `semantic/` 提炼，≤6KB）。两个 lite 都是投影，不是真值，必须与源文件一致。
 

@@ -334,7 +334,7 @@ python ai/analysis/check_coverage.py 2026-10-22
 | 用户纠正 AI | `self/纠错.md` |
 | 用户认可的做法 | `self/价值校准.md` |
 | 里程碑/承诺 | `self/关系.md` |
-| 状态快照变化 | `profile/state.md` |
+| 状态快照变化 | `profile/state.md`（整文件覆盖） |
 | 每日客观事件 | `fact/{月}.md` 当日行 |
 
 只做增量检测，无增量零写入；复盘收尾必更新 fact 月度行与执行日志。

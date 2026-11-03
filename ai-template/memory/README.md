@@ -9,7 +9,7 @@
 | 层 | 文件 | 何时读 | 何时写 |
 |----|------|--------|--------|
 | **L0 热快照** | `self/必读.md`（<3KB，投影层） | 会话开始必读 | 复盘每日刷新，主会话即时更新 |
-| **L1 全景** | `profile/core.md`（画像树 + 细节摘要 + 导航）、`profile/state.md`（状态快照）、`profile/规律.md`（当前规律） | 需要用户背景或判断规律时 | 复盘收割更新，主会话确认新事实即时写 |
+| **L1 全景** | `profile/core.md`（画像树 + 细节摘要 + 导航）、`profile/state.md`（当前态快照，整文件覆盖，≤3KB）、`profile/规律.md`（当前规律） | 需要用户背景或判断规律时 | 复盘收割更新，主会话确认新事实即时写 |
 | **L2 主题档案** | `profile/semantic/`、`self/*.md`、`topics/` | 按需（人物、事项、红线） | 复盘 ADD/UPDATE，主会话直写 |
 
 > 投影不是真值：`self/persona-lite.md` 来自 `self/身份.md` + `self/价值校准.md`；`profile/core-lite.md` 来自 `profile/core.md` + `profile/semantic/`；`profile/规律-摘要.md` 是 `profile/规律.md` 的机载摘要，ttl 72h。
