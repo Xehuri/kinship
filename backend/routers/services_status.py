@@ -20,12 +20,14 @@
 
     {"orchestrator": "on"|"off",
      "services": [{id, state, reason_code, detail, pid, started_at,
-                   retry_count, next_retry_at, requires, critical}]}
+                   retry_count, next_retry_at, requires, critical,
+                   external?, note?}]}
 
 ``reason_code`` 的公开枚举：missing_config / disabled / gate_failed /
 spawn_failed / crashed / restart_exhausted / stopped；starting/ready 为空串，
 运维 pause 由运行时给出 manually_paused。``detail`` 只返回人话摘要，内部
-异常堆栈由运行时写日志，绝不进响应。
+异常堆栈由运行时写日志，绝不进响应。``external``/``note`` 只用于展示层：
+当 Loom 因端口被外部进程占用而失败时出现，不改变 failed 状态或接管策略。
 """
 from __future__ import annotations
 
@@ -61,6 +63,16 @@ _PUBLIC_FIELDS = (
     "critical",
 )
 
+EXTERNAL_LOOM_NOTE = "外部进程占用端口，未受管"
+
+
+def _is_external_loom(entry: Mapping[str, Any], detail: str) -> bool:
+    return (
+        entry.get("id") == "loom"
+        and entry.get("state") == "failed"
+        and "port_in_use" in detail.lower()
+    )
+
 
 def _service_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
     """把运行时条目裁剪为公开字段，并对 detail 做密钥脱敏。"""
@@ -82,7 +94,11 @@ def _service_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
         "critical": bool(entry.get("critical", False)),
     }
     # 保持字段集合与顺序稳定（契约字段即白名单）。
-    return {field: public[field] for field in _PUBLIC_FIELDS}
+    ordered = {field: public[field] for field in _PUBLIC_FIELDS}
+    if _is_external_loom(entry, public["detail"]):
+        ordered["external"] = True
+        ordered["note"] = EXTERNAL_LOOM_NOTE
+    return ordered
 
 
 @router.get("/services", response_model=None)

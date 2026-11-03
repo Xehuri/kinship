@@ -209,6 +209,86 @@ def test_blocked_spec_exposes_missing_config(client, auth_headers):
     assert entry["next_retry_at"] is None
 
 
+def test_external_loom_port_in_use_is_marked(client, auth_headers, monkeypatch):
+    class FakeOrchestrator:
+        def snapshot(self):
+            return {
+                "orchestrator": "on",
+                "services": [
+                    {
+                        "id": "loom",
+                        "state": "failed",
+                        "reason_code": "spawn_failed",
+                        "detail": "port_in_use: 127.0.0.1:5100 (pid=4321)",
+                        "pid": None,
+                        "started_at": None,
+                        "retry_count": 0,
+                        "next_retry_at": None,
+                        "requires": ["loom.url", "ai_backend"],
+                        "critical": True,
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(
+        services_status, "get_orchestrator", lambda: FakeOrchestrator()
+    )
+
+    response = _get(client, auth_headers)
+    assert response.status_code == 200, response.text
+
+    entry = response.json()["services"][0]
+    assert set(entry) == ENTRY_FIELDS | {"external", "note"}
+    assert entry["state"] == "failed"
+    assert entry["reason_code"] == "spawn_failed"
+    assert entry["external"] is True
+    assert entry["note"] == services_status.EXTERNAL_LOOM_NOTE
+
+
+def test_external_loom_marker_is_narrow(client, auth_headers, monkeypatch):
+    class FakeOrchestrator:
+        def snapshot(self):
+            return {
+                "orchestrator": "on",
+                "services": [
+                    {
+                        "id": "loom",
+                        "state": "failed",
+                        "reason_code": "spawn_failed",
+                        "detail": "health_failed: Loom 未通过 /health",
+                        "pid": None,
+                        "started_at": None,
+                        "retry_count": 0,
+                        "next_retry_at": None,
+                        "requires": [],
+                        "critical": True,
+                    },
+                    {
+                        "id": "kernel",
+                        "state": "failed",
+                        "reason_code": "spawn_failed",
+                        "detail": "port_in_use: 127.0.0.1:5100",
+                        "pid": None,
+                        "started_at": None,
+                        "retry_count": 0,
+                        "next_retry_at": None,
+                        "requires": [],
+                        "critical": False,
+                    },
+                ],
+            }
+
+    monkeypatch.setattr(
+        services_status, "get_orchestrator", lambda: FakeOrchestrator()
+    )
+
+    response = _get(client, auth_headers)
+    assert response.status_code == 200, response.text
+
+    for entry in response.json()["services"]:
+        assert set(entry) == ENTRY_FIELDS
+
+
 def test_missing_token_is_401(client):
     response = _get(client)
     assert response.status_code == 401, response.text
