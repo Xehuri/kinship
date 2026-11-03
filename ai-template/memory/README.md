@@ -16,7 +16,7 @@
 
 ## 主会话常驻与批次注入（A 方案）
 
-主会话常驻 6 件：
+主会话常驻 6 件（`self/chat-mode.md` 可选，启用时最多 7 件）：
 
 1. `AGENTS.md`
 2. `memory/self/必读.md`
@@ -25,7 +25,7 @@
 5. `memory/profile/core-lite.md`
 6. `memory/topics/INDEX.md`
 
-批次与复盘 core 5 件：
+批次与复盘 core 5 件（`profile/规律-摘要.md` 可选，启用时最多 6 件）：
 
 1. `agents/AGENTS-lite.md`
 2. `self/必读.md`
@@ -33,9 +33,9 @@
 4. `profile/core-lite.md`
 5. `topics/INDEX.md`
 
-`SELF-INDEX`、`纠错`、`认知`、`任务`、`关系`、`core`、`semantic` 不自动注入，按 `SELF-INDEX` 检索。`profile/规律-摘要.md` 只在需要规律判断时按需读取，不占 core 名额。
+`SELF-INDEX`、`纠错`、`认知`、`任务`、`关系`、`core`、`semantic` 不自动注入，按 `SELF-INDEX` 检索。`profile/规律-摘要.md` 是可选注入项（启用时占第 6 件），未注入时按需读取，不占 core 名额。
 
-`chat-mode` 是可选项，不是默认常驻文件。可选骨架为 `_template/self-chat-mode.md`；实例确有需要时自行复制为 `self/chat-mode.md`，并在注入清单里显式加入，模板不预置 live 文件。若实例已把 Chat 模式并入 `persona-lite`，可不使用该骨架。
+`chat-mode` 是可选项，不是默认常驻文件（启用时占第 7 件）。可选骨架为 `_template/self-chat-mode.md`；实例确有需要时自行复制为 `self/chat-mode.md`，并在注入清单里显式加入，模板不预置 live 文件。若实例已把 Chat 模式并入 `persona-lite`，可不使用该骨架。
 
 ## 事件检索与记忆的边界
 

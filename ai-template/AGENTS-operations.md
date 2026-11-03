@@ -89,8 +89,8 @@
 
 ## 记忆注入与工具
 
-> 主会话只常驻 6 件：`AGENTS.md`、`必读`、`persona-lite`、`state`、`core-lite`、`topics/INDEX`；`SELF-INDEX`、`纠错`、`认知`、`任务`、`关系`、`core`、`fact`、`semantic` 不再自动注入，按 `AGENTS.md`「查什么去哪」检索。
-> 批次/复盘 role 注入 5 件 core（`AGENTS-lite`、`必读`、`state`、`core-lite`、`topics/INDEX`）；写入/审计/巩固用 `memory_write.py` / `memory_audit.py` / `memory_consolidate.py`；当日摘要 ≤24 KB、批次索引 ≤4 KB。
+> 主会话只常驻 6 件：`AGENTS.md`、`必读`、`persona-lite`、`state`、`core-lite`、`topics/INDEX`（`self/chat-mode.md` 可选，启用时最多 7 件）；`SELF-INDEX`、`纠错`、`认知`、`任务`、`关系`、`core`、`fact`、`semantic` 不再自动注入，按 `AGENTS.md`「查什么去哪」检索。
+> 批次/复盘 role 注入 5 件 core（`AGENTS-lite`、`必读`、`state`、`core-lite`、`topics/INDEX`；`profile/规律-摘要.md` 可选，启用时最多 6 件）；写入/审计/巩固用 `memory_write.py` / `memory_audit.py` / `memory_consolidate.py`；当日摘要 ≤24 KB、批次索引 ≤4 KB。
 > `memory_retrieve.py` 仅辅助定位：检索以 `grep` + `read` 为主，命中后必须验证。
 
 > 任务的详细流程与完整分析规范一律在各子智能体 prompt（`{AI目录}/agents/*.md`），本文件不展开。

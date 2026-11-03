@@ -78,12 +78,13 @@ description: 数据检查规则库（只读）
 
 事实文件语音行的 `└ MOSS:` 子行（源 `audio_deepdive.jsonl`）是 MOSS 结论进入批次的**唯一入口**，不直读原始文件。采信裁决：
 
-1. **描述性内容**（场景/事件/narrative/transcript）可信度较高，可作"这段在发生什么"的**实质旁证**；但与屏幕/App/sim 同列交叉源、**不是裁判**，冲突直存不得择一弃写。
+1. **消费面**：事实文件只渲染 `is_silence=true`（`静音/无语音`）与 `source_type=ambient` 两轴；human / mixed / device_playback / narrative / transcript 只留在 `audio_deepdive.jsonl` 供审计，不进入事实文件。ambient 作弱旁证，is_silence 作静音确认，均**不是裁判**；与屏幕/App/sim 冲突时并列存证，不得择一弃写。
 2. **硬短板＝分不清"哪句是用户本人"**：身份归属只由声纹 sim/设备/行为链拍板；speakers_profile（"中年男性/年轻女性"式画像）**不得与用户本人挂钩**；source_type=human 不得据以否证或立证真人对话存在（漏报是常态）。
-3. source_type=device_playback 命中可当媒体归因**证据**（精确率高）。
+3. source_type=device_playback 命中只证明**有播放**，不证明真人在场；可作媒体归因**证据**（精确率高）。
 4. uncertain 非空的行，相关结论降一档置信。
-5. 短路行（`_sc=true`）只表示"低能量静音"，不作内容结论；当日无 deepdive 文件/指针→走旧流程，**禁止把"缺数据"读成"无事件"**。
+5. 短路行（`_sc=true`）与 `is_silence=true` 只表示"低能量静音/无语音"，不作内容结论；事实子行统一显示 `静音/无语音`，不得写成 `src=unclear` 或场景定性；当日无 deepdive 文件/指针→走旧流程，**禁止把"缺数据"读成"无事件"**。
 6. **单源错误采信零容忍**：发现把 MOSS 孤证写成事实→记【关键观察】并回报。
+7. **外放误判人声**：`src=human(需设备侧核对)` 行必须先做设备侧交叉。同窗/同刻有媒体播放（音乐/视频/播放器前台、耳机/外放提示、设备音频焦点）或锁屏+PC 活跃等与"真人在场说话"矛盾的证据时，MOSS human 降为**无信息/弱旁证**，不得立证真人；`src=device_playback` 只作外放证据，不得反过来支撑 human 归属。冲突以设备侧为准，记 `[MOSS外放误判]`。
 
 ### 2. 上下文分析
 
