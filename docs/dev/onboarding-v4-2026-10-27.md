@@ -236,12 +236,12 @@ v4 的 Loom 步骤只有一个可见动作：`POST /api/system/onboarding/loom/s
 流水线顺序：
 
 1. 校验端口、provider、base_url、model、模型参数与 pricing。
-2. 若请求未带 `api_key`，读取现有 `ai/.loom/config.yaml` 中同 provider 的 `providers[].apiKey`；仍为空则 `loom_api_key_missing`。
+2. 若请求未带 `api_key`，读取现有 `<AI_ROOT>/.loom/config.yaml` 中同 provider 的 `providers[].apiKey`；仍为空则 `loom_api_key_missing`。
 3. 请求 provider 的 `/models` 端点做探活。
 4. 持久化 `loom.url`。
-5. ensure AI 实例：目标为 `Config.AI_ROOT`，存在时只补 `ai-template` 缺失文件，不覆盖已有文件。
+5. ensure AI 实例：目标为 `Config.AI_ROOT`（配置 `data.ai_root`；仅未配置时才回落到 `<repo>/ai` 默认值）。把 `ai-template/` 的模板文件复制到该目录，不写入固定的 `<repo>/ai`；目录已存在时只补缺失文件，不覆盖已有文件。
 6. 发现或生成 Loom token；token 只保存在服务端与 `loom.token_file`。
-7. 写入 `ai/.loom/config.yaml`：`providers[]` 中该 provider 的 `apiKey` 使用内联密钥，并从 `credentials` 段删除同名 provider 的 `${ENV_VAR}` 引用。
+7. 写入 `<AI_ROOT>/.loom/config.yaml`：`providers[]` 中该 provider 的 `apiKey` 使用内联密钥，并从 `credentials` 段删除同名 provider 的 `${ENV_VAR}` 引用。
 8. 按 `systemd` > `child` > `none` 探测运行时并重启 Loom。
 9. 健康检查，超时默认 45 秒。
 10. 读取 `/catalog/models` 并确认所选模型存在。
@@ -250,7 +250,7 @@ v4 的 Loom 步骤只有一个可见动作：`POST /api/system/onboarding/loom/s
 
 #### 3.5.1 内联 key 的安全边界
 
-- key 只出现在请求体、`Selection.api_key` 与 `ai/.loom/config.yaml` 的 `providers[].apiKey`。
+- key 只出现在请求体、`Selection.api_key` 与 `<AI_ROOT>/.loom/config.yaml` 的 `providers[].apiKey`。
 - 配置文件写入权限 0600，父目录 0700。Windows 上 `chmod` 只影响只读位，不落实 NTFS ACL，保护依赖用户目录 ACL。
 - 响应只返回 `api_key_configured: true/false`。Loom 自己的 `/config` 也只投影 `apiKeyConfigured` 布尔，不序列化 key。
 - 日志只记录 provider/model/port/mode，不记录 key。错误 details 不回显 key。

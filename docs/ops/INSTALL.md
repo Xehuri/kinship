@@ -18,7 +18,7 @@ Work through this checklist before you begin. Items tagged **(core)** are requir
 
 **AI working directory**
 
-- [ ] A copy of the AI working directory created from `ai-template/`, with its placeholders filled in. See [AI Working Directory Setup](#ai-working-directory-setup).
+- [ ] An AI root created from `ai-template/` at `data.ai_root` (default `<project>/ai`), with its placeholders filled in. See [AI Working Directory Setup](#ai-working-directory-setup).
 
 **Certificate and API keys**
 
@@ -95,7 +95,7 @@ The optional voice wake word (KWS) runs entirely in the kernel; the outer layer 
 
 The public `kinship` repository is the source tree for the backend, clients, Loom harness, and docs. It intentionally omits private components:
 
-- `ai/` is absent. Create it from `ai-template/` and point `data.ai_root` at your AI root (default `<project>/ai`).
+- No AI runtime directory ships. Create one from `ai-template/` at the configured AI root (`data.ai_root`; default `<project>/ai`, private example `kinship-data/ai`).
 - Kernel source is absent. Source lives in the private `kinship-kernel` repository; end users install the prebuilt release asset at `<project>/kernel`. The onboarding `kernel` step verifies the release manifest SHA-256 and installs it there.
 - `tools/moss-shadow/` and the CircuitJS1 runtime are absent. MOSS is private; CircuitJS1 is fetched from the separate `kinship-circuitjs` repository at dev/build time.
 - `kernel_models` downloads every kernel model, including ERes2NetV2. The kernel tarball contains no `models/` directory and no `.ckpt` files.
@@ -113,7 +113,7 @@ cd kinship
 
 #### 1.2 Python environment
 
-Use the platform setup script. It creates `.venv`, installs the backend requirements, creates `config.yaml` from `config.example.yaml` when missing, and copies `ai-template/` to `ai/` when missing:
+Use the platform setup script. It creates `.venv`, installs the backend requirements, creates `config.yaml` from `config.example.yaml` when missing, and creates the AI root (default `<project>/ai`; pass `--ai-root` / `-AiRoot` for a non-default path) from `ai-template/` when missing:
 
 ```bash
 # Linux / macOS
@@ -246,7 +246,7 @@ api:
 
 MiMo is **not required, but strongly recommended**: the AI uses MiMo's multimodal model to analyze audio, and MiMo also powers TTS synthesis. Without `mimo_key`, core features still work, but audio understanding and the TTS endpoints are unavailable. A Baidu Maps AK (used by `analysis/geocode_tool.py` for reverse geocoding) is optional.
 
-> **Before you start:** Loom runs inside the AI root named by `data.ai_root` (default `ai`) and keeps its managed config at `ai/.loom/config.yaml`. Set that directory up first (see [AI Working Directory Setup](#ai-working-directory-setup)).
+> **Before you start:** Loom runs inside the AI root named by `data.ai_root` (default `<project>/ai`) and keeps its managed config at `<AI_ROOT>/.loom/config.yaml`. Set that directory up first (see [AI Working Directory Setup](#ai-working-directory-setup)).
 
 #### 1.6 Start the Backend
 
@@ -484,26 +484,27 @@ All sensors can be toggled independently. Nothing is forced on.
 
 ### AI Working Directory Setup
 
-The AI does not roam your filesystem. It is confined to one AI root, named by `data.ai_root` in `config.yaml` (default `ai`). Agent prompts, analysis scripts, task definitions, Loom workspace config, and the AI's long-term memory all live inside that directory.
+The AI does not roam your filesystem. It is confined to one AI root, named by `data.ai_root` in `config.yaml`. The default is `<project>/ai`, but only when `data.ai_root` is unset; a private deployment typically points it at `kinship-data/ai`. Agent prompts, analysis scripts, task definitions, Loom workspace config, and the AI's long-term memory all live inside that root.
 
-`ai-template/` is a clean, instance-free copy of that directory. It ships placeholder configuration and skeleton files only, with no real data or keys. To create the working directory for a new instance:
+`ai-template/` is a sanitized template derived from the production `kinship-data/ai` scenario. It ships placeholder configuration and skeleton files only, with no real data or keys. It is not a runtime directory, and it must not be copied to a path inside itself (for example `ai-template/ai/`). To create the AI root for a new instance:
 
-1. **Copy the template into place.** Copy `ai-template/` to `ai/`, the default `data.ai_root`:
+1. **Copy the template to the configured AI root.** Resolve the target from `data.ai_root` first, then copy there:
 
    ```bash
-   cp -r ai-template ai
+   AI_ROOT=/path/to/kinship-data/ai   # your data.ai_root
+   cp -a ai-template "$AI_ROOT"
    ```
 
-   If an `ai/` directory already exists with data you want to keep, merge the template's placeholder files in instead of overwriting it.
+   The setup scripts can do this too: `./scripts/setup.sh --ai-root "$AI_ROOT"` on Linux/macOS, `setup.ps1 -AiRoot "D:\kinship-data\ai"` on Windows. If the target already exists with data you want to keep, only merge missing template files, or refuse. Onboarding never overwrites: its copy action refuses (`already_exists`), and its ensure action writes missing files only.
 
-2. **Configure MCP.** Backend settings stay in the project-root `config.yaml` (see [Phase 1.3](#13-configuration)); Loom's own provider and model settings live in `ai/.loom/config.yaml` and are written by the onboarding `loom` step. The full checklist (部署配置清单) is at the top of `ai-template/系统初始化指南.md`:
-   - Loom: register the 4-tool MCP service at `ai/mcp/ai_mcp.py` in `mcp.servers`. Do not hand-copy a legacy assistant client config; let onboarding create the managed Loom config.
+2. **Configure MCP.** Backend settings stay in the project-root `config.yaml` (see [Phase 1.3](#13-configuration)); Loom's own provider and model settings live in `<AI_ROOT>/.loom/config.yaml` and are written by the onboarding `loom` step. The full checklist (部署配置清单) is at the top of `ai-template/系统初始化指南.md`:
+   - Loom: register the 4-tool MCP service at `<AI_ROOT>/mcp/ai_mcp.py` in `mcp.servers`. Do not hand-copy a legacy assistant client config; let onboarding create the managed Loom config.
 
-3. **Replace the remaining placeholders.** Every placeholder is defined in the placeholder list (占位符替换清单) inside `ai-template/系统初始化指南.md`. Replace them in `ai/AGENTS.md`, `ai/agents/*.md`, and the analysis scripts. Loom sub-agent models live in `ai/agents/*.md` frontmatter, currently defaulting to `deepseek/deepseek-flash`; change it if you use another provider. In particular, `ai/analysis/geocode_tool.py` needs your Baidu Maps AK (Web Service API). Do not invent new placeholder names.
+3. **Replace the remaining placeholders.** Every placeholder is defined in the placeholder list (占位符替换清单) inside `ai-template/系统初始化指南.md`. Apply them to the configured AI root: `<AI_ROOT>/AGENTS.md`, `<AI_ROOT>/agents/*.md`, and the analysis scripts. Loom sub-agent models live in `<AI_ROOT>/agents/*.md` frontmatter, currently defaulting to `deepseek/deepseek-flash`; change it if you use another provider. In particular, `<AI_ROOT>/analysis/geocode_tool.py` needs your Baidu Maps AK (Web Service API). Do not invent new placeholder names.
 
-   > **Model requirement:** the main agent must be able to read images (screenshots, study material). `deepseek-flash` is **not a built-in model**. Declare it in `ai/.loom/config.yaml` under `providers[]` and `models[]`, with `vision: true` on the model entry (`deepseek-v4-flash` is text-only and cannot see images). The model id is referenced in multiple `ai/agents/*.md`, `ai/data/tasks/*.py`, `ai/data/tasks/*.yaml`, and `ai/data/tasks/AGENTS.md`; change them together.
+   > **Model requirement:** the main agent must be able to read images (screenshots, study material). `deepseek-flash` is **not a built-in model**. Declare it in `<AI_ROOT>/.loom/config.yaml` under `providers[]` and `models[]`, with `vision: true` on the model entry (`deepseek-v4-flash` is text-only and cannot see images). The model id is referenced in multiple `<AI_ROOT>/agents/*.md`, `<AI_ROOT>/data/tasks/*.py`, `<AI_ROOT>/data/tasks/*.yaml`, and `<AI_ROOT>/data/tasks/AGENTS.md`; change them together.
 
-4. **Run the AI system initialization.** On first launch there is no assistant session yet; onboarding starts Loom and registers the main session. Then have the main agent follow `ai-template/系统初始化指南.md` end to end: scan the directory, get to know the user, register voiceprints, confirm data is flowing, discuss and enable tasks, then commit. This is a one-time process.
+4. **Run the AI system initialization.** On first launch there is no assistant session yet; onboarding starts Loom and registers the main session. Then have the main agent follow the AI root's `系统初始化指南.md` (copied from `ai-template/`) end to end: scan the directory, get to know the user, register voiceprints, confirm data is flowing, discuss and enable tasks, then commit. This is a one-time process.
 
 #### Automated Pipeline Architecture
 

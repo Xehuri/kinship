@@ -41,7 +41,7 @@ Kinship spans three locations, not one monorepo:
 | `kinship-kernel` | Closed-source audio kernel source (`axeuh_kernel`) | Private; PolyForm Noncommercial 1.0.0 |
 | `kinship-data` | `config.yaml`, certificates, `backend/config/auth.json`, AI runtime data and uploads | Private; never committed |
 
-The public tree excludes `ai/`, the `kernel/` source, `tools/moss-shadow/`, and the CircuitJS1 runtime. `ai/` is per-instance data created from `ai-template/`; the kernel is installed as a prebuilt release asset at `<project>/kernel`; `tools/moss-shadow/` is private; CircuitJS1 is fetched from the separate [kinship-circuitjs](https://github.com/Xehuri/kinship-circuitjs) repository at dev/build time.
+The public tree excludes the AI runtime directory (default `ai/`), the `kernel/` source, `tools/moss-shadow/`, and the CircuitJS1 runtime. AI instances are created from `ai-template/` at the configured AI root (`data.ai_root`; default `<project>/ai`, private example `kinship-data/ai`); the kernel is installed as a prebuilt release asset at `<project>/kernel`; `tools/moss-shadow/` is private; CircuitJS1 is fetched from the separate [kinship-circuitjs](https://github.com/Xehuri/kinship-circuitjs) repository at dev/build time.
 
 At runtime the backend expects:
 
@@ -204,13 +204,13 @@ See [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) for the full AI system archit
 See [docs/ops/STARTUP.md](docs/ops/STARTUP.md) for the full platform matrix, exit codes, and troubleshooting. The backend entry point is `python -m core.hot_server`, run from `backend/`; the platform scripts wrap that command.
 
 1. **Clone the repository.**
-2. **Run the setup script for your platform.** Linux and macOS use `./scripts/setup.sh`; Windows uses `setup.bat`. It creates `.venv`, installs backend dependencies, and generates `config.yaml` from `config.example.yaml` and `ai/` from `ai-template/` when missing. Existing files are not overwritten.
+2. **Run the setup script for your platform.** Linux and macOS use `./scripts/setup.sh`; Windows uses `setup.bat`. It creates `.venv`, installs backend dependencies, and generates `config.yaml` from `config.example.yaml` and the AI root (default `<project>/ai`; use `--ai-root` / `-AiRoot` for another path) from `ai-template/` when missing. Existing files are not overwritten.
 3. **Review `config.yaml`.** Check server, SSL, model, and API keys against [docs/ops/CONFIGURATION.md](docs/ops/CONFIGURATION.md).
 4. **Start the backend.** Linux and macOS use `./scripts/start.sh`; Windows uses `start.bat`. Production runs under systemd with `deploy/kinship.service.example`.
 5. **Open the web UI.** Complete admin registration and the 11-step onboarding: account, dependencies, kernel, models, Xiaomi cloud, QQ, MOSS, Loom, clients, finish.
 6. **Verify health.** `http://127.0.0.1:8768/health` should return `{"status":"healthy"}`.
 7. **Set up clients.** Install the Android app with Gadgetbridge; the PC sensor is optional. See [docs/ops/INSTALL.md](docs/ops/INSTALL.md).
-8. **Run the AI system initialization.** Walk through `ai-template/系统初始化指南.md`: scan the directory, get to know the user, register voiceprints, confirm data is flowing, then discuss tasks.
+8. **Run the AI system initialization.** Walk through the AI root's `系统初始化指南.md` (copied from `ai-template/`): scan the directory, get to know the user, register voiceprints, confirm data is flowing, then discuss tasks.
 
 ## Startup
 

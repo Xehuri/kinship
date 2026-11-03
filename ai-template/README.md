@@ -1,6 +1,8 @@
-# AI 工作目录模板（ai-template）
+# kinship-data/ai 生产场景模板（ai-template）
 
-`ai-template/` 是 AI 工作目录的干净模板：不含真实数据、密钥、账号与实例绝对路径。新部署从本目录复制出一份 `{AI目录}`（通常为 `ai/`），填入占位符后即可接入后端。
+`ai-template/` 是生产场景 `kinship-data/ai` 的脱敏模板：它以生产运行中的 AI 根为原型整理成公开骨架，发布前脱敏，不含真实数据、密钥、账号与实例绝对路径。
+
+它是模板，不是运行时 AI 目录。后端与 Loom 读写的是配置里的 AI 根（`Config.AI_ROOT`，即 `config.yaml` 的 `data.ai_root`），本目录本身不会被运行时使用。新部署把模板复制到该 AI 根，填入占位符后即可接入后端。
 
 模板同时适配两种 AI 后端：
 
@@ -9,24 +11,44 @@
 | Loom | 生产推荐，独立进程 | `{AI目录}/.loom/config.yaml`，示例见 `loom-config.example.yaml` |
 | OpenCode | 遗留/可选后端，模板不随附配置，生产用 Loom | 需自行创建 `{AI目录}/opencode.json`；MCP 脚本见 `mcp/ai_mcp.py` |
 
-## 复制到 ai/
+## 复制到 AI 根（data.ai_root）
 
-在仓库根目录执行（仅在全新部署时使用，不要覆盖已有实例）：
+复制目标是配置的 AI 根，不是固定路径 `ai/`。AI 根由 `Config.AI_ROOT` 决定（`config.yaml` 的 `data.ai_root`）；只有该键未配置时，后端才回落到默认 `<project>/ai`。私有/生产部署通常把实例放在 `kinship-data/ai`，例如（路径按你的部署替换）：
 
-```bash
-cp -r ai-template ai
+```text
+/path/to/kinship-data/ai
 ```
 
-若目标目录已存在且只想补齐模板文件：
+在仓库根目录执行，先确认目标 AI 根尚不存在：
 
 ```bash
-cp -a ai-template/. ai/
+AI_ROOT=/path/to/kinship-data/ai   # 换成你的 data.ai_root
+cp -a ai-template "$AI_ROOT"
 ```
 
-复制完成后按顺序处理：
+也可以用安装脚本代劳，它们支持指定 AI 根，且只在目标缺失时复制：
 
-1. 按《占位符替换清单》替换 `{项目名称}`、`{主智能体名称}`、`{AI目录}` 等占位符。
-2. 在项目根 `config.yaml` 配置后端端口、SSL、`ai_backend` 与 `data.*` 路径；AI 目录侧只填 `{AI目录}/.loom/config.yaml`。模板不再随附 OpenCode 配置，确实要用 OpenCode 时需自行创建 `opencode.json`。
+```bash
+# Linux / macOS
+./scripts/setup.sh --ai-root "$AI_ROOT"
+
+# Windows
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -AiRoot "D:\kinship-data\ai"
+```
+
+两条硬约束：
+
+- **不要把 `ai-template/` 原地复制成与它同级的 `ai/`**。`ai-template/ai/` 只是模板的副本，不会被任何配置识别，还会和真正的 AI 根混淆。
+- **不要覆盖已有的 AI 根**。目标存在时只有两种安全做法：只补齐缺失文件，或直接拒绝操作。初始化引导不会覆盖：复制动作直接拒绝（`already_exists`），补齐动作只写缺失文件。手工补缺失文件可参考：
+
+  ```bash
+  cp -an ai-template/. "$AI_ROOT/"
+  ```
+
+复制完成后按顺序处理（以下 `{AI目录}` 均指这个已配置的 AI 根）：
+
+1. 按《占位符替换清单》替换 `{项目名称}`、`{主智能体名称}`、`{AI目录}` 等占位符。`{AI目录}` 的取值就是 `data.ai_root`，可以是绝对路径。
+2. 在项目根 `config.yaml` 配置后端端口、SSL、`ai_backend` 与 `data.*` 路径，其中 `data.ai_root` 指向刚才的 AI 根；AI 目录侧只填 `{AI目录}/.loom/config.yaml`。模板不再随附 OpenCode 配置，确实要用 OpenCode 时需自行创建 `opencode.json`。
 3. 选 Loom：把 `loom-config.example.yaml` 复制为 `{AI目录}/.loom/config.yaml`，替换 Provider、模型与凭据环境变量；在项目根 `config.yaml` 设 `ai_backend: loom`。
 4. 模板不再随附 OpenCode 配置。若确实要用 OpenCode，自行创建 `{AI目录}/opencode.json`，并把 MCP 命令注册为 `python mcp/ai_mcp.py`，cwd 指向 `{AI目录}`。
 5. 启动后端（见 `启动说明.md`），然后按 `系统初始化指南.md` 完成首次初始化。
@@ -40,7 +62,7 @@ cp -a ai-template/. ai/
 | `{项目名称}` | 实例/服务名 | `AGENTS.md`、`mcp/ai_mcp.py` |
 | `{主智能体名称}` | 主智能体人格名 | `AGENTS.md`、`agents/*.md` |
 | `{用户称呼}` | 用户希望被称呼的名字 | `memory/` |
-| `{AI目录}` | AI 工作目录（相对项目根，通常为 `ai`） | 全模板 |
+| `{AI目录}` | AI 根，即 `data.ai_root` 的取值（默认 `<project>/ai`，可为绝对路径） | 全模板 |
 | `{项目根目录}` | 仓库根绝对路径 | `loom-config.example.yaml` |
 | `{后端HTTPS端口}` / `{后端HTTP端口}` | 后端监听端口 | 项目根 `config.yaml` |
 | `{OpenCode端口}` | OpenCode 服务端口 | 项目根 `config.yaml` |
@@ -60,7 +82,7 @@ cp -a ai-template/. ai/
 
 Loom 是独立进程，默认监听 `127.0.0.1:5100`，通过 `{AI目录}/.loom/config.yaml` 读取工作区、Provider、模型、MCP 与压缩策略。示例文件已脱敏：
 
-- `workspace` 指向 `{项目根目录}/{AI目录}`
+- `workspace` 指向 `{AI目录}`（相对路径按项目根解析）
 - Provider 使用占位 `baseUrl`
 - 凭据只写 `${ENV_VAR}` 引用
 - 只保留 `ai_mcp` 一个 MCP 示例，其他 MCP 按实例追加

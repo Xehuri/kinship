@@ -28,7 +28,7 @@ Kinship/ (public tree)
 ├── app/                       # Android data collection app (Kotlin)
 ├── desktop/                   # Electron shell + embedded PC sensor (desktop/pc-sensor/)
 ├── loom-harness/              # Loom agent harness (TypeScript/Node)
-├── ai-template/               # Clean AI working-directory template
+├── ai-template/               # Sanitized template for the configured AI root (data.ai_root)
 ├── deploy/                    # systemd unit references
 ├── docs/                      # user/ ops/ dev/ adr/ + kernel/ distribution docs
 ├── scripts/                   # Utility scripts
@@ -39,7 +39,7 @@ Kinship/ (public tree)
 └── pyproject.toml / setup.*   # Python project metadata
 ```
 
-`frontend/mobile/dist/` is build output, not tracked. `ai/` is created from `ai-template/` at install time and is not in the public tree. `kernel/` in a running install is the installed release asset, not source.
+`frontend/mobile/dist/` is build output, not tracked. The configured AI root (`data.ai_root`, default `<project>/ai`) is created from `ai-template/` at install time and is not in the public tree. `kernel/` in a running install is the installed release asset, not source.
 
 ### Private and Separate Components
 
@@ -49,7 +49,7 @@ Kinship/ (public tree)
 | `kinship-data` | Private directory (`<DATA_ROOT>`) | `config.yaml`, certificates, auth state, AI runtime data, uploads; never committed |
 | `kinship-circuitjs` | Separate public repository (GPL-2.0) | CircuitJS1 runtime fetched at dev/build time; not vendored |
 
-Private or excluded from the public tree: `ai/`, `kernel/` source, `tools/moss-shadow/`, `validation/`, `archive/`, `docs/archive/`. The kernel runtime installs at `<project>/kernel`; `data.ai_root` is the single AI root (default `<project>/ai`).
+Private or excluded from the public tree: the AI runtime directory (default `ai/`), `kernel/` source, `tools/moss-shadow/`, `validation/`, `archive/`, `docs/archive/`. The kernel runtime installs at `<project>/kernel`; `data.ai_root` is the single AI root (default `<project>/ai`).
 
 前端为 v2-only 壳层：桌面 5 项（对话/提醒/报告/文件/设置），移动端 3 项（对话/报告/设置）；`/dashboard` 已移除并落 404；健康数据入口在报告页健康摘要条、GPS/声纹与设置页「健康数据」/「数据源」。
 

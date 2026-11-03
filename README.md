@@ -49,7 +49,7 @@ Kinship 分为三个位置，不是单一仓库：
 | `kinship-kernel` | 闭源音频内核源码（`axeuh_kernel`） | 私有；PolyForm Noncommercial 1.0.0 |
 | `kinship-data` | `config.yaml`、证书、`backend/config/auth.json`、AI 运行时数据与上传文件 | 私有；不入 git |
 
-公开树不包含 `ai/`、`kernel/` 源码、`tools/moss-shadow/` 与 CircuitJS1 运行时。`ai/` 是由 `ai-template/` 创建的实例数据；内核以预编译发行资产安装到 `<project>/kernel`；`tools/moss-shadow/` 为私有组件；CircuitJS1 在 dev/build 时从独立的 `kinship-circuitjs` 仓库获取。
+公开树不包含 AI 运行时目录（默认 `ai/`）、`kernel/` 源码、`tools/moss-shadow/` 与 CircuitJS1 运行时。AI 实例由 `ai-template/` 创建到配置的 AI 根（`data.ai_root`，默认 `<project>/ai`，私有部署示例 `kinship-data/ai`）；内核以预编译发行资产安装到 `<project>/kernel`；`tools/moss-shadow/` 为私有组件；CircuitJS1 在 dev/build 时从独立的 `kinship-circuitjs` 仓库获取。
 
 运行时后端依赖三个位置：`<project>/kernel`（已安装的内核包，无需源码）、`data.ai_root`（唯一 AI 根，默认 `<project>/ai`，可指向私有 `kinship-data`）、以及独立的私有数据根（配置、证书、认证状态、模型与运行时数据）。全部内核模型（含 ERes2NetV2）由 `kernel_models` 引导步骤下载；内核压缩包不含 `models/` 目录与 `.ckpt` 文件；内核 API 保持 1.0.0。
 
@@ -111,11 +111,11 @@ sudo systemctl enable --now kinship
 
 `deploy/kinship.service.example` 中的路径、用户与解释器均为占位符，需按实际部署修改。
 
-`setup.sh` / `setup.bat` 创建 `.venv`、安装后端依赖，并在缺失时从 `config.example.yaml` 生成 `config.yaml`、从 `ai-template/` 生成 `ai/`，不会覆盖已有文件。`start.sh` / `start.bat` 在前台启动后端；手动启动的等价命令是在 `backend/` 下执行 `python -m core.hot_server`。首次启动前按 [docs/ops/CONFIGURATION.md](docs/ops/CONFIGURATION.md) 检查服务器、SSL、模型与密钥。
+`setup.sh` / `setup.bat` 创建 `.venv`、安装后端依赖，并在缺失时从 `config.example.yaml` 生成 `config.yaml`、从 `ai-template/` 生成 AI 根（默认 `<project>/ai`；非默认路径用 `--ai-root` / `-AiRoot` 指定），不会覆盖已有文件。`start.sh` / `start.bat` 在前台启动后端；手动启动的等价命令是在 `backend/` 下执行 `python -m core.hot_server`。首次启动前按 [docs/ops/CONFIGURATION.md](docs/ops/CONFIGURATION.md) 检查服务器、SSL、模型与密钥。
 
 脚本不构建前端，也不安装或构建音频内核。`frontend/dist` 缺失时由首次引导下载发行资产；手动构建仅用于开发，需要单独的 CircuitJS 仓库。音频功能依赖外部内核，缺少内核时后端仍可启动，但音频不可用。
 
-启动后打开 Web UI 完成管理员注册与 11 步初始化（账户、依赖、内核、模型、小米健康云、QQ、MOSS、Loom、客户端、完成），并确认 `http://127.0.0.1:8768/health` 返回 `{"status":"healthy"}`。Android App 与 PC 感知采集器的安装见 [docs/ops/INSTALL.md](docs/ops/INSTALL.md)，首次 AI 初始化按 `ai-template/系统初始化指南.md` 执行。
+启动后打开 Web UI 完成管理员注册与 11 步初始化（账户、依赖、内核、模型、小米健康云、QQ、MOSS、Loom、客户端、完成），并确认 `http://127.0.0.1:8768/health` 返回 `{"status":"healthy"}`。Android App 与 PC 感知采集器的安装见 [docs/ops/INSTALL.md](docs/ops/INSTALL.md)，首次 AI 初始化按 AI 根内的 `系统初始化指南.md`（来自 `ai-template/`）执行。
 
 ## 核心能力
 

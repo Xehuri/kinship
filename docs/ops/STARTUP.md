@@ -31,7 +31,7 @@ chmod +x scripts/setup.sh scripts/start.sh
 ./scripts/setup.sh
 ```
 
-脚本会创建 `.venv`、安装后端依赖、在缺失时从 `config.example.yaml` 生成 `config.yaml`，并从 `ai-template/` 生成 `ai/`。已有 `config.yaml`、`ai/` 和 `.venv` 不会被覆盖。
+脚本会创建 `.venv`、安装后端依赖、在缺失时从 `config.example.yaml` 生成 `config.yaml`，并从 `ai-template/` 生成配置的 AI 根（`data.ai_root`，默认 `<project>/ai`）。已有的 `config.yaml`、AI 根和 `.venv` 不会被覆盖。
 
 启动：
 
@@ -51,7 +51,7 @@ cd backend && python -m core.hot_server
 curl http://127.0.0.1:8768/health
 ```
 
-首次启动后打开 Web UI 完成管理员注册和 11 步初始化。Loom 的 token 和模型配置在初始化流程中写入 `ai/.loom/config.yaml`。
+首次启动后打开 Web UI 完成管理员注册和 11 步初始化。Loom 的 token 和模型配置在初始化流程中写入 AI 根下的 `.loom/config.yaml`。
 
 ## Windows
 
