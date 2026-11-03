@@ -1,0 +1,10 @@
+name: 每日天气
+schedule:
+  daily: "07:00"
+enabled: false
+prompt: |-
+  【每日天气】
+
+  1. 运行 `{Python解释器路径} {AI目录}/analysis/weather_brief.py --out-dir {AI目录}/data/daily/{今天日期}`，使用配置的 Python 解释器，不要用裸 python3。
+  2. 把 stdout 的两三句原文通过 `ai-mcp_send_notification` 发给用户，不要改写、不要加清单。
+  3. 脚本非 0 退出：只发一句「今天的天气没取到，等下再看」，不要猜天气。

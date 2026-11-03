@@ -17,3 +17,15 @@ deepseek_key.txt
 
 # 前台时长监控持久化状态（运行时自动生成）
 .foreground_watch_state.json
+
+# 唤醒监控状态（运行时自动生成）
+.wake_watch_state.json
+.wake_watch_state.json.tmp
+
+# 夜间主动联系状态（运行时自动生成）
+.night_checkin_state.json
+.night_checkin_state.json.tmp
+
+# 健康同步回调状态（运行时自动生成）
+.health_sync_state.json
+.health_sync_state.json.tmp
