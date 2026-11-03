@@ -73,7 +73,7 @@
 |------|------|
 | `memory_write.py` | 记忆唯一写入入口：原子写、目录锁、去重、superseded 标记与快照 |
 | `memory_retrieve.py --query <词> [--budget 6000]` | 只读词法检索，返回带行号片段；辅助定位，命中后必须回读验证 |
-| `memory_audit.py <scan\|report\|check>` | 只读体检：注入清单、预算、禁注入项、投影新鲜度与标签 |
+| `memory_audit.py <scan\|report\|check>` | 只读体检：注入清单、预算、禁注入项、投影新鲜度、state.md 新鲜度/体积与标签 |
 | `memory_consolidate.py [--apply]` | 离线巩固，默认 dry-run；daily 清理已收割草稿，weekly 只做体检 |
 | `memory_index.py [--dry-run] [--out 目录] [--dates 日期1,日期2]` | 构建只读记忆索引，产物为 `entities.jsonl` / `links.jsonl` / `manifest.json` / `status.json` |
 | `memory_index_lib.py` | 记忆索引构建库，无 CLI |

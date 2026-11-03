@@ -69,7 +69,7 @@ def _make_tree(tmp_path: Path) -> Path:
     _write(memory / 'self' / 'chat-mode.md', _memory_card('记忆, self, chat', date='2026-01-02'))
     _write(memory / 'self' / 'persona-lite.md', _memory_card(
         '记忆, self, projection', updated=DATE, extra='source_files: [self/身份.md]'))
-    _write(memory / 'profile' / 'state.md', _memory_card('记忆, 状态快照', date='2026-01-02'))
+    _write(memory / 'profile' / 'state.md', _memory_card('记忆, 状态快照', date=DATE))
     _write(memory / 'profile' / 'core.md', _memory_card('记忆, 用户画像', date='2026-01-03'))
     _write(memory / 'profile' / 'core-lite.md', _memory_card(
         '记忆, 用户画像, projection', updated=DATE,
@@ -114,6 +114,64 @@ def test_check_passes_on_clean_tree(tree: Path, capsys):
     assert report['warnings'] == []
     assert audit.main(['--root', str(tree), 'check']) == 0
     assert 'SUMMARY errors=0 warnings=0' in capsys.readouterr().out
+
+
+def _state_path(tree: Path) -> Path:
+    return tree / 'memory' / 'profile' / 'state.md'
+
+
+def test_state_snapshot_stale_date_is_warning(tree: Path):
+    _write(_state_path(tree), _memory_card('记忆, 状态快照', date='2026-10-20'))
+
+    report = audit.build_report(tree)
+
+    assert 'memory.state.stale' in _ids(report, 'warnings')
+    assert audit.main(['--root', str(tree), 'check']) == 0
+
+
+def test_state_snapshot_oversize_is_warning(tree: Path):
+    _write(
+        _state_path(tree),
+        _memory_card('记忆, 状态快照', date=DATE) + 'x' * 4_000,
+    )
+
+    report = audit.build_report(tree)
+
+    assert 'memory.state.oversize' in _ids(report, 'warnings')
+    assert audit.main(['--root', str(tree), 'check']) == 0
+
+
+def test_state_snapshot_dated_sections_is_warning(tree: Path):
+    _write(
+        _state_path(tree),
+        _memory_card('记忆, 状态快照', date=DATE) + '## 2026-10-24 快照\n',
+    )
+
+    report = audit.build_report(tree)
+
+    assert 'memory.state.dated_sections' in _ids(report, 'warnings')
+
+
+def test_state_snapshot_date_mismatch_is_warning(tree: Path):
+    _write(
+        _state_path(tree),
+        _memory_card('记忆, 状态快照', date=DATE) + '当前日期：2026-10-01\n',
+    )
+
+    report = audit.build_report(tree)
+
+    assert 'memory.state.date_mismatch' in _ids(report, 'warnings')
+
+
+def test_state_snapshot_placeholder_is_ignored(tree: Path):
+    _write(
+        _state_path(tree),
+        _memory_card('记忆, 状态快照', date='{date}') + '当前日期：{date}\n',
+    )
+
+    report = audit.build_report(tree)
+
+    assert not any(item.startswith('memory.state.') for item in _ids(report, 'warnings'))
 
 
 def test_main_extra_memory_item_is_error(tree: Path, capsys):

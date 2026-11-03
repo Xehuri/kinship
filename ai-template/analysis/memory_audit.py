@@ -19,7 +19,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -66,6 +66,11 @@ LARGE_BYTES = 20 * 1024
 LARGE_LINES = 300
 SUMMARY_MAX_BYTES = 24_000
 INDEX_MAX_BYTES = 4_000
+STATE_REL = 'profile/state.md'
+STATE_MAX_BYTES = 3 * 1024
+STATE_STALE_DAYS = 2
+DATED_STATE_SECTION_RE = re.compile(r'^##\s+\d{4}-\d{2}-\d{2}\s+快照', re.M)
+CURRENT_DATE_RE = re.compile(r'当前日期\s*[:：]\s*(\d{4}-\d{2}-\d{2})')
 
 # A 方案（主会话常驻 6 件）于 2026-10-20 收口；此前的卡片缺「记忆」tag 记 warning，
 # 此后新增/更新的卡片缺 tag 记 error，避免老账把 check 永久卡红。
@@ -361,6 +366,47 @@ def _agent_memory_checks(root: Path, checks: list[Check]) -> None:
                 ))
 
 
+def _state_snapshot_checks(root: Path, display: str, text: str,
+                           frontmatter: dict[str, Any],
+                           record: dict[str, Any], checks: list[Check]) -> None:
+    if record['bytes'] > STATE_MAX_BYTES:
+        checks.append(Check(
+            WARNING, 'memory.state.oversize',
+            f"{record['bytes']} bytes > {STATE_MAX_BYTES}，state.md 应整文件覆盖",
+            display,
+        ))
+    if DATED_STATE_SECTION_RE.search(text):
+        checks.append(Check(
+            WARNING, 'memory.state.dated_sections',
+            'state.md 含按日期分节的历史快照；应整文件覆盖，不在单页追加历史',
+            display,
+        ))
+
+    frontmatter_date = _parse_date(frontmatter.get('date'))
+    body_match = CURRENT_DATE_RE.search(text)
+    body_date = _parse_date(body_match.group(1)) if body_match else None
+    if frontmatter_date and body_date and frontmatter_date != body_date:
+        checks.append(Check(
+            WARNING, 'memory.state.date_mismatch',
+            f'frontmatter date={frontmatter_date.isoformat()} 与正文当前日期={body_date.isoformat()} 不一致',
+            display,
+        ))
+
+    state_date = frontmatter_date or body_date
+    if state_date is None:
+        return
+    daily_dir = _latest_daily_dir(root)
+    reference_date = _parse_date(daily_dir.name) if daily_dir is not None else date.today()
+    if reference_date is None:
+        return
+    if state_date < reference_date - timedelta(days=STATE_STALE_DAYS):
+        checks.append(Check(
+            WARNING, 'memory.state.stale',
+            f'state.md 日期 {state_date.isoformat()} 落后于 {reference_date.isoformat()} 超过 {STATE_STALE_DAYS} 天',
+            display,
+        ))
+
+
 def _memory_file_checks(root: Path, memory_dir: Path,
                         records: list[dict[str, Any]], checks: list[Check]) -> None:
     for rel, path in _iter_memory_files(memory_dir):
@@ -369,6 +415,9 @@ def _memory_file_checks(root: Path, memory_dir: Path,
         display = _display_path(root, path)
         record = _file_record(root, path, _memory_category(rel))
         records.append(record)
+
+        if rel.as_posix() == STATE_REL:
+            _state_snapshot_checks(root, display, text, frontmatter, record, checks)
 
         if record['bytes'] > LARGE_BYTES or record['lines'] > LARGE_LINES:
             checks.append(Check(
