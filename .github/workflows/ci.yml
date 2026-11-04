@@ -124,6 +124,7 @@ jobs:
           python tools/check_stratum_commands.py --self-test
           python tools/check_stratum_commands.py
       - name: Validate legacy import script
+        if: runner.os == 'Linux'
         run: |
           bash -n ai-template/scripts/import-legacy-index.sh
           root=$(mktemp -d)
