@@ -1,10 +1,10 @@
 # Kinship 健康监测 - Android App
 
-**上次更新**: 2026-11-03
+**上次更新**: 2026-11-04
 **框架**: Kotlin + Jetpack Compose + Gradle
 **Android**: minSdk 26, targetSdk 36, compileSdk 36
 **包名**: `com.xehuri.kinship`
-**版本**: versionCode 11 / versionName "1.4.2"
+**版本**: versionCode 12 / versionName "0.1.1"
 **架构**: 分层模块化（网络层 → 状态层 → 采集层 → UI层）
 
 ## 概述

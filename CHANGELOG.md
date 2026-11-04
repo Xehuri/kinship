@@ -19,6 +19,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 - **长期运行边界修复（2026-11-04，issue #3）**：`state.md` 明确整文件覆盖并新增过期/超 3KB/日期分节体检；Loom 将网关 `413 payload too large` 归类为 context overflow，避免无意义重试；`/api/services` 为端口被外部进程占用的 Loom 增加 `external`/`note`，前端显示「外部运行（未受管）」而不改变接管策略。
 - **Android 通知监听断连恢复（2026-11-03）**：系统保留通知读取授权但解绑 `NotificationListenerService` 时，采集器不再静默跳过；15s 宽限后按 60s 节流 `requestRebind()`，权限缺失或 2 分钟仍未恢复时弹可点击通知直达通知使用权设置，恢复后自动撤销。设置页「通知读取」在功能开启时按「权限 + 实际连接」判定，未连接显示「待处理」并可点击；通知页新增「打开通知使用权设置」入口。新增 `NotificationListenerRecovery` 纯策略与 9 条单测（commit `d03f78c`）。APK：`Kinship-notif-recovery-2026-11-03.apk`（debug）。
+- **Android OTA 发布与路径修复（2026-11-04）**：`OTA_APK_DIR` 的相对默认值改为按项目根解析（此前按后端 cwd 解析，生产 OTA 恒返回 `no_apk`）；Android 升至 `versionCode 12 / versionName 0.1.1` 并发布到生产 OTA 目录。
 
 ### 变更
 
@@ -46,6 +47,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 - **对话生产修复验证（2026-10-25 09:30）**：typecheck 通过；88 文件 / 945 单测通过；全量 42 个 Playwright 场景通过（本轮相关 13 个）；后端定向 81 用例通过；生产 QA 1440/1024/390 显示 10.9% / 109,471 / 1,000,000，135 个子智能体仅列表滚动，压缩确认取消零请求，滚顶自动历史请求 1 次，`consoleErrors=0`、`failedResponses=0`。
 - **桌面端 1.0.0 包（2026-10-24）**：`<RELEASE_BASE_URL>/Kinship-Desktop-1.0.0-x64.zip`（未签名）；280 单测 + 12 E2E 通过。
 - **Android 通知监听恢复验证（2026-11-03）**：`NotificationListenerRecoveryTest` 9 条 + 既有 null-provider 用例通过；`:app:assembleDebug` 成功（APK 54.8 MB）；全量 690 单测 4 条既有失败（`NotificationCollectorTest` 2 条旧 HTTP 直发断言、`ServerConfigTest` / `PrefsContractSnapshotTest` 各 1 条）、15 skipped；无 adb 设备，真机恢复待安装后确认。
+- **Android OTA 验证（2026-11-04）**：`/api/ota/info` 返回 `active`（0.1.1，54,341,170 bytes），下载 Range 请求返回 206（Content-Range 覆盖完整文件）；APK `versionCode=12 versionName=0.1.1`。
 
 ## [0.1.0] - 2026-10-29
 

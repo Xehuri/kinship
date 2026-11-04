@@ -963,8 +963,13 @@ class Config:
 
     @property
     def OTA_APK_DIR(self) -> str:
-        """APK 构建输出目录"""
-        return self._section('ota').get('apk_dir', os.path.join(str(_resolve_base()), 'app', 'build', 'outputs', 'apk', 'debug'))
+        """APK 构建输出目录（相对路径按项目根解析）"""
+        raw = self._section('ota').get('apk_dir') or os.path.join(
+            'app', 'build', 'outputs', 'apk', 'debug'
+        )
+        if not os.path.isabs(str(raw)):
+            raw = os.path.join(str(_resolve_base()), str(raw))
+        return os.path.normpath(str(raw))
 
     @property
     def PC_SENSOR_EXE_PATH(self) -> str:
