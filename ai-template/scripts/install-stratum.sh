@@ -2,7 +2,7 @@
 set -euo pipefail
 
 AI_ROOT="${1:-}"
-VERSION="${STRATUM_VERSION:-v0.1.0}"
+VERSION="${STRATUM_VERSION:-v0.1.1}"
 PYTHON="${PYTHON:-python3}"
 
 if [ -z "$AI_ROOT" ]; then
