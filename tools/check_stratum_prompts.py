@@ -13,20 +13,14 @@ FILES = {
     "04-weekly-review.md": ("stratum ingest report", "stratum review promote"),
     "main.md": ("stratum query",),
 }
-CONDITIONAL_OLD_INDEX = {
-    "02-daily-review.md": (
-        "步骤5e: 索引层编目（仅 `STRATUM_ENABLED=0` 回退时）",
-        "报告落盘后，仅在 `STRATUM_ENABLED=0` 回退时",
-    ),
-    "03-biweekly-review.md": (
-        "步骤 2d：索引层观察/发现卡（仅 `STRATUM_ENABLED=0` 回退时）",
-        "报告写入后，仅在 `STRATUM_ENABLED=0` 回退时",
-    ),
-    "04-weekly-review.md": (
-        "步骤 4b：索引层观察/发现卡（仅 `STRATUM_ENABLED=0` 回退时）",
-        "报告写入后，仅在 `STRATUM_ENABLED=0` 回退时",
-    ),
-}
+OLD_INDEX_COMMANDS = (
+    "build_blocks.py",
+    "build_reports.py",
+    "build_report_relations.py",
+    "card_admin.py",
+    "validate_catalog.py",
+)
+IMPORT_SCRIPTS = ("import-legacy-index.sh", "import-legacy-index.ps1")
 
 
 def main() -> None:
@@ -42,12 +36,15 @@ def main() -> None:
             raise SystemExit(f"{path}: legacy JSON request")
         if "stratum --json" in text:
             raise SystemExit(f"{path}: JSON CLI")
-    for name, needles in CONDITIONAL_OLD_INDEX.items():
-        path = ROOT / name
+    for path in ROOT.glob("*.md"):
         text = path.read_text(encoding="utf-8")
-        for needle in needles:
-            if needle not in text:
-                raise SystemExit(f"{path}: unconditional old-index step: missing {needle!r}")
+        for needle in OLD_INDEX_COMMANDS:
+            if needle in text:
+                raise SystemExit(f"{path}: old-index command is deprecated: {needle!r}")
+    for name in IMPORT_SCRIPTS:
+        path = Path("ai-template/scripts") / name
+        if not path.is_file():
+            raise SystemExit(f"missing {path}")
     for name in CONTRACT_FILES:
         path = CONTRACTS / name
         if not path.is_file():

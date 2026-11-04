@@ -123,6 +123,12 @@ jobs:
         run: |
           python tools/check_stratum_commands.py --self-test
           python tools/check_stratum_commands.py
+      - name: Validate legacy import script
+        run: |
+          bash -n ai-template/scripts/import-legacy-index.sh
+          root=$(mktemp -d)
+          mkdir -p "$root/data/index"
+          ai-template/scripts/import-legacy-index.sh "$root" --dry-run
 
   stratum-installer-windows:
     name: Stratum installer (Windows)
@@ -152,6 +158,23 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP "stratum-dry-ai"
           New-Item -ItemType Directory -Path $root | Out-Null
           ./ai-template/scripts/install-stratum.ps1 -AiRoot $root -Version v0.1.1 -NoProxy -DryRun -Force
+      - name: Parse and dry-run legacy import
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "ai-template/scripts/import-legacy-index.ps1"),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "PowerShell parse failed"
+          }
+          $root = Join-Path $env:RUNNER_TEMP "stratum-import-ai"
+          New-Item -ItemType Directory -Path (Join-Path $root "data/index") -Force | Out-Null
+          ./ai-template/scripts/import-legacy-index.ps1 -AiRoot $root -DryRun
       - name: Install and initialize
         shell: pwsh
         run: |
