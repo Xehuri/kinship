@@ -30,10 +30,10 @@ if (-not (Test-Path -LiteralPath $AiRoot -PathType Container)) {
     throw "AI root does not exist: $AiRoot"
 }
 
-$Python = if (Get-Command py -ErrorAction SilentlyContinue) {
-    "py"
-} elseif (Get-Command python -ErrorAction SilentlyContinue) {
+$Python = if (Get-Command python -ErrorAction SilentlyContinue) {
     "python"
+} elseif (Get-Command py -ErrorAction SilentlyContinue) {
+    "py"
 } else {
     throw "Python 3.11+ is required, but py/python was not found."
 }
