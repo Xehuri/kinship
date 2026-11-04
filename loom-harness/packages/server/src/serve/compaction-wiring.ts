@@ -107,6 +107,44 @@ export function deriveSingleCallBudgetTokens(contextWindow: number, maxOutput: n
   );
 }
 
+/**
+ * 子会话 fallback 阈值按子模型窗口封顶：窗口扣除输出预留（封顶 4096）后的可用输入量，
+ * 再与配置值取小。窗口/输出上限非有限正数 = 无法推导，原样返回配置值。
+ */
+export function deriveSubagentFallbackTokens(
+  contextWindow: number,
+  maxOutput: number,
+  configured: number,
+): number {
+  if (!isFinitePositive(contextWindow) || !isFinitePositive(maxOutput)) {
+    return configured;
+  }
+  const windowLimit = Math.floor(contextWindow - Math.min(maxOutput, 4_096));
+  if (windowLimit <= 0) return configured;
+  return Math.min(configured, windowLimit);
+}
+
+/**
+ * 子会话 fallback 压缩选项：阈值按子模型窗口封顶、**不注入水位提醒**（watermark 仅主会话），
+ * summarizer/store/重试语义与主会话完全同一实现（buildSessionCompactionOptions）。
+ * 未启用或未声明 fallbackTokens = undefined（子会话零压缩，旧调用面不变）。
+ */
+export function buildSubagentCompactionOptions(
+  input: BuildSessionCompactionInput,
+): SessionCompactionOptions | undefined {
+  if (!input.cfg.enabled || input.cfg.fallbackTokens === undefined) return undefined;
+  const { watermark: _watermark, ...cfgWithoutWatermark } = input.cfg;
+  const capped = deriveSubagentFallbackTokens(
+    input.model.model.contextWindow,
+    input.model.model.maxTokens,
+    input.cfg.fallbackTokens,
+  );
+  return buildSessionCompactionOptions({
+    ...input,
+    cfg: { ...cfgWithoutWatermark, fallbackTokens: capped },
+  });
+}
+
 /** 摘要调用思考强度覆盖：只克隆顶层与 providerExtras，不改 base。 */
 export function buildSummaryLlmOptions(
   base: LlmOptions,

@@ -26,6 +26,7 @@ import type { LlmOptions } from "../llm-model.js";
 import type { AgentSession } from "../session.js";
 import type { WireRequestSnapshot } from "../wire-capture.js";
 import type { SessionStore } from "../session-store.js";
+import type { SessionCompactionOptions } from "../compaction/session-compaction.js";
 import type { SessionContextWatcher } from "../assembly/session-context.js";
 import type { RunLaunchResult, RunRecord, RunRow } from "../run-engine/types.js";
 
@@ -230,6 +231,8 @@ export interface SubSessionProfile {
   readonly llmOptions?: LlmOptions | undefined;
   readonly store?: SessionStore | undefined;
   readonly maxTurns?: number | undefined;
+  /** W57 会话级 fallback 压缩依赖（子会话兜底；仅 store 存在时挂载，commit 需要 durable store）。 */
+  readonly compaction?: SessionCompactionOptions | undefined;
   /** 每会话上下文侦听器（条件展开；undefined = 键缺席 = 旧工厂行为）。 */
   readonly contextWatcher?: SessionContextWatcher | undefined;
   /** 每 turn 上下文检查开关（条件展开；缺省由内核按 watcher 存在性推导）。 */

@@ -92,6 +92,7 @@ import { resolveMainSession } from "./main-session.js";
 import {
   buildCompactionHooks,
   buildSessionCompactionOptions,
+  buildSubagentCompactionOptions,
   resolveSummaryPerspectives,
 } from "./compaction-wiring.js";
 import { createCompactContextTool } from "./compact-tool.js";
@@ -841,6 +842,16 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     onToolOutput,
     // W9 切片0：子会话转录落盘恒挂（同步/后台同一工厂，见 tool-wiring childSessionFactory）。
     childSessionStore: loomSessionsStore,
+    // W57 子会话 fallback 压缩：compaction 段在场且 enabled/fallbackTokens 满足时，按子模型
+    // 句柄现算选项（阈值窗口封顶、无水位；store 恒在故 tool-wiring 会挂上）。
+    subagentCompactionFor: (handle) =>
+      options.config.compaction === undefined
+        ? undefined
+        : buildSubagentCompactionOptions({
+            model: handle,
+            cfg: options.config.compaction,
+            stateRoot: options.stateRoot,
+          }),
     // GAP-3/GAP-4：显式 planRoot 才挂 plan/long_task（LOOM_PLAN_ROOT > plan.root；
     // 缺省不传 = 两工具不挂面，boot 已在函数头 info 行说明 disabled 原因）。
     ...(planRootResolution.planRoot === undefined
@@ -1072,6 +1083,7 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
     compactionEnabled && comp.microcompact !== undefined && comp.microcompact.enabled !== false;
   log("info", "loom compaction", {
     enabled: compactionEnabled,
+    subagentFallback: compactionEnabled && comp.fallbackTokens !== undefined,
     maxContextTokens: comp?.maxContextTokens ?? null,
     triggerRatio: comp?.triggerRatio ?? 0.8,
     fallbackTokens: comp?.fallbackTokens ?? null,
@@ -1133,8 +1145,9 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   // 一实例一 session（auto-compaction.ts:256-258）→ 有状态钩子走 hooksFor 工厂逐会话新造，
   // 追加在 extraHooks 尾部（W47 gate 先序由拼接位置构造性保证）。段缺席/在场禁用 = 键不
   // 出现 = 零注册（G6 逐字节旧面）。summarize=defaultSummarize×completeText 吃主会话同一
-  // model/llmOptions 句柄（同 provider、零新增凭据路径）。side/子会话零触碰（sidePort
-  // hooks 数组与 childSessionFactory 本波 git diff 零行）。生效=改配置+重启（无热重载）。
+  // model/llmOptions 句柄（同 provider、零新增凭据路径）。side 端口仍零压缩；子会话不经
+  // hooks，改由 tool-wiring 的 childSessionFactory 挂 session-level fallback（本函数下方
+  // sessionCompaction 是主会话面，子会话面见 subagentCompactionFor）。生效=改配置+重启。
   const compactionHooksFor =
     comp === undefined || !compactionEnabled
       ? undefined

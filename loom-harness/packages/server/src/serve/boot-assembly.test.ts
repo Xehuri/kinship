@@ -1119,6 +1119,7 @@ describe("createLoomApp：W49-C compaction 日志面与 1M 窗 WARN", () => {
         const line = logs.find((l) => l.msg === "loom compaction");
         expect(line?.level).toBe("info");
         expect(line?.fields["enabled"]).toBe(false);
+        expect(line?.fields["subagentFallback"]).toBe(false);
         expect(line?.fields["maxContextTokens"]).toBeNull();
         expect(line?.fields["triggerRatio"]).toBe(0.8);
         expect(line?.fields["keepRecent"]).toBe(6);
@@ -1147,6 +1148,7 @@ describe("createLoomApp：W49-C compaction 日志面与 1M 窗 WARN", () => {
       try {
         const line = logs.find((l) => l.msg === "loom compaction");
         expect(line?.fields["enabled"]).toBe(true);
+        expect(line?.fields["subagentFallback"]).toBe(false);
         expect(line?.fields["source"]).toBe("declared");
         expect(line?.fields["resummarizeEvery"]).toBe(6); // 兜 keepRecent 缺省链重述
         const warn = logs.find((l) => l.level === "warn" && l.msg.includes("trigger likely unreachable"));
@@ -1183,6 +1185,7 @@ describe("createLoomApp：W49-C compaction 日志面与 1M 窗 WARN", () => {
       try {
         const line = logs.find((l) => l.msg === "loom compaction");
         expect(line?.fields["enabled"]).toBe(true);
+        expect(line?.fields["subagentFallback"]).toBe(false);
         expect(line?.fields["maxContextTokens"]).toBe(250000);
         expect(line?.fields["triggerRatio"]).toBe(0.8);
         expect(line?.fields["keepRecent"]).toBe(8);
@@ -1250,6 +1253,7 @@ describe("createLoomApp：W49-C compaction 日志面与 1M 窗 WARN", () => {
       const app = await bootWs(root, logs, top);
       try {
         const line = logs.find((l) => l.msg === "loom compaction");
+        expect(line?.fields["subagentFallback"]).toBe(true);
         expect(line?.fields["summaryMode"]).toBe("single");
         expect(line?.fields["summaryReasoningEffort"]).toBe("high");
         expect(line?.fields["summaryBudget"]).toBe(500000);

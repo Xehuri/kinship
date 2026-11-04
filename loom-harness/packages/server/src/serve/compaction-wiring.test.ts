@@ -46,8 +46,10 @@ import type { CompactionConfig } from "../config/loom-config.js";
 import {
   buildCompactionHooks,
   buildSessionCompactionOptions,
+  buildSubagentCompactionOptions,
   buildSummaryLlmOptions,
   deriveSingleCallBudgetTokens,
+  deriveSubagentFallbackTokens,
   resolveSummaryPerspectives,
 } from "./compaction-wiring.js";
 
@@ -744,5 +746,64 @@ describe("摘要视角装配：默认 ops+chat、显式 ops 回滚、chat 合并
       stateRoot,
     });
     expect(options?.additionalSummaryPerspectives?.map((p) => p.key)).toEqual(["chat"]);
+  });
+});
+
+describe("子会话 fallback 压缩：阈值按子模型窗口封顶、无水位", () => {
+  const stateRoot = "/tmp/loom-subagent-compaction-test";
+  const windowHandle = {
+    model: { contextWindow: 262_144, maxTokens: 32_768 } as unknown as Model<Api>,
+    llmOptions: {} as LlmOptions,
+  };
+
+  it("deriveSubagentFallbackTokens：1M 窗不封顶，262144 窗封顶到 258048", () => {
+    expect(deriveSubagentFallbackTokens(1_000_000, 32_768, 750_000)).toBe(750_000);
+    expect(deriveSubagentFallbackTokens(262_144, 32_768, 750_000)).toBe(258_048);
+  });
+
+  it("deriveSubagentFallbackTokens：窗口/输出上限非有限正数 = 原样返回配置值", () => {
+    for (const [contextWindow, maxOutput] of [
+      [0, 32_768],
+      [-1, 32_768],
+      [Number.NaN, 32_768],
+      [262_144, 0],
+      [262_144, Number.POSITIVE_INFINITY],
+    ] as const) {
+      expect(deriveSubagentFallbackTokens(contextWindow, maxOutput, 750_000)).toBe(750_000);
+    }
+  });
+
+  it("buildSubagentCompactionOptions：阈值封顶、watermarkLevels 键不出现、其余语义同主会话", () => {
+    const options = buildSubagentCompactionOptions({
+      model: windowHandle,
+      cfg: {
+        enabled: true,
+        fallbackTokens: 750_000,
+        watermark: { levels: [300_000] },
+        keepRecent: 8,
+      },
+      stateRoot,
+    });
+    expect(options?.fallbackTokens).toBe(258_048);
+    expect(options?.keepRecent).toBe(8);
+    expect(options?.stateStore).toBeDefined();
+    expect(options !== undefined && "watermarkLevels" in options).toBe(false);
+  });
+
+  it("buildSubagentCompactionOptions：disabled 或未声明 fallbackTokens = undefined", () => {
+    expect(
+      buildSubagentCompactionOptions({
+        model: windowHandle,
+        cfg: { enabled: false, fallbackTokens: 750_000 },
+        stateRoot,
+      }),
+    ).toBeUndefined();
+    expect(
+      buildSubagentCompactionOptions({
+        model: windowHandle,
+        cfg: { enabled: true },
+        stateRoot,
+      }),
+    ).toBeUndefined();
   });
 });

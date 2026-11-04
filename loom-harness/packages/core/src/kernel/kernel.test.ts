@@ -9,12 +9,16 @@
  *        terminalProfileOf 映射恒 run→converge-receipt / sub→raw-summary。
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import type { Context, Message } from "@earendil-works/pi-ai";
 
 import { createFakeModel } from "../testing.js";
 import { SessionContextWatcher } from "../assembly/index.js";
-import { Type, type HarnessTool } from "../index.js";
+import { CompactionStateStore, MemorySessionStore, Type, type HarnessTool } from "../index.js";
 import { MemoryLedger } from "../run-engine/memory-ledger.js";
 import type {
   LedgerPort,
@@ -288,6 +292,45 @@ describe("SpawnKernel sub 面：policy 路由到唯一工厂", () => {
 
     const noHooks = buildSubSession({ model: fake(), sessionId: "ses_nohooks00000001", systemPrompt: "s", tools: [], hooks: [] });
     expect(noHooks.id).toBe("ses_nohooks00000001");
+  });
+
+  it("buildSubSession 仅在 compaction 与 store 同时提供时挂 compaction（storeless 不挂，turn 不因缺 store 失败）", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "loom-sub-compact-"));
+    try {
+      const compaction = {
+        stateStore: new CompactionStateStore({ stateRoot: tmp }),
+        summarize: async () => "summary",
+        wrapSummary: (text: string, n: number) =>
+          `[auto-compacted summary of ${n} earlier messages]\n${text}`,
+        fallbackTokens: 100_000,
+        keepRecent: 1,
+        summaryChunkTokens: 1000,
+      };
+
+      const withStore = buildSubSession({
+        model: fake(),
+        sessionId: "ses_subcompact000001",
+        systemPrompt: "",
+        tools: [],
+        store: new MemorySessionStore(),
+        compaction,
+      });
+      const started = withStore.startCompaction("manual");
+      expect(started.attemptId).toBeTruthy();
+      const outcome = await started.done;
+      expect(outcome.ok).toBe(true);
+
+      const withoutStore = buildSubSession({
+        model: fake(),
+        sessionId: "ses_subcompact000002",
+        systemPrompt: "",
+        tools: [],
+        compaction,
+      });
+      expect(() => withoutStore.startCompaction("manual")).toThrow(/compaction is not configured/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it("buildConvergeSession：gate 挂首工具 converge + session 身份/提示照旧（converge-receipt 档案）", () => {

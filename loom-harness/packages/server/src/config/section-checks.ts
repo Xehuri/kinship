@@ -1163,8 +1163,9 @@ export interface CompactionWatermarkConfig {
  * 会静默杀 summarize，落成 autoCompaction hook timeout 覆盖值）。
  * 生效方式（W27 实例化部署模型）：键住 <实例根>/.loom/config.yaml，改配置+重启，
  * 无运行期热重载通道（与 convergenceEnforced/sandbox/subagent 同纪律，如实声明）。
- * 范围申明：**只作用主会话**（W49.7 LOCK per-session 工厂挂主会话 loop 尾部）；
- * side/子会话零压缩纪律不动（core/compaction/routine.ts 头注"副会话 run 默认不压缩"）。
+ * 范围申明：**主会话走 hooks + worker fallback；子会话（task）默认继承 session-level
+ * fallback（阈值按子模型窗口封顶、不注入水位提醒）；side/副会话仍零压缩**
+ * （core/compaction/routine.ts 头注"副会话 run 默认不压缩"对 side 面不变）。
  */
 export interface CompactionStreamConfig {
   /** SSE delta 合并窗口（ms，正整数）；缺席 = 发布器缺省 50。 */

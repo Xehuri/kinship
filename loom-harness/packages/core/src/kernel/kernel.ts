@@ -98,6 +98,11 @@ export function buildSubSession(profile: SubSessionProfile): AgentSession {
     ...(profile.hooks === undefined || profile.hooks.length === 0 ? {} : { hooks: [...profile.hooks] }),
     ...(profile.llmOptions === undefined ? {} : { llmOptions: profile.llmOptions }),
     ...(profile.store === undefined ? {} : { store: profile.store }),
+    // 子会话 fallback 压缩只在 durable store 存在时挂载：commit 需要 store，storeless
+    // 子会话挂上只会把 turn 变成压缩失败（守卫在构造面，避免调用方各自防御）。
+    ...(profile.compaction === undefined || profile.store === undefined
+      ? {}
+      : { compaction: profile.compaction }),
     ...(profile.maxTurns === undefined ? {} : { maxTurns: profile.maxTurns }),
     ...(profile.contextWatcher === undefined
       ? {}

@@ -39,7 +39,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import type { Api, HarnessTool, Hook, LlmOptions, Model, SessionStore, WireRequestSnapshot } from "@axeuh/loom-core";
+import type { Api, HarnessTool, Hook, LlmOptions, Model, SessionCompactionOptions, SessionStore, WireRequestSnapshot } from "@axeuh/loom-core";
 import { SessionContextWatcher } from "@axeuh/loom-core/assembly";
 import { buildSubSession } from "@axeuh/loom-core/kernel";
 import { loadAgentTypes, builtinAgentTypes, type AgentTypeDef } from "@axeuh/loom-core/subagent/agents";
@@ -58,6 +58,7 @@ import {
 } from "@axeuh/loom-tools/seam";
 
 import { createServeToolTrace, type ServeToolTrace } from "./tool-trace.js";
+import type { CompactionModelHandle } from "./compaction-wiring.js";
 import { createPlanTool } from "./plan-tool.js";
 import { createLongTaskTool } from "./long-task-tool.js";
 import { JsonPlanStore } from "../plan/json-plan-store.js";
@@ -120,6 +121,8 @@ export interface ServeToolWiringOptions {
    * 缺省 = 不挂（直调测试旧面不变）；主会话 store 不归此处（boot 直注 registry，冻结不动）。
    */
   readonly childSessionStore?: SessionStore;
+  /** 子会话 fallback 压缩选项工厂（boot 注入；缺省 = 子会话零压缩，旧调用面不变）。 */
+  readonly subagentCompactionFor?: (handle: CompactionModelHandle) => SessionCompactionOptions | undefined;
   /**
      * W11a P0：bash 输出 chunk 上抛缝（= ToolOutputStream.onOutput）。给了就把
     * executor.asBashOperations() 包一层 tee——vendor 滚动缓冲口径一字不动，
@@ -449,6 +452,12 @@ export async function createServeToolWiring(
       // 未知 id 由 modelByAgent 抛 UnknownAgentModelError（响亮拒绝，绝不回落）；返回
       // undefined 仅为防御面（boot 实现对已声明 id 要么给句柄要么抛错）。
       const routed = def.model === undefined ? undefined : opts.modelByAgent?.(def);
+      const subModel = routed?.model ?? opts.model;
+      const subLlmOptions = routed?.llmOptions ?? opts.llmOptions;
+      const childCompaction = opts.subagentCompactionFor?.({
+        model: subModel,
+        llmOptions: subLlmOptions,
+      });
       const childSessionId = newSubagentSessionId();
       const wireSink = opts.onWireSnapshot;
       const role = assembleRoleContext(
@@ -467,15 +476,20 @@ export async function createServeToolWiring(
             })),
           });
       const sub = buildSubSession({
-        model: routed?.model ?? opts.model,
+        model: subModel,
         sessionId: childSessionId,
         systemPrompt: role.systemPrompt,
         tools: [...childFace],
         hooks: opts.extraHooks,
-        llmOptions: routed?.llmOptions ?? opts.llmOptions,
+        llmOptions: subLlmOptions,
         // W9 切片0：转录恒挂（同步/后台同一工厂、同一实例；子 sid 由 newSubagentSessionId
         // 逐派发全新 ⇒ 同 sid 单写者由派发序天然保证）。
         store: opts.childSessionStore,
+        // serve 恒传 childSessionStore，task 子会话因此获得 fallback 压缩；子会话水位提醒
+        // 不挂（选项已剔除 watermark），store 缺席仍不挂（commit 需要 durable store）。
+        ...(childCompaction === undefined || opts.childSessionStore === undefined
+          ? {}
+          : { compaction: childCompaction }),
         maxTurns: subMaxTurns,
         ...(childWatcher === undefined ? {} : { contextWatcher: childWatcher }),
         // W23-A 发线面持久（同步/后台同一工厂同挂；sid 绑派发时的全新子会话号）。

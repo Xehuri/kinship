@@ -240,6 +240,7 @@ Loom 按单主会话运行。`GET /sessions/main` 恒可用，不受 `sessionLis
 - **boundary 与重放**：成功 commit 写 `tailIncluded: false` 的 durable `compaction_boundary`，`coveredCount` 是 raw 坐标；重放 = summary + 未被覆盖的 tail。legacy boundary 的 summary 内嵌 tail（`tailIncluded: true`）；最后一条 legacy boundary，或下一条是显式 worker boundary 的 transition boundary，保留自己的 tail（transition lookahead）。`coveredCount` 单调推进；历史视图按摘要 sha256 去重。
 - **失败语义**：摘要或 commit 任一失败即 all-or-nothing：不写 boundary、状态落 `retry_pending`、旧 summary 原样保留；下一轮 LLM 前可自动重试。
 - **已知残留**：更早的 B4989 风格非最后 legacy boundary，若下一条没有显式 marker，其 tail 不会被救援；`noop` outcome 没有 SSE 终态帧。
+- **子会话兜底（2026-11-04）**：主会话声明 `compaction.fallbackTokens` 后，task 子会话默认继承 session-level fallback 压缩；阈值取 `min(配置 fallbackTokens, 子会话模型窗口 − min(maxOutput, 4096))`，模型窗口未知时沿用配置值。子会话不注入水位提醒（`watermark.levels` 仅主会话），且仅在子会话具备 durable store 时挂载（commit 需要持久化；Loom serve 的 task 子会话恒有 `childSessionStore`）。手动压缩与 `compact_context` 仍只面向主会话。
 
 **任务域（副会话/工作流）**
 | 方法 路径 | 作用 |
