@@ -3,6 +3,7 @@ package.json
 bun.lock
 .gitignore
 .loom/
+.stratum/
 data/twin/
 __pycache__/
 *.pyc

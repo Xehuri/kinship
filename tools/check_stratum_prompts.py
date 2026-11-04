@@ -3,6 +3,8 @@
 from pathlib import Path
 
 ROOT = Path("ai-template/agents")
+CONTRACTS = Path("ai-template/contracts")
+CONTRACT_FILES = ("claim-schema.md", "loom-batch.md", "loom-daily.md", "loom-weekly.md", "loom-biweekly.md")
 FILES = {
     "复盘-公共.md": ("stratum status", "报告契约"),
     "01-data-check.md": ("stratum ingest source",),
@@ -26,6 +28,13 @@ def main() -> None:
             raise SystemExit(f"{path}: legacy JSON request")
         if "stratum --json" in text:
             raise SystemExit(f"{path}: JSON CLI")
+    for name in CONTRACT_FILES:
+        path = CONTRACTS / name
+        if not path.is_file():
+            raise SystemExit(f"missing {path}")
+    for path in ROOT.glob("*.md"):
+        if "stratum/contracts/" in path.read_text(encoding="utf-8"):
+            raise SystemExit(f"{path}: stale stratum/contracts path")
     print("Stratum prompt contract OK")
 
 

@@ -18,6 +18,7 @@ AI 子智能体的批次入库、日报/周报 claim、review、query 通过 **S
 - 仓库：<https://github.com/Xehuri/stratum>
 - v0.1.0 Release：<https://github.com/Xehuri/stratum/releases/tag/v0.1.0>
 - 契约源：<https://github.com/Xehuri/stratum/tree/v0.1.0/contracts>
+- 模板本地副本：`contracts/`（从 v0.1.0 同步，AI prompt 使用相对路径 `contracts/claim-schema.md`）
 - Python：3.11+
 
 安装固定版本：
@@ -39,6 +40,16 @@ stratum status
 ```
 
 如果 `stratum` 不在 PATH，可使用 `python3 -m stratum`，或把 Python 用户级 bin 目录加入 PATH。
+
+也可以用安装脚本（需要已存在 AI 根）：
+
+```bash
+# Linux / macOS
+./scripts/install-stratum.sh /path/to/ai
+
+# Windows
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-stratum.ps1 -AiRoot D:\kinship-data\ai
+```
 
 `.stratum/` 是运行时状态和 SQLite 数据库，必须加入 `.gitignore`，不要提交；旧 `data/index/*.jsonl` 在 dual-read 期保留，不能因为 Stratum 接入就删除。
 
@@ -142,6 +153,8 @@ Loom 是独立进程，默认监听 `127.0.0.1:5100`，通过 `{AI目录}/.loom/
 ├── pyproject.toml             # ai-mcp 包元数据（声明 PyYAML）
 ├── loom-config.example.yaml   # Loom 配置示例（脱敏）
 ├── .gitignore
+├── contracts/                 # Loom v1 契约本地副本
+├── scripts/                   # install-stratum.sh / install-stratum.ps1
 ├── mcp/                       # ai_mcp.py（4 工具 MCP，Loom 与 OpenCode 共用）
 ├── agents/                    # 子智能体 prompt
 ├── analysis/                  # 分析脚本
