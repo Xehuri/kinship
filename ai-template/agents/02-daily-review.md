@@ -97,7 +97,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ## Stratum 日复盘契约（v1，切换观察期）
 
-> `STRATUM_ENABLED=0` 时跳过本节所有 `stratum` 命令，按旧流程写报告并走旧索引；否则默认启用。
+> Stratum 是唯一索引；旧索引已弃用，首次迁移用 `scripts/import-legacy-index.sh` / `.ps1`。
 
 ### 报告 frontmatter（精确，不得增删字段）
 
@@ -118,7 +118,7 @@ timezone: Asia/Shanghai
 
 - 只能写上述字段，只允许单行标量；不写嵌套、列表、锚点或 flow 语法。
 - `report_id` 中的日期必须等于 `period_start`。修正版在末尾加 `-r2`、`-r3`。
-- 旧报告的 Obsidian `date/tags/aliases/links` 不再写进 v1 frontmatter；旧索引仍按文件名识别报告。
+- 旧报告的 Obsidian `date/tags/aliases/links` 不再写进 v1 frontmatter。
 
 ### 正文结构（精确，只有三节）
 
@@ -458,44 +458,13 @@ tags: [记忆, 用户画像, <主题>]        # 人物/事项/属性
 - **依据必须来自近几日数据或用户原话**（如"某类话题连续 3 天零出现，就把该类降优先"）；凭单日波动不改
 - 批次侧只能在白名单内调侧重、不能增删分类（01 步骤 8 第 7 点）；**增删分类的权力只在复盘这一步**
 
-### 步骤5e: 索引层编目（仅 `STRATUM_ENABLED=0` 回退时）
+### 步骤5e: 旧索引（已弃用，不执行）
 
-> 默认流程跳过本节，改用步骤 5f 的 Stratum 建卡；观察期旧索引只读冻结，不写 `data/index/*.jsonl`。
-
-复盘负责把当天可检索的内容编成卡片，批次侧不改。准入规则唯一真源见 `{AI目录}/data/index/README.md` §卡片与概念准入，此处只列当日口径。
-
-1. **先切当天块**（只切时间窗，不改原文）：
-   ```bash
-   python3 {AI目录}/analysis/build_blocks.py --date {date}
-   ```
-2. **先查已有卡片（必跑）**：统一用 `{AI目录}/analysis/query.py`：
-   ```bash
-   python3 {AI目录}/analysis/query.py --from {date} --to {date} --scope event,observation,report --format json
-   ```
-   需要按概念/槽位细查时，`{AI目录}/analysis/query_catalog.py` 仍可用作专用回退。
-3. **建卡**：事件卡按优先级与上限建：
-   - P0：明确决定/承诺、外出出行、维修/就医/考试/申请、大额消费；P1：吃饭/点单、运动、上课/训练、工作/项目里程碑、家务/跑腿；P2：娱乐、常规社交闲聊、常规自学；P3（被动传感器、纯 App/手机使用、睡眠传感器分段、可用性/元信息）不单独建卡。
-   - 每天最多 3 张新事件卡，显式 `major_event` 放宽到 5 张；没有 P0~P2 事件时 cards=0 允许，但必须写一行原因。
-   - 命中 §卡片与概念准入 的拒收门（缺行动者+动作+对象/地点、重复、引用块内无断言动作、事件时间出界等）一律不建，并把块 ID 与原因记入 `{AI目录}/data/cache/index-backfill-reject-{date}.json`。
-   - 观察卡必须有 `period_start`/`period_end` 且跨 >=2 天或聚合 >=3 个事件；发现卡需 >=2 张 `derived_from` 卡或 >=2 个独立块。
-
-   卡片写入统一走：
-   ```bash
-   python3 {AI目录}/analysis/card_admin.py add-card --index-dir data/index --text <草稿.txt>
-   ```
-   草稿放 `{AI目录}/data/cache/index-cards-{date}.txt`，格式见 `{AI目录}/data/index/README.md`「文本卡片草稿」，不要手写 `{AI目录}/data/index/*.jsonl`。
-4. **每张卡必须有 `concept_id`、至少一个 `block_ids`、以及该概念的必填槽位**；事件卡时间必须落在所属块时段内。
-5. **只使用叶子概念**；父概念不贴卡。没有合适叶子就按 §卡片与概念准入 登记候选，不现场造父类。
-6. **写后校验**：
-   ```bash
-   python3 {AI目录}/analysis/validate_catalog.py --index-dir data/index
-   ```
-   有任何断链或非叶标签，不得结束复盘。
-7. **报告自检结果追加一行**：`索引: cards=N blocks=N resolve=100%`；如果当天没有可建卡内容，写 `索引: cards=0`。
+旧索引已弃用，不再在复盘流程中编目，也不再写 `data/index/*.jsonl`。历史旧索引只在首次迁移时通过 `scripts/import-legacy-index.sh` / `.ps1` 导入 Stratum。
 
 ### 步骤5f: Stratum 建卡（v1，切换观察期）
 
-旧索引建卡仅在 `STRATUM_ENABLED=0` 回退时执行；观察期不写旧索引，Stratum 卡片照常创建。
+旧索引已弃用，不再写旧索引；Stratum 卡片照常创建。
 
 1. `stratum status --date {date}` 检查块覆盖；缺块时修正批次源文件并重新 `stratum ingest source <file>`。
 2. 用 `stratum add card --date {date}` 建卡，至少一个 `--block`，正文不写 claim 字段：
@@ -509,7 +478,7 @@ tags: [记忆, 用户画像, <主题>]        # 人物/事项/属性
 
 将复盘结果写入 `{AI目录}/data/daily/{date}/复盘-{date}.md`。如文件已存在则覆盖。
 
-> 报告落盘后，仅在 `STRATUM_ENABLED=0` 回退时按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；默认流程不写旧索引，直接按步骤 6a 入库 Stratum。
+> 报告落盘后直接按步骤 6a 入库 Stratum；旧索引已弃用，不再生成 `reports.jsonl` / `report_relations.jsonl`。
 
 报告格式：
 
@@ -593,7 +562,6 @@ stratum query --type claim --from {date} --to {date+1} --status active
 - `ingest report` 成功后所有 claim 是 draft。
 - 先转卡片，再转日层 claim；带 `data_gap` 的 claim 不转正。
 - 只转 card 和日层 claim；不要转周报或双周报。
-- `STRATUM_ENABLED=0` 时跳过本步。
 
 ### 步骤6b: 执行日志 + 记忆收尾门（记忆体系收尾）
 

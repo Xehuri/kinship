@@ -41,7 +41,9 @@
 | `audio_mimo_analyzer.py {date} --time HH:MM` 或 `--hours A~B` / `--ranges` | 按时间窗选段并调用 MiMo，输出说话人、主题与时间线 |
 | `mimo_audio_sweep.py [--dry-run]` | 清理 `data/cache/mimo_audio/`：保留 Markdown 结果，保护在途任务，按天数与总量双约束 |
 
-## 索引工具
+## 索引工具（已弃用）
+
+> 以下脚本只保留给旧索引一次性迁移前检查和导入；02/03/04 默认流程不再调用，也不再写 `data/index/*.jsonl`。
 
 | 脚本 | 功能 |
 |------|------|

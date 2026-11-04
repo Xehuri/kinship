@@ -59,7 +59,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ## Stratum 周报契约（v1，切换观察期）
 
-> `STRATUM_ENABLED=0` 时跳过本节所有 `stratum` 命令，按旧流程写报告并走旧索引；否则默认启用。
+> Stratum 是唯一索引；旧索引已弃用，首次迁移用 `scripts/import-legacy-index.sh` / `.ps1`。
 
 ### 报告 frontmatter（精确，不得增删字段）
 
@@ -351,32 +351,9 @@ timezone: Asia/Shanghai
 
 **注意**：这不是 02 每日复盘的记忆收割，只收割跨日的新信息。已在每日复盘中收割过的内容不要重复收割。
 
-### 步骤 4b：索引层观察/发现卡（仅 `STRATUM_ENABLED=0` 回退时）
+### 步骤 4b：旧索引（已弃用，不执行）
 
-> 默认流程跳过本节；观察期旧索引只读冻结，不写 `data/index/*.jsonl`。
-
-周报负责把本周结论编成卡片，不改批次原文。准入规则唯一真源见 `{AI目录}/data/index/README.md` §卡片与概念准入，此处只列观察/发现口径。
-
-1. 先建本期复盘块：
-   ```bash
-   python3 {AI目录}/analysis/build_blocks.py --source review --date {end_date}
-   ```
-2. 先查跨层已有内容（必跑）：
-   ```bash
-   python3 {AI目录}/analysis/query.py --from {start_date} --to {end_date} --scope event,observation,report --format json
-   ```
-   需要按概念/槽位细查时，`{AI目录}/analysis/query_catalog.py` 仍可用作专用回退。
-3. 建观察卡/发现卡：观察卡必须有 `period_start/period_end`，且跨 >=2 天或聚合 >=3 个事件；发现卡必须有 >=2 张 `derived_from` 卡或 >=2 个独立块，不得重述单个事件。命中 §卡片与概念准入 的拒收门不建，拒收候选连同块 ID 与原因记入 `{AI目录}/data/cache/index-backfill-reject-{start_date}~{end_date}.json`。
-   ```bash
-   python3 {AI目录}/analysis/card_admin.py add-card --index-dir data/index --text <草稿.txt>
-   ```
-   草稿放 `{AI目录}/data/cache/index-review-{end_date}.txt`，格式见 `{AI目录}/data/index/README.md`「文本卡片草稿」。
-4. 只使用叶子概念；卡片必须引用周报块。
-5. 写后运行：
-   ```bash
-   python3 {AI目录}/analysis/validate_catalog.py --index-dir data/index
-   ```
-6. 报告自检追加：`索引: cards=N blocks=N resolve=100%`。
+旧索引已弃用，不再编目观察/发现卡，也不再写 `data/index/*.jsonl`。历史旧索引只在首次迁移时通过 `scripts/import-legacy-index.sh` / `.ps1` 导入 Stratum。
 
 ### 步骤 5：写周报
 
@@ -384,7 +361,7 @@ timezone: Asia/Shanghai
 
 **如果文件已存在则覆盖**（因为可能有修正）。
 
-> 报告写入后，仅在 `STRATUM_ENABLED=0` 回退时按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；默认流程不写旧索引，直接按 Stratum 契约入库。
+> 报告写入后按 Stratum 契约入库；旧索引已弃用，不再生成 `reports.jsonl` / `report_relations.jsonl`。
 >
 > 同时按「Stratum 周报契约（v1）」先 `stratum lint`，再 `stratum ingest report`，然后逐条 `stratum review promote`；不得使用 `bulk-promote`。
 

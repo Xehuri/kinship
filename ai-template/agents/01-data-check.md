@@ -315,13 +315,13 @@ git commit -m "数据检查: {date} {start}~{end}时段理解记录
 stratum ingest source "{AI目录}/data/daily/{date}/理解-{date}-批次-{HH}.md"
 ```
 
-- `STRATUM_ENABLED=0` 时跳过本步，按旧流程继续，不报错。
+- Stratum 是唯一索引；旧索引已弃用，不再写入。
 - 批次**只写 source**：不建卡片，不写 claim、observation、pattern 或 hypothesis，不写 `## 检索条目` 或 `## 运维`，不执行 `stratum ingest report`、`stratum add card`、`stratum review`。
 - 可选只读查询：`stratum query --type claim --from {date} --to {date+1} --status active`。查询失败不阻塞；查询结果只作上下文，**不得复制成 claim**。
 - 失败处理：记录命令、退出码和错误首行；重试一次；仍失败就把失败写进 `## 转达` 的「事实」，并继续后续批次。**ingest 失败不阻塞批次，也不跳过后续文件。**
 - 不在批次里手工改 `.stratum/` 或 SQLite；块身份由 Stratum 维护。
 
-> 观察期只读旧索引：事实文件、摘要、健康清单、git 提交照旧；Stratum 只增加 source 入库，不读旧 JSONL。旧流程只在 `STRATUM_ENABLED=0` 回退时执行。
+> 旧索引已弃用：事实文件、摘要、健康清单、git 提交照旧；Stratum 只增加 source 入库，不读旧 JSONL，也不再写 `data/index/*.jsonl`。
 
 ### 步骤 6b: 写执行日志（强制）
 

@@ -44,7 +44,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ## Stratum 双周报契约（v1，切换观察期）
 
-> `STRATUM_ENABLED=0` 时跳过本节所有 `stratum` 命令，按旧流程写报告并走旧索引；否则默认启用。
+> Stratum 是唯一索引；旧索引已弃用，首次迁移用 `scripts/import-legacy-index.sh` / `.ps1`。
 
 ### 报告 frontmatter（精确，不得增删字段）
 
@@ -433,32 +433,9 @@ stratum review promote HYP-B-{start_date}-01 --author main --reason "hypothesis 
 2. **写入 profile**：确认稳定的增量按三态决策（ADD/UPDATE/NOOP，先 `grep -rn` 查重）写入 `{AI目录}/memory/profile/semantic/`（people/、事项/、属性四文件）与 `{AI目录}/memory/profile/state.md`（整文件覆盖，不追加日期快照；同步重写 `date` 与 `当前日期`）；与 02 相同，画像条目写"浓缩真值 + `[MM-DD]` + → [[复盘-YYYY-MM-DD]] 指针"，不复制证据链
 3. **自洽约束**：本步骤可正式改写 profile；自主探索（步骤 2b）仍**只写 `{AI目录}/memory/self/认知.md` 草稿，不得直接改 profile**，两者不得混淆
 
-### 步骤 2d：索引层观察/发现卡（仅 `STRATUM_ENABLED=0` 回退时）
+### 步骤 2d：旧索引（已弃用，不执行）
 
-> 默认流程跳过本节；观察期旧索引只读冻结，不写 `data/index/*.jsonl`。
-
-双周报负责把跨日结论编成卡片，不改批次原文。准入规则唯一真源见 `{AI目录}/data/index/README.md` §卡片与概念准入，此处只列观察/发现口径。
-
-1. 先建本期复盘块：
-   ```bash
-   python3 {AI目录}/analysis/build_blocks.py --source review --date {end_date}
-   ```
-2. 先查跨层已有内容（必跑）：
-   ```bash
-   python3 {AI目录}/analysis/query.py --from {start_date} --to {end_date} --scope event,observation,report --format json
-   ```
-   需要按概念/槽位细查时，`{AI目录}/analysis/query_catalog.py` 仍可用作专用回退。
-3. 建观察卡/发现卡：观察卡必须有 `period_start/period_end`，且跨 >=2 天或聚合 >=3 个事件；发现卡必须有 >=2 张 `derived_from` 卡或 >=2 个独立块，不得重述单个事件。命中 §卡片与概念准入 的拒收门不建，拒收候选连同块 ID 与原因记入 `{AI目录}/data/cache/index-backfill-reject-{start_date}~{end_date}.json`。
-   ```bash
-   python3 {AI目录}/analysis/card_admin.py add-card --index-dir data/index --text <草稿.txt>
-   ```
-   草稿放 `{AI目录}/data/cache/index-review-{end_date}.txt`，格式见 `{AI目录}/data/index/README.md`「文本卡片草稿」。
-4. 只使用叶子概念；卡片必须引用复盘块，不能只写结论。
-5. 写后运行：
-   ```bash
-   python3 {AI目录}/analysis/validate_catalog.py --index-dir data/index
-   ```
-6. 报告自检追加：`索引: cards=N blocks=N resolve=100%`。
+旧索引已弃用，不再编目观察/发现卡，也不再写 `data/index/*.jsonl`。历史旧索引只在首次迁移时通过 `scripts/import-legacy-index.sh` / `.ps1` 导入 Stratum。
 
 ### 步骤 3：系统改进建议
 
@@ -549,7 +526,7 @@ timezone: Asia/Shanghai
 
 写入 `{AI目录}/data/reports/深度回顾-{start_date}~{end_date}.md`
 
-> 报告写入后，仅在 `STRATUM_ENABLED=0` 回退时按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；默认流程不写旧索引，直接按 Stratum 契约入库。
+> 报告写入后按 Stratum 契约入库；旧索引已弃用，不再生成 `reports.jsonl` / `report_relations.jsonl`。
 >
 > 同时按「Stratum 双周报契约（v1）」先 `stratum lint` 再 `stratum ingest report`；**03 到此停止，不做任何 review/promotion**。
 

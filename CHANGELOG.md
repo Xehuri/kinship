@@ -18,6 +18,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 修复
 
+- **旧索引弃用与一次性导入（2026-11-05）**：02/03/04 默认流程移除旧 `data/index` 编目；旧索引不再写入、不再作为回退。新增 `scripts/import-legacy-index.sh` / `.ps1`，首次迁移通过 `stratum migrate-legacy` 导入一次；文档、prompt 检查和 CI 同步。
 - **Stratum v0.1.1 接入收口（2026-11-05，issue #6）**：同步 v0.1.1 契约；`status --date`、`CMT-` base_commit 与 `lint` 进入 prompt；周报/双周报 3 到 7 条数量门在 ingest 前强制；CI 改为用真实 CLI parser 校验 prompt 命令；PowerShell 安装器补 `--user`、退出码检查、`-DryRun`、`-NoProxy`/`-Proxy` 与初始化确认；`stratum demo` 随包发布。
 - **Loom 压缩配置静默忽略告警（2026-11-04，issue #4）**：`compaction.fallbackTokens` 与 `compaction.maxContextTokens` / `triggerRatio` / `summaryTimeoutMs` 同时声明时，legacy 键不会被 worker 路径读取；boot 新增 `loom compaction legacy keys ignored` WARN 点名被忽略的键与实际生效路径，`loom.example.yaml` 与 Loom 使用文档同步明确两条路径互斥。新增 boot 日志面回归用例。
 - **长期运行边界修复（2026-11-04，issue #3）**：`state.md` 明确整文件覆盖并新增过期/超 3KB/日期分节体检；Loom 将网关 `413 payload too large` 归类为 context overflow，避免无意义重试；`/api/services` 为端口被外部进程占用的 Loom 增加 `external`/`note`，前端显示「外部运行（未受管）」而不改变接管策略。
