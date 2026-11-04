@@ -64,7 +64,7 @@ stratum init --root "<AI root>" --name personal
 stratum status
 ```
 
-`.stratum/` is runtime state and must be gitignored. During the observation window the old `data/index/*.jsonl` is frozen read-only; Stratum does not read legacy JSONL, and `migrate-legacy` is a one-time snapshot. `STRATUM_ENABLED=0` is only a temporary fallback, not a long-term mode.
+`.stratum/` is runtime state and must be gitignored. The old `data/index/*.jsonl` is deprecated and no longer written. If a legacy index exists, import it once with `ai-template/scripts/import-legacy-index.sh` (`.ps1` on Windows); `migrate-legacy` is a one-time snapshot, and later legacy changes require a fresh workspace.
 
 ---
 

@@ -51,15 +51,18 @@ stratum status
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-stratum.ps1 -AiRoot D:\kinship-data\ai
 ```
 
-`.stratum/` 是运行时状态和 SQLite 数据库，必须加入 `.gitignore`，不要提交。旧 `data/index/*.jsonl` 在观察期只读冻结；Stratum 不读旧 JSONL，`migrate-legacy` 是一次性快照，旧索引变更会报 `LEGACY_INDEX_CHANGED`。只有 `STRATUM_ENABLED=0` 回退时才写旧索引。
+`.stratum/` 是运行时状态和 SQLite 数据库，必须加入 `.gitignore`，不要提交。
 
-临时回退：
+旧 `data/index/*.jsonl` 已弃用，不再维护、不再作为回退、也不再写入。若实例已有旧索引，只在首次迁移时运行 `scripts/import-legacy-index.sh`（Windows 用 `.ps1`）；`migrate-legacy` 是一次性快照，导入后旧索引变更会报 `LEGACY_INDEX_CHANGED`，需要新建 workspace 重做。
+
+旧索引导入（仅首次迁移）：
 
 ```bash
-STRATUM_ENABLED=0
+./scripts/import-legacy-index.sh /path/to/ai --dry-run
+./scripts/import-legacy-index.sh /path/to/ai
 ```
 
-回退只用于过渡期，让 01/02/03/04 跳过 Stratum 命令并走旧流程；它不是长期方案。Stratum 不可用时的失败计数由实例的 `fallback` 日志记录。
+导入前先确认目标 Stratum workspace 为空；旧索引目录默认是 `{AI目录}/data/index`，可用 `--index` 覆盖。Stratum 不可用时的失败计数由实例的 `fallback` 日志记录。
 
 ## 复制到 AI 根（data.ai_root）
 
@@ -154,7 +157,7 @@ Loom 是独立进程，默认监听 `127.0.0.1:5100`，通过 `{AI目录}/.loom/
 ├── loom-config.example.yaml   # Loom 配置示例（脱敏）
 ├── .gitignore
 ├── contracts/                 # Loom v1 契约本地副本
-├── scripts/                   # install-stratum.sh / install-stratum.ps1
+├── scripts/                   # install / import-legacy-index（sh + ps1）
 ├── mcp/                       # ai_mcp.py（4 工具 MCP，Loom 与 OpenCode 共用）
 ├── agents/                    # 子智能体 prompt
 ├── analysis/                  # 分析脚本

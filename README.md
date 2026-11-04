@@ -68,7 +68,7 @@ stratum init --root "<AI根>" --name personal
 stratum status
 ```
 
-`.stratum/` 是运行时状态，必须 gitignore。旧 `data/index/*.jsonl` 在观察期只读冻结；Stratum 不读旧 JSONL，`migrate-legacy` 是一次性快照。临时回退可设 `STRATUM_ENABLED=0`，但这是过渡方案，不是长期方案。
+`.stratum/` 是运行时状态，必须 gitignore。旧 `data/index/*.jsonl` 已弃用，不再写入；如已有旧索引，只在首次迁移时用 `ai-template/scripts/import-legacy-index.sh`（Windows 用 `.ps1`）导入一次。`migrate-legacy` 是一次性快照，导入后旧索引变更需新建 workspace 重做。
 
 ## 生产拓扑
 
