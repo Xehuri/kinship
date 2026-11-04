@@ -1199,6 +1199,36 @@ describe("createLoomApp：W49-C compaction 日志面与 1M 窗 WARN", () => {
     }
   });
 
+  it("W49-C fallbackTokens 与 legacy 键同声明：WARN 点名 ignoredKeys，activePath:worker，且不报 trigger 不可达", async () => {
+    const root = makeWs();
+    const logs: LogEntry[] = [];
+    const top = [
+      "",
+      "compaction:",
+      "  enabled: true",
+      "  maxContextTokens: 180000",
+      "  triggerRatio: 0.8",
+      "  fallbackTokens: 750000",
+      "",
+    ].join("\n");
+    try {
+      const app = await bootWs(root, logs, top);
+      try {
+        const warn = logs.find((l) => l.msg === "loom compaction legacy keys ignored");
+        expect(warn).toBeDefined();
+        expect(warn?.level).toBe("warn");
+        expect(warn?.fields["ignoredKeys"]).toBe("maxContextTokens,triggerRatio");
+        expect(warn?.fields["activePath"]).toBe("worker");
+        expect(warn?.fields["fallbackTokens"]).toBe(750000);
+        expect(logs.some((l) => l.level === "warn" && l.msg.includes("trigger likely unreachable"))).toBe(false);
+      } finally {
+        app.model.teardown();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("W49-C 单次调用摘要声明：日志面 summaryMode/summaryReasoningEffort/summaryBudget/summaryTemplate/summaryProjection 逐值留痕", async () => {
     const root = makeWs();
     const logs: LogEntry[] = [];
@@ -1225,6 +1255,7 @@ describe("createLoomApp：W49-C compaction 日志面与 1M 窗 WARN", () => {
         expect(line?.fields["summaryBudget"]).toBe(500000);
         expect(line?.fields["summaryTemplate"]).toBe("compact-6");
         expect(line?.fields["summaryProjection"]).toBe(true);
+        expect(logs.some((l) => l.msg === "loom compaction legacy keys ignored")).toBe(false);
       } finally {
         app.model.teardown();
       }

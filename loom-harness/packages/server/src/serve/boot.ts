@@ -1093,6 +1093,23 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       microcompactActive && (comp?.microcompact?.compactableTools?.length ?? 0) > 0,
     source: comp === undefined ? "default" : "declared",
   });
+  // issue #4：fallbackTokens 声明后压缩链由 worker 路径接管（compaction-wiring.ts:318 起
+  // 旧 autoCompaction 不再挂），worker 不读 maxContextTokens/triggerRatio/summaryTimeoutMs
+  // 三个 legacy 键；此前这些键被静默忽略 = 配了不生效且无任何提示。此处只报警不改语义
+  // （两路互斥照旧），被忽略键按固定序点名，便于运维直接改配置。
+  if (compactionEnabled && comp !== undefined && comp.fallbackTokens !== undefined) {
+    const ignoredLegacyKeys: string[] = [];
+    if (comp.maxContextTokens !== undefined) ignoredLegacyKeys.push("maxContextTokens");
+    if (comp.triggerRatio !== undefined) ignoredLegacyKeys.push("triggerRatio");
+    if (comp.summaryTimeoutMs !== undefined) ignoredLegacyKeys.push("summaryTimeoutMs");
+    if (ignoredLegacyKeys.length > 0) {
+      log("warn", "loom compaction legacy keys ignored", {
+        ignoredKeys: ignoredLegacyKeys.join(","),
+        activePath: "worker",
+        fallbackTokens: comp.fallbackTokens,
+      });
+    }
+  }
   if (
     compactionEnabled &&
     comp.fallbackTokens === undefined &&

@@ -17,6 +17,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 修复
 
+- **Loom 压缩配置静默忽略告警（2026-11-04，issue #4）**：`compaction.fallbackTokens` 与 `compaction.maxContextTokens` / `triggerRatio` / `summaryTimeoutMs` 同时声明时，legacy 键不会被 worker 路径读取；boot 新增 `loom compaction legacy keys ignored` WARN 点名被忽略的键与实际生效路径，`loom.example.yaml` 与 Loom 使用文档同步明确两条路径互斥。新增 boot 日志面回归用例。
 - **长期运行边界修复（2026-11-04，issue #3）**：`state.md` 明确整文件覆盖并新增过期/超 3KB/日期分节体检；Loom 将网关 `413 payload too large` 归类为 context overflow，避免无意义重试；`/api/services` 为端口被外部进程占用的 Loom 增加 `external`/`note`，前端显示「外部运行（未受管）」而不改变接管策略。
 - **Android 通知监听断连恢复（2026-11-03）**：系统保留通知读取授权但解绑 `NotificationListenerService` 时，采集器不再静默跳过；15s 宽限后按 60s 节流 `requestRebind()`，权限缺失或 2 分钟仍未恢复时弹可点击通知直达通知使用权设置，恢复后自动撤销。设置页「通知读取」在功能开启时按「权限 + 实际连接」判定，未连接显示「待处理」并可点击；通知页新增「打开通知使用权设置」入口。新增 `NotificationListenerRecovery` 纯策略与 9 条单测（commit `d03f78c`）。APK：`Kinship-notif-recovery-2026-11-03.apk`（debug）。
 - **Android OTA 发布与路径修复（2026-11-04）**：`OTA_APK_DIR` 的相对默认值改为按项目根解析（此前按后端 cwd 解析，生产 OTA 恒返回 `no_apk`）；Android 升至 `versionCode 12 / versionName 0.1.1` 并发布到生产 OTA 目录。

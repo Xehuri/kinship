@@ -229,7 +229,7 @@ Loom 按单主会话运行。`GET /sessions/main` 恒可用，不受 `sessionLis
 
 #### 5.4.1 压缩实现（2026-10-21）
 
-**两条路径。** 生产实例声明 `compaction.fallbackTokens`，摘要 worker 由 `buildSessionCompactionOptions` 接管；`buildCompactionHooks` 按配置仍挂 `microcompact` 与 `boundary` 钩子，但不再挂 `autoCompaction`。未声明 `fallbackTokens` 的部署仍走 legacy `autoCompaction` hook：`maxContextTokens`/`triggerRatio`/`summaryTimeoutMs` 只在那边生效，摘要用 9 段模板 + `completeText` 非流式调用。
+**两条路径。** 生产实例声明 `compaction.fallbackTokens`，摘要 worker 由 `buildSessionCompactionOptions` 接管；`buildCompactionHooks` 按配置仍挂 `microcompact` 与 `boundary` 钩子，但不再挂 `autoCompaction`。未声明 `fallbackTokens` 的部署仍走 legacy `autoCompaction` hook：`maxContextTokens`/`triggerRatio`/`summaryTimeoutMs` 只在那边生效，摘要用 9 段模板 + `completeText` 非流式调用。两条路径互斥，`fallbackTokens` 在场时不要再声明 `maxContextTokens` / `triggerRatio` / `summaryTimeoutMs`——这些 legacy 键不会被读取，boot 会在启动日志打印 `loom compaction legacy keys ignored` WARN 点名被忽略的键。
 
 - **手动压缩**：`POST /sessions/:sessionID/compact` 先 `loop.hydrate()` 再 `startCompaction("manual")`。重启后 durable 转录已回放，不再对空 `_messages` no-op；受理即 202，压缩事件由 per-session publisher 发 SSE。
 - **快照与投影**：worker 取 raw 快照，按 `keepRecent`/`keepRecentTokens` 保留 recent tail；旧的、`compactableTools` 白名单内 toolResult 投影为 `[microcompact: <tool> output cleared, ~N chars]`（完整工具输出仍在 durable 存储，可按需重取）。投影只改摘要入参，不改进 commit 的 raw 坐标。

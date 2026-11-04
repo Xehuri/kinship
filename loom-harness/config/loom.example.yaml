@@ -212,6 +212,8 @@ mcp:
 # core/compaction/worker.ts 头注）。两条路径：声明 fallbackTokens 即启用 worker（生产路径），
 # buildCompactionHooks 仍挂 microcompact/boundary、但不再挂 legacy autoCompaction；不声明 fallbackTokens 才走 legacy hook
 # （9 段模板 + completeText 非流式，maxContextTokens/triggerRatio/summaryTimeoutMs 仅此路径生效）。
+# fallbackTokens 声明后 worker 路径接管，maxContextTokens/triggerRatio/summaryTimeoutMs 不会被读取
+# （boot 会打印 "loom compaction legacy keys ignored" WARN 点名被忽略的键）；两者不要同时配置。
 # 值域：fallbackTokens 正整数（LLM 调用前估算 ≥ 该值触发 fallback）；watermark.levels 每档 ≥1000、
 # 严格递增且全部 < fallbackTokens（跨档向 _messages 追加一次性 system-reminder）；keepRecent ≥1；
 # fallbackTokens 是 token 阈值，不知道部署网关的 HTTP 请求体上限。若网关限制为 16 MB（例如 new-api），
