@@ -95,7 +95,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 | `{AI目录}/data/daily/{date}/复盘-{date}.md` | 复盘报告（输出） |
 | `{AI目录}/memory/` | 记忆写入目标 |
 
-## Stratum 日复盘契约（v1，双读期）
+## Stratum 日复盘契约（v1，切换观察期）
 
 > `STRATUM_ENABLED=0` 时跳过本节所有 `stratum` 命令，按旧流程写报告并走旧索引；否则默认启用。
 
@@ -110,7 +110,7 @@ period_start: {date}
 period_end: {date+1}
 granularity: day
 author: 02-daily-review
-base_commit: {生成报告时 stratum HEAD 的 40 位小写十六进制；没有 HEAD 写 none}
+base_commit: {生成报告时的 Stratum HEAD，格式 CMT-<16 位小写十六进制>；兼容旧 40 位小写十六进制；没有 HEAD 写 none}
 created_at: {RFC 3339 时间戳，必须带时区偏移}
 timezone: Asia/Shanghai
 ---
@@ -151,7 +151,7 @@ timezone: Asia/Shanghai
 2. 缺块时修正批次源文件，重新 `stratum ingest source <file>`，再查一次 status。
 3. 建卡：`stratum add card --block BLK-... --type event --body "..." --date {date} --author 02-daily-review`。
 4. 写 v1 报告。
-5. `stratum ingest report "{AI目录}/data/daily/{date}/复盘-{date}.md"`。
+5. `stratum lint "{AI目录}/data/daily/{date}/复盘-{date}.md"`；通过后 `stratum ingest report "{AI目录}/data/daily/{date}/复盘-{date}.md"`。
 6. 先转正卡片：`stratum review bulk-promote --type card --date {date} --author 02-daily-review --reason "daily card review"`。
 7. 再转正日层 claim：`stratum review bulk-promote --type claim --date {date} --author 02-daily-review --reason "daily claim review"`。
 8. 验证：`stratum query --type claim --from {date} --to {date+1} --status active`。
@@ -491,9 +491,9 @@ tags: [记忆, 用户画像, <主题>]        # 人物/事项/属性
    有任何断链或非叶标签，不得结束复盘。
 7. **报告自检结果追加一行**：`索引: cards=N blocks=N resolve=100%`；如果当天没有可建卡内容，写 `索引: cards=0`。
 
-### 步骤5f: Stratum 建卡（v1，双读期）
+### 步骤5f: Stratum 建卡（v1，切换观察期）
 
-旧索引建卡照步骤 5e 执行；Stratum 卡片另建，两边并行，不互相替代。
+旧索引建卡仅在 `STRATUM_ENABLED=0` 回退时执行；观察期不写旧索引，Stratum 卡片照常创建。
 
 1. `stratum status --date {date}` 检查块覆盖；缺块时修正批次源文件并重新 `stratum ingest source <file>`。
 2. 用 `stratum add card --date {date}` 建卡，至少一个 `--block`，正文不写 claim 字段：
@@ -520,7 +520,7 @@ period_start: {date}
 period_end: {date+1}
 granularity: day
 author: 02-daily-review
-base_commit: {生成报告时 stratum HEAD 的 40 位小写十六进制；没有 HEAD 写 none}
+base_commit: {生成报告时的 Stratum HEAD，格式 CMT-<16 位小写十六进制>；兼容旧 40 位小写十六进制；没有 HEAD 写 none}
 created_at: {RFC 3339 时间戳，必须带时区偏移}
 timezone: Asia/Shanghai
 ---
@@ -576,11 +576,12 @@ timezone: Asia/Shanghai
 - 审计: 待 05 于 02:00 追加（写在本节内，不新增二级章节）
 ```
 
-### 步骤6a: Stratum 报告入库与转正（v1，双读期）
+### 步骤6a: Stratum 报告入库与转正（v1，切换观察期）
 
 报告落盘后按顺序执行；任一步失败按纯文本错误修正后重试，不得直接写 SQLite：
 
 ```bash
+stratum lint "{AI目录}/data/daily/{date}/复盘-{date}.md"
 stratum ingest report "{AI目录}/data/daily/{date}/复盘-{date}.md"
 stratum review bulk-promote --type card --date {date} --author 02-daily-review --reason "daily card review"
 stratum review bulk-promote --type claim --date {date} --author 02-daily-review --reason "daily claim review"

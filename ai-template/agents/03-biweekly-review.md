@@ -42,7 +42,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 | `{AI目录}/data/daily/{date}/当日摘要-{date}.md` | 当日进度摘要 |
 | `{AI目录}/data/` | 数据根目录 |
 
-## Stratum 双周报契约（v1，双读期）
+## Stratum 双周报契约（v1，切换观察期）
 
 > `STRATUM_ENABLED=0` 时跳过本节所有 `stratum` 命令，按旧流程写报告并走旧索引；否则默认启用。
 
@@ -57,7 +57,7 @@ period_start: {start_date}
 period_end: {end_date+1}
 granularity: range
 author: 03-biweekly-review
-base_commit: {生成报告时 stratum HEAD 的 40 位小写十六进制；没有 HEAD 写 none}
+base_commit: {生成报告时的 Stratum HEAD，格式 CMT-<16 位小写十六进制>；兼容旧 40 位小写十六进制；没有 HEAD 写 none}
 created_at: {RFC 3339 时间戳，必须带时区偏移}
 timezone: Asia/Shanghai
 ---
@@ -85,11 +85,11 @@ timezone: Asia/Shanghai
 
 1. 先查 active 周观测：
    ```bash
-   stratum query --type observation --from {start_date} --to {end_date+1} --status active
+   stratum query --type claim --claim-type observation --from {start_date} --to {end_date+1} --status active
    ```
 2. 周观测不足或两周覆盖不完整时，回到 04 和 02 补齐。
 3. 写双周报。
-4. 入库：`stratum ingest report "{AI目录}/data/reports/深度回顾-{start_date}~{end_date}.md"`。
+4. 校验后入库：`stratum lint "{AI目录}/data/reports/深度回顾-{start_date}~{end_date}.md"`，通过后执行 `stratum ingest report "{AI目录}/data/reports/深度回顾-{start_date}~{end_date}.md"`。
 5. 到此为止。所有 pattern/hypothesis 入库后都是 draft。
 
 **03 禁止审批**：不得执行 `stratum review promote`、`stratum review bulk-promote`、`stratum review reject`、`stratum review reopen`，不得用自己的 author 转正自己的 claim，不得直接写 SQLite。违反会被 Stratum 拒绝并报 `SELF_PROMOTION_FORBIDDEN`。
@@ -484,7 +484,7 @@ period_start: {start_date}
 period_end: {end_date+1}
 granularity: range
 author: 03-biweekly-review
-base_commit: {40 位小写十六进制或 none}
+base_commit: {生成报告时的 Stratum HEAD，格式 CMT-<16 位小写十六进制>；兼容旧 40 位小写十六进制；没有 HEAD 写 none}
 created_at: {RFC 3339，带时区偏移}
 timezone: Asia/Shanghai
 ---
@@ -538,7 +538,7 @@ timezone: Asia/Shanghai
 
 ## 运维
 
-- 命令: stratum query --type observation --from {start_date} --to {end_date+1} --status active
+- 命令: stratum query --type claim --claim-type observation --from {start_date} --to {end_date+1} --status active
 - 结果: 两周周观测覆盖情况
 - 补数: 无 / 回到 04 和 02 补齐的日期
 - 异常: 无 / 命令、退出码、错误首行
@@ -549,7 +549,7 @@ timezone: Asia/Shanghai
 
 > 报告写入后按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；未生成报告索引不得提交。
 >
-> 同时按「Stratum 双周报契约（v1）」执行 `stratum ingest report`；**03 到此停止，不做任何 review/promotion**。
+> 同时按「Stratum 双周报契约（v1）」先 `stratum lint` 再 `stratum ingest report`；**03 到此停止，不做任何 review/promotion**。
 
 ## 置信度标注规则
 

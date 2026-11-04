@@ -11,24 +11,24 @@
 | Loom | 生产推荐，独立进程 | `{AI目录}/.loom/config.yaml`，示例见 `loom-config.example.yaml` |
 | OpenCode | 遗留/可选后端，模板不随附配置，生产用 Loom | 需自行创建 `{AI目录}/opencode.json`；MCP 脚本见 `mcp/ai_mcp.py` |
 
-## Stratum 前置（v0.1.0+）
+## Stratum 前置（v0.1.1+）
 
 AI 子智能体的批次入库、日报/周报 claim、review、query 通过 **Stratum CLI** 完成。Stratum 不是本仓库的 Python 依赖，也不是 git submodule；它是独立仓库和独立 CLI。
 
 - 仓库：<https://github.com/Xehuri/stratum>
-- v0.1.0 Release：<https://github.com/Xehuri/stratum/releases/tag/v0.1.0>
-- 契约源：<https://github.com/Xehuri/stratum/tree/v0.1.0/contracts>
-- 模板本地副本：`contracts/`（从 v0.1.0 同步，AI prompt 使用相对路径 `contracts/claim-schema.md`）
+- v0.1.1 Release：<https://github.com/Xehuri/stratum/releases/tag/v0.1.1>
+- 契约源：<https://github.com/Xehuri/stratum/tree/v0.1.1/contracts>
+- 模板本地副本：`contracts/`（从 v0.1.1 同步，AI prompt 使用相对路径 `contracts/claim-schema.md`）
 - Python：3.11+
 
 安装固定版本：
 
 ```bash
 # Linux / macOS
-python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.0"
+python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.1"
 
 # Windows
-py -m pip install "git+https://github.com/Xehuri/stratum.git@v0.1.0"
+py -m pip install "git+https://github.com/Xehuri/stratum.git@v0.1.1"
 ```
 
 验证并初始化 AI 根：
@@ -51,7 +51,7 @@ stratum status
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-stratum.ps1 -AiRoot D:\kinship-data\ai
 ```
 
-`.stratum/` 是运行时状态和 SQLite 数据库，必须加入 `.gitignore`，不要提交；旧 `data/index/*.jsonl` 在 dual-read 期保留，不能因为 Stratum 接入就删除。
+`.stratum/` 是运行时状态和 SQLite 数据库，必须加入 `.gitignore`，不要提交。旧 `data/index/*.jsonl` 在观察期只读冻结；Stratum 不读旧 JSONL，`migrate-legacy` 是一次性快照，旧索引变更会报 `LEGACY_INDEX_CHANGED`。只有 `STRATUM_ENABLED=0` 回退时才写旧索引。
 
 临时回退：
 
@@ -193,7 +193,7 @@ python3 analysis/check_coverage.py --help
 
 ## 相关文档
 
-- [Stratum v0.1.0](https://github.com/Xehuri/stratum/releases/tag/v0.1.0) - 独立 CLI 与契约源
+- [Stratum v0.1.1](https://github.com/Xehuri/stratum/releases/tag/v0.1.1) - 独立 CLI 与契约源
 - [AGENTS.md](AGENTS.md) - 主智能体规则与记忆体系
 - [AGENTS-operations.md](AGENTS-operations.md) - Task / coverage / plan 操作规程
 - [系统初始化指南.md](系统初始化指南.md) - 首次启动流程与完整占位符清单

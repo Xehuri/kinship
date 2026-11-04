@@ -307,7 +307,7 @@ git commit -m "数据检查: {date} {start}~{end}时段理解记录
 - 如果 `git commit` 失败（比如没有改动），说明工作区已干净，没问题
 - 不需要提交 `backend/` 或 `frontend/` 下的文件
 
-### 步骤 6a: Stratum source ingest（v1，双读期）
+### 步骤 6a: Stratum source ingest（v1，切换观察期）
 
 **每写完或更新一个批次文件，就执行一次 source ingest。** 批次只负责 source 层：
 
@@ -321,7 +321,7 @@ stratum ingest source "{AI目录}/data/daily/{date}/理解-{date}-批次-{HH}.md
 - 失败处理：记录命令、退出码和错误首行；重试一次；仍失败就把失败写进 `## 转达` 的「事实」，并继续后续批次。**ingest 失败不阻塞批次，也不跳过后续文件。**
 - 不在批次里手工改 `.stratum/` 或 SQLite；块身份由 Stratum 维护。
 
-> 双读期旧流程不变：事实文件、摘要、健康清单、git 提交照旧；Stratum 只增加 source 入库。
+> 观察期只读旧索引：事实文件、摘要、健康清单、git 提交照旧；Stratum 只增加 source 入库，不读旧 JSONL。旧流程只在 `STRATUM_ENABLED=0` 回退时执行。
 
 ### 步骤 6b: 写执行日志（强制）
 

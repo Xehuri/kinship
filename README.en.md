@@ -56,15 +56,15 @@ All kernel models, including ERes2NetV2, are downloaded by the `kernel_models` o
 AI subagents use the independent **Stratum CLI** for batch ingestion, report claims, review, and query. It is not a Python dependency or a git submodule of this repository.
 
 - <https://github.com/Xehuri/stratum>
-- <https://github.com/Xehuri/stratum/releases/tag/v0.1.0>
+- <https://github.com/Xehuri/stratum/releases/tag/v0.1.1>
 
 ```bash
-python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.0"
+python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.1"
 stratum init --root "<AI root>" --name personal
 stratum status
 ```
 
-`.stratum/` is runtime state and must be gitignored. Keep the old `data/index/*.jsonl` during dual-read. `STRATUM_ENABLED=0` is only a temporary fallback, not a long-term mode.
+`.stratum/` is runtime state and must be gitignored. During the observation window the old `data/index/*.jsonl` is frozen read-only; Stratum does not read legacy JSONL, and `migrate-legacy` is a one-time snapshot. `STRATUM_ENABLED=0` is only a temporary fallback, not a long-term mode.
 
 ---
 

@@ -58,17 +58,17 @@ Kinship 分为三个位置，不是单一仓库：
 AI 子智能体的批次入库、报告 claim、review 与 query 依赖独立的 **Stratum CLI**，不是本仓库的 Python 包依赖。仓库与版本：
 
 - <https://github.com/Xehuri/stratum>
-- <https://github.com/Xehuri/stratum/releases/tag/v0.1.0>
+- <https://github.com/Xehuri/stratum/releases/tag/v0.1.1>
 
 安装与初始化：
 
 ```bash
-python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.0"
+python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.1"
 stratum init --root "<AI根>" --name personal
 stratum status
 ```
 
-`.stratum/` 是运行时状态，必须 gitignore。旧 `data/index/*.jsonl` 在 dual-read 期保留。临时回退可设 `STRATUM_ENABLED=0`，但这是过渡方案，不是长期方案。
+`.stratum/` 是运行时状态，必须 gitignore。旧 `data/index/*.jsonl` 在观察期只读冻结；Stratum 不读旧 JSONL，`migrate-legacy` 是一次性快照。临时回退可设 `STRATUM_ENABLED=0`，但这是过渡方案，不是长期方案。
 
 ## 生产拓扑
 

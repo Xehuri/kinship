@@ -57,7 +57,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 | `{AI目录}/data/daily/{date}/复盘-{date}.md` | 每日复盘报告（输入） |
 | `{AI目录}/data/reports/每周总结-{start}~{end}.md` | 周报输出 |
 
-## Stratum 周报契约（v1，双读期）
+## Stratum 周报契约（v1，切换观察期）
 
 > `STRATUM_ENABLED=0` 时跳过本节所有 `stratum` 命令，按旧流程写报告并走旧索引；否则默认启用。
 
@@ -72,7 +72,7 @@ period_start: {start_date}
 period_end: {end_date+1}
 granularity: week
 author: 04-weekly-review
-base_commit: {生成报告时 stratum HEAD 的 40 位小写十六进制；没有 HEAD 写 none}
+base_commit: {生成报告时的 Stratum HEAD，格式 CMT-<16 位小写十六进制>；兼容旧 40 位小写十六进制；没有 HEAD 写 none}
 created_at: {RFC 3339 时间戳，必须带时区偏移}
 timezone: Asia/Shanghai
 ---
@@ -102,12 +102,12 @@ timezone: Asia/Shanghai
    ```
 2. 日层 claim 不足或覆盖不完整时，回到 02 补齐 source 和日 claim。
 3. 写周报。
-4. 入库：`stratum ingest report "{AI目录}/data/reports/每周总结-{start}~{end}.md"`。
+4. 校验后入库：`stratum lint "{AI目录}/data/reports/每周总结-{start}~{end}.md"`，通过后执行 `stratum ingest report "{AI目录}/data/reports/每周总结-{start}~{end}.md"`。
 5. 逐条转正，**不得使用 bulk-promote**：
    ```bash
    stratum review promote OBS-W-{start_date}-01 --author 04-weekly-review --reason "derived_from active; evidence checked"
    ```
-6. 验证：`stratum query --type observation --from {start_date} --to {end_date+1} --status active`。
+6. 验证：`stratum query --type claim --claim-type observation --from {start_date} --to {end_date+1} --status active`。
 
 - promotion 前所有 `derived_from` 目标必须是 active。
 - 只转正周观测，不转日层 claim 或双周报 claim。
@@ -384,7 +384,7 @@ timezone: Asia/Shanghai
 
 > 报告写入后按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；未生成报告索引不得提交。
 >
-> 同时按「Stratum 周报契约（v1）」执行 `stratum ingest report`，再逐条 `stratum review promote`；不得使用 `bulk-promote`。
+> 同时按「Stratum 周报契约（v1）」先 `stratum lint`，再 `stratum ingest report`，然后逐条 `stratum review promote`；不得使用 `bulk-promote`。
 
 ### 步骤 6：自检
 
@@ -401,7 +401,7 @@ period_start: {start_date}
 period_end: {end_date+1}
 granularity: week
 author: 04-weekly-review
-base_commit: {40 位小写十六进制或 none}
+base_commit: {生成报告时的 Stratum HEAD，格式 CMT-<16 位小写十六进制>；兼容旧 40 位小写十六进制；没有 HEAD 写 none}
 created_at: {RFC 3339，带时区偏移}
 timezone: Asia/Shanghai
 ---
