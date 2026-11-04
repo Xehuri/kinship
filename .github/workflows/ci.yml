@@ -98,3 +98,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: python tools/docs-check/check_docs.py all
+
+  stratum-prompts-windows:
+    name: Stratum prompt contract (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate prompt contract files
+        run: python tools/check_stratum_prompts.py
