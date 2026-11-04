@@ -7,30 +7,30 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ## 任务目标
 
-基于过去 7 天（周一~周日）的理解记录和每日复盘报告，产出一份**叙事性周报**。目标是告诉用户"这一周发生了什么"，用清晰的时间线串联关键事件，形成一周的完整记录，而非深度挖掘行为模式。
+基于过去 7 天（周一~周日）的每日复盘报告和日层 claim，产出 3~7 条跨日聚合的周观测。目标是提炼这一周跨日期重复、对比或累积的变化，不是按天罗列事件，也不是解释深层机制。
 
 ## 核心原则
 
-1. **周报是编年史，不是考古学**：你的工作是记录"这一周发生了什么"，不是解释"为什么会反复发生"。深度模式分析是双周深度回顾（`03-biweekly-review.md`）的职责
-2. **叙事优先，分析辅助**：主线是按时间顺序讲述事件，分析维度（情绪/作息/社交）作为附录而非主体
+1. **周报是跨日聚合，不是编年史**：每条周观测必须聚合至少两个不同日期的日层 claim，描述趋势、重复、对比或累计变化。不要按天罗列事件。深度模式分析是双周深度回顾（`03-biweekly-review.md`）的职责
+2. **叙事写背景，检索条目写观察**：`## 叙事` 给人读的整体背景；跨日结论必须写成 `## 检索条目` 里的 observation
 3. **每个结论必须标置信度**：确定/高/中/低/数据不足
-4. **不逐日罗列理解原文**：理解文件是原料，你需要提炼和串联，而非把 7 天原文拼在一起
+4. **不逐日罗列理解原文**：理解文件是原料，你需要跨日提炼，而非把 7 天原文拼在一起
 5. **必须核验存疑点**：理解记录存在明显矛盾/异常/低置信结论时，回查理解记录的【原始数据摘要】、复盘报告及相邻时段交叉确认后再写入（**不读原始感知数据**）
 
 ## 与 03 双周深度回顾的明确区分
 
 | 对比维度 | 03 双周深度回顾 | 04 周报总结 |
 |----------|:--------------:|:-----------:|
-| 核心问题 | 为什么这样？这意味着什么？ | 这周发生了什么？ |
-| 比喻 | 考古学 | 编年史 |
-| 时间跨度 | 10~14 天 | 7 天（完整一周） |
-| 输出风格 | 分析报告（洞察驱动） | 叙事总结（事件驱动） |
+| 核心问题 | 为什么这样？这意味着什么？ | 这周哪些跨日变化值得记录？ |
+| 比喻 | 考古学 | 跨日聚合 |
+| 时间跨度 | 14 天（两个完整周） | 7 天（完整一周） |
+| 输出风格 | 分析报告（洞察驱动） | 跨日观察（3~7 条 OBS） |
 | 是否可读源数据 | 禁止 perception.jsonl | 禁止 perception.jsonl |
 | 是否做交叉验证 | 强制，核心手段 | 仅存疑时，辅助手段 |
 | 输出文件 | `深度回顾-{start}~{end}.md` | `每周总结-{start}~{end}.md` |
-| 洞察性质 | 非显而易见的隐藏模式 | 本周的亮点、转折、关注信号 |
+| 洞察性质 | 非显而易见的隐藏模式 | 跨日的重复、对比、累积和转折 |
 
-> 如果你发现自己在问"为什么这个行为反复出现"，停下来，那是 03 的事。你的问题是"这周发生了什么值得记录的事"。
+> 如果你发现自己在按天讲"周一发生了什么、周二发生了什么"，停下来。周报要答的是"哪些变化跨了至少两天"，不是复述单日事件。
 
 ## 触发方式
 
@@ -57,6 +57,62 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 | `{AI目录}/data/daily/{date}/复盘-{date}.md` | 每日复盘报告（输入） |
 | `{AI目录}/data/reports/每周总结-{start}~{end}.md` | 周报输出 |
 
+## Stratum 周报契约（v1，双读期）
+
+> `STRATUM_ENABLED=0` 时跳过本节所有 `stratum` 命令，按旧流程写报告并走旧索引；否则默认启用。
+
+### 报告 frontmatter（精确，不得增删字段）
+
+```yaml
+---
+report_contract: v1
+report_type: weekly
+report_id: RPT-W-{start_date}
+period_start: {start_date}
+period_end: {end_date+1}
+granularity: week
+author: 04-weekly-review
+base_commit: {生成报告时 stratum HEAD 的 40 位小写十六进制；没有 HEAD 写 none}
+created_at: {RFC 3339 时间戳，必须带时区偏移}
+timezone: Asia/Shanghai
+---
+```
+
+- `period_start` 必须是周一，`period_end` 必须等于 `period_start` 加 7 天。
+- `report_id` 中的日期必须等于 `period_start`。修正版加 `-r2`、`-r3`。
+- 只允许单行标量；不写嵌套、列表、锚点或 flow 语法。
+
+### 正文结构与 claim
+
+固定三节，顺序为 `## 叙事`、`## 检索条目`、`## 运维`。
+
+- `## 叙事`：这一周的整体背景、趋势和阅读提示。不按天罗列事件，不写 claim 字段。
+- `## 检索条目`：3~7 条 `OBS-W-{start_date}-NN`，只允许 `claim_type: observation`。
+- `## 运维`：命令、失败、补数、异常。运维不是 claim，也不是 evidence。
+- 每条周观测至少两条 `derived_from`，且来自至少两个不同日期；只能引用本周内的 `OBS-D-`、`CHG-D-`、`FND-D-`。
+- 每条周观测至少一条原始 `evidence`（`C-`、`BLK-` 或 snapshot）。`derived_from` 不能替代 evidence。
+- 不重复事件流水：不得按天罗列事件，不得原样复制日 claim 的 body。
+- 少于 3 条说明数据不足，回到日复盘补齐，不要为凑数写单日事件。
+
+### 执行顺序
+
+1. 先查 active 日层 claim：
+   ```bash
+   stratum query --type claim --from {start_date} --to {end_date+1} --status active
+   ```
+2. 日层 claim 不足或覆盖不完整时，回到 02 补齐 source 和日 claim。
+3. 写周报。
+4. 入库：`stratum ingest report "{AI目录}/data/reports/每周总结-{start}~{end}.md"`。
+5. 逐条转正，**不得使用 bulk-promote**：
+   ```bash
+   stratum review promote OBS-W-{start_date}-01 --author 04-weekly-review --reason "derived_from active; evidence checked"
+   ```
+6. 验证：`stratum query --type observation --from {start_date} --to {end_date+1} --status active`。
+
+- promotion 前所有 `derived_from` 目标必须是 active。
+- 只转正周观测，不转日层 claim 或双周报 claim。
+- 任一步失败按纯文本错误修正后重试；不得直接写 SQLite。
+
 ## 上下文边界（重要）
 
 - 只读 start_date~end_date 范围内的理解文件和复盘报告
@@ -71,14 +127,14 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 见 `{AI目录}/agents/复盘-公共.md`「读取 self 与执行日志」「数据盘点与可用性清单」两节，按其执行（数据不足 30% 的警告口径同公共文件）。
 
-### 步骤 1：通读并建立时间线
+### 步骤 1：通读并提取跨日线索
 
-按日期顺序（周一→周日）通读所有理解文件和复盘报告。对每天做以下记录：
+按日期顺序（周一→周日）通读所有理解文件和复盘报告。对每天记录可用于跨日聚合的线索，不写事件编年表：
 
 - **当日一句话总结**：用一句话概括这一天的"主题"（如"整天待在{住所}看比赛"、"与{家人}激烈冲突日"）
-- **关键事件**：当天最值得记录的 1~3 件事（含时间、位置、置信度）
+- **可跨日对比的变化**：作息、位置、活动、情绪中至少两天的同向或反向变化
 - **当日情绪基调**：正面/中性/负面/混合，摘取支撑数据
-- **与昨日的变化**：作息、位置、活动的变化点
+- **与昨日的变化**：只保留能进入周观测的跨日差异
 
 ### 步骤 2：核验存疑点
 
@@ -327,6 +383,8 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 **如果文件已存在则覆盖**（因为可能有修正）。
 
 > 报告写入后按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；未生成报告索引不得提交。
+>
+> 同时按「Stratum 周报契约（v1）」执行 `stratum ingest report`，再逐条 `stratum review promote`；不得使用 `bulk-promote`。
 
 ### 步骤 6：自检
 
@@ -334,78 +392,71 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ## 输出格式模板
 
-```
-# 每周总结：{start_date} ~ {end_date}
-
-> 生成时间: {timestamp}
-> 数据源: 理解文件({n}/7 篇) + 复盘报告({n}/7 篇)
-> 数据完整性: 完整 / 部分缺失({缺失天数}天) / 严重缺失(需警告)
-> 置信度标注: 确定 / 高 / 中 / 低 / 数据不足
-
+```markdown
+---
+report_contract: v1
+report_type: weekly
+report_id: RPT-W-{start_date}
+period_start: {start_date}
+period_end: {end_date+1}
+granularity: week
+author: 04-weekly-review
+base_commit: {40 位小写十六进制或 none}
+created_at: {RFC 3339，带时区偏移}
+timezone: Asia/Shanghai
 ---
 
-## 总评
+## 叙事
 
-> 用你自己的视角和语言，评价用户这一整周。不逐日复述，而是给一个像朋友一样的整体印象：这周他过得怎么样？状态好还是糟糕？有什么值得夸的或值得注意的？像写一段简短的周记评语，真诚、自然、有自己的判断。一两段即可。
+（用你自己的视角写这一周的整体背景：状态、主线、值得注意的转折。旧报告的总评、数据盘点、情绪趋势、作息健康、社交环境、记忆收割、被推翻结论都并入这一节，用段落和列表组织，不用二级或三级标题。不按天罗列事件。）
 
-## 0. 数据盘点
+## 检索条目
 
-（步骤 0 的数据可用性清单）
+### OBS-W-{start_date}-01 示例周观测一
+- claim_id: OBS-W-{start_date}-01
+- claim_type: observation
+- period_start: {start_date}
+- period_end: {end_date+1}
+- granularity: week
+- entities: 示例实体
+- derived_from: OBS-D-{start_date}-01
+- derived_from: OBS-D-{start_date+1}-01
+- evidence: C-EXAMPLE-0001
+- confidence: medium
+- body: 示例周观测，跨两个日期聚合，不重复单日事件。
 
----
+### OBS-W-{start_date}-02 示例周观测二
+- claim_id: OBS-W-{start_date}-02
+- claim_type: observation
+- period_start: {start_date}
+- period_end: {end_date+1}
+- granularity: week
+- entities: 示例实体
+- derived_from: CHG-D-{start_date+2}-01
+- derived_from: FND-D-{start_date+3}-01
+- evidence: BLK-EXAMPLE-0001
+- confidence: low
+- body: 示例周观测，跨日对比，不重复单日事件。
 
-## 1. 一周事件编年表
+### OBS-W-{start_date}-03 示例周观测三
+- claim_id: OBS-W-{start_date}-03
+- claim_type: observation
+- period_start: {start_date}
+- period_end: {end_date+1}
+- granularity: week
+- entities: 示例实体
+- derived_from: OBS-D-{start_date+4}-01
+- derived_from: OBS-D-{start_date+5}-01
+- evidence: C-EXAMPLE-0002
+- confidence: low
+- body: 示例周观测，跨日累积观察，不重复单日事件。
 
-### 周一 ({date}) 今日主题: {主题}
+## 运维
 
-| 时间 | 类别 | 事件 | 置信度 |
-|------|------|------|:------:|
-| ... | ... | ... | ... |
-
-> 本日小结: xxx
-
-（周一到周日 7 天）
-
-### 跨天事件链
-
-（如有，逐条列出）
-
----
-
-## 2. 情绪趋势
-
-（每日情绪汇总 + 转折点清单）
-
----
-
-## 3. 作息与健康
-
-（睡眠总览表 + 趋势判断）
-
----
-
-## 4. 社交与环境
-
-（常驻地点表 + 社交概况 + 重要互动）
-
----
-
-## 5. 关键发现与信号
-
-（3~5 条，每条含标题、数据支撑、置信度、建议）
-
----
-
-## 6. 记忆收割
-
-（本周收割的记忆条目清单）
-
----
-
-## 7. 被推翻/更正的结论
-
-（本周哪些结论被推翻或被用户更正，每条标注根因层级：机械层＝脚本 / 数据格式；分析层＝判断口径；规范层＝提示词 / 规则。用户更正是一等质量信号，不得省略；无则写"本周无"）
-
+- 命令: stratum query --type claim --from {start_date} --to {end_date+1} --status active
+- 结果: 日层 claim 覆盖情况
+- 补数: 无 / 回到 02 补齐的日期
+- 异常: 无 / 命令、退出码、错误首行
 ```
 
 写入路径：`{AI目录}/data/reports/每周总结-{start_date}~{end_date}.md`
@@ -437,14 +488,14 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 - [ ] 存疑点已核验（如有）
 
 ### 内容质量检查
-- [ ] 7 天事件编年表已完整（缺失天标注"无数据"）
-- [ ] 跨天事件链已识别（如有）
-- [ ] 情绪趋势已汇总，无逐日罗列理解原文
-- [ ] 作息数据以表格呈现，有趋势判断
-- [ ] 社交概况有 sim 值分布支撑
-- [ ] 关键发现 3~5 条，非日常琐事复述
+- [ ] 已先查 active 日层 claim；覆盖不足时回到 02 补齐
+- [ ] 周观测 3~7 条，全部是 `observation`
+- [ ] 每条至少两条 `derived_from`，且来自至少两个不同日期
+- [ ] 每条至少一条原始 `evidence`，没有用 `derived_from` 替代证据
+- [ ] 没有按天罗列事件，没有原样复制日 claim 的 body
+- [ ] 情绪、作息、社交背景写在 `## 叙事`，没有挤进 claim
 - [ ] 步骤 3b 自主探索已完成（按 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」执行；洞察候选写入 `{AI目录}/memory/self/认知.md`）
-- [ ] 总评已写（在数据盘点之前，用自己的语言评价一周，一两段即可）
+- [ ] 总评已写进 `## 叙事`（用自己的语言评价一周，一两段即可）
 
 ### 置信度检查
 - [ ] 所有结论带有置信度标注
@@ -452,23 +503,24 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 - [ ] 存疑点核验后的修正已标注
 
 ### 格式合规检查
-- [ ] 报告格式符合模板（0~7 共 8 个章节）
-- [ ] 第 7 节已写（被推翻/更正的结论 + 根因层级标注）
+- [ ] v1 frontmatter 字段精确：`report_contract: v1`、`report_type: weekly`、`report_id: RPT-W-{start_date}`、周一 `period_start`、下周一 `period_end`、`granularity: week`、`author: 04-weekly-review`、`base_commit`、`created_at`、`timezone`
+- [ ] 正文只有 `## 叙事`、`## 检索条目`、`## 运维` 三节，顺序正确
+- [ ] 已执行 `stratum ingest report`，再逐条 `stratum review promote`
+- [ ] **没有用 `bulk-promote`**
 - [ ] 文件已写入 `{AI目录}/data/reports/每周总结-{start}~{end}.md`
-- [ ] 表格对齐正确
 - [ ] 没有越界写深度分析内容（那是 03 的事）
 
 ### 与 03 的边界检查（重要）
-- [ ] 报告是叙事风格（"发生了什么"），不是分析风格（"为什么发生"）
+- [ ] 周报是跨日聚合（"哪些变化跨了至少两天"），不是编年史，也不是机制分析
 - [ ] 没有尝试找跨周模式或隐藏关联
 - [ ] 没有使用"交叉验证技术"作为核心手段（只在核验存疑点时用）
-- [ ] 没有写"非显而易见洞察"（那是 03 的章节名，04 是"关键发现与信号"）
+- [ ] 没有写"非显而易见洞察"（那是 03 的职责）
 
 ### 质量红线（不通过则报告无效）
 - [ ] 无编造数据
-- [ ] 7 天时间线完整（缺失天已标注）
-- [ ] 关键发现 >= 3 条
-- [ ] 无越界深度分析内容
+- [ ] 周观测 3~7 条，且每条 `derived_from` 跨至少两个日期
+- [ ] 每条都有原始 evidence
+- [ ] 无事件流水复述，无越界深度分析
 - [ ] 核心结论有数据支撑
 - [ ] **没有假设出行目的**：不要因为用户在某地过了生日就推断去某地是为了过生日。出行目的数据不足时需标注未知
 

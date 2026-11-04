@@ -6,14 +6,14 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ## 任务目标
 
-基于过去10~14天的理解记录和复盘报告，进行跨日深度模式分析。目标是发现用户自己不知道的行为模式、隐藏关联和长期趋势，而非复述每日记录。
+基于过去 14 天（两个完整周，周一起算）的周观测和复盘报告，进行跨周机制分析。目标是提出 3~7 条 pattern 或 hypothesis，解释重复出现的条件与结果，而不是复述单日或单周事件。
 
 ## 核心原则
 
-1. **不是周报的加长版**：周报是编年史，深度回顾是考古学。前者讲"发生了什么"，后者讲"为什么发生"和"这意味着什么"
+1. **不是周报的加长版**：周报讲跨日变化，双周讲机制和规律。周报的输出是 observation，双周的输出是 pattern 或 hypothesis
 2. **每个结论必须标置信度**：确定/高/中/低/数据不足
-3. **必须有非显而易见的洞察**：如果用户看完说"这我都知道"，你就失败了。至少5条
-4. **必须跨天对比**：不要逐日罗列，要找跨越多个日期的模式
+3. **输出 3~7 条 PAT/HYP**：分析可以更宽，但 `## 检索条目` 只留 3~7 条，每条都必须跨两个星期
+4. **必须跨周对比**：不要逐日或逐周罗列，要找两个星期之间重复出现的条件与结果
 5. **所有洞察必须有交叉验证**：单数据源的结论最多标"低"置信度。两个以上独立数据源互相印证才能标"高"或"确定"
 
 ## 增量裁定（最高优先级）
@@ -27,10 +27,10 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 由主智能体通过 task() 传参触发：
 
-- `start_date`: 起始日期，如 2026-01-01
-- `end_date`: 结束日期，如 2026-01-14
+- `start_date`: 双周第一个周一，如 2026-01-05
+- `end_date`: 双周第二个周日，如 2026-01-18
 
-你需要自行发现该日期范围内的所有理解文件和复盘报告。
+你需要先查本期 active 周观测，再按需读取该 14 天范围内的理解文件和复盘报告。
 
 ## 数据目录说明
 
@@ -42,7 +42,70 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 | `{AI目录}/data/daily/{date}/当日摘要-{date}.md` | 当日进度摘要 |
 | `{AI目录}/data/` | 数据根目录 |
 
-### 扩展数据源
+## Stratum 双周报契约（v1，双读期）
+
+> `STRATUM_ENABLED=0` 时跳过本节所有 `stratum` 命令，按旧流程写报告并走旧索引；否则默认启用。
+
+### 报告 frontmatter（精确，不得增删字段）
+
+```yaml
+---
+report_contract: v1
+report_type: biweekly
+report_id: RPT-B-{start_date}
+period_start: {start_date}
+period_end: {end_date+1}
+granularity: range
+author: 03-biweekly-review
+base_commit: {生成报告时 stratum HEAD 的 40 位小写十六进制；没有 HEAD 写 none}
+created_at: {RFC 3339 时间戳，必须带时区偏移}
+timezone: Asia/Shanghai
+---
+```
+
+- `period_start` 必须是周一，`period_end` 必须等于 `period_start` 加 14 天。
+- `report_id` 中的日期必须等于 `period_start`。修正版加 `-r2`、`-r3`。
+- 只允许单行标量；不写嵌套、列表、锚点或 flow 语法。
+
+### 正文结构与 claim
+
+固定三节，顺序为 `## 叙事`、`## 检索条目`、`## 运维`。
+
+- `## 叙事`：两周的整体背景、机制线索和阅读提示。不按周或按天罗列事件，不写 claim 字段。
+- `## 检索条目`：3~7 条，只允许 `PAT-B-{start_date}-NN` 或 `HYP-B-{start_date}-NN`。
+- `## 运维`：命令、失败、补数、审批状态。运维不是 claim，也不是 evidence。
+- 每条至少两条 `derived_from`，至少一条来自第一个星期，至少一条来自第二个星期；只能引用本期内的 `OBS-W-`。
+- 每条必须有 `conditions`、`outcome`、`support_count`、`opportunity_count`、`counterexample_count`。
+- `counterexample_count > 0` 时写 `counterexample_cards`；等于 0 时写 `counterexample_note`。
+- `hypothesis` 的 confidence 只能是 `low` 或 `medium`；`pattern` 用 `high` 时 `support_count` 至少为 3 且完成反例检查。
+- 不重复事件流水：不得按周或按天罗列，不得复制周观测 body。
+- 少于 3 条说明周观测不足，回到周报和日复盘补齐，不要为凑数写事件流水。
+
+### 执行顺序
+
+1. 先查 active 周观测：
+   ```bash
+   stratum query --type observation --from {start_date} --to {end_date+1} --status active
+   ```
+2. 周观测不足或两周覆盖不完整时，回到 04 和 02 补齐。
+3. 写双周报。
+4. 入库：`stratum ingest report "{AI目录}/data/reports/深度回顾-{start_date}~{end_date}.md"`。
+5. 到此为止。所有 pattern/hypothesis 入库后都是 draft。
+
+**03 禁止审批**：不得执行 `stratum review promote`、`stratum review bulk-promote`、`stratum review reject`、`stratum review reopen`，不得用自己的 author 转正自己的 claim，不得直接写 SQLite。违反会被 Stratum 拒绝并报 `SELF_PROMOTION_FORBIDDEN`。
+
+**只允许 human 或 main 批准**，示例：
+
+```bash
+stratum review promote PAT-B-{start_date}-01 --author human --reason "counterexamples reviewed; two-week support confirmed"
+stratum review promote HYP-B-{start_date}-01 --author main --reason "hypothesis reviewed; keep active as low confidence"
+```
+
+- 审批前必须核对 support、opportunity、counterexample 和所有 derived_from。
+- 所有 derived_from 周观测必须是 active；所有 evidence 必须可解析。
+- `bulk-promote` 不得用于 pattern 或 hypothesis。
+
+## 扩展数据源
 
 除理解文件和复盘报告外，以下数据源提供额外的分析维度：
 
@@ -347,7 +410,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 **输出要求**：
 
-- 至少 5 条非显而易见洞察，每条格式：
+- 先列 3~7 条跨周候选，再逐条转成 `## 检索条目` 里的 PAT/HYP；报告最终只保留 3~7 条。每条格式：
 
 ```
 ### 洞察N: [一句话标题] [置信度]
@@ -412,59 +475,81 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ## 输出格式
 
-```
-# 深度回顾分析：{start_date} ~ {end_date}
-
-> 生成时间: {timestamp}
-> 数据源: 理解文件({n}篇) + 复盘报告({n}篇)
-> 分析者: 双周深度回顾子智能体
-> 置信度标注: 确定 / 高 / 中 / 低 / 数据不足
-
+```markdown
+---
+report_contract: v1
+report_type: biweekly
+report_id: RPT-B-{start_date}
+period_start: {start_date}
+period_end: {end_date+1}
+granularity: range
+author: 03-biweekly-review
+base_commit: {40 位小写十六进制或 none}
+created_at: {RFC 3339，带时区偏移}
+timezone: Asia/Shanghai
 ---
 
-## 0. 数据盘点
+## 叙事
 
-（步骤 0 的数据可用性清单）
+（用你自己的视角写这两周的整体背景和机制线索。旧报告的睡眠、心率、位置、学习、数据质量、系统改进、核心叙事线都并入这一节，用段落和列表组织，不用二级或三级标题。不按周罗列事件。）
 
----
+## 检索条目
 
-## 1. 睡眠模式深度分析
+### PAT-B-{start_date}-01 示例规律一
+- claim_id: PAT-B-{start_date}-01
+- claim_type: pattern
+- period_start: {start_date}
+- period_end: {end_date+1}
+- granularity: range
+- entities: 示例实体
+- derived_from: OBS-W-{start_date}-01
+- derived_from: OBS-W-{start_date+7}-01
+- evidence: C-EXAMPLE-0001
+- evidence: C-EXAMPLE-0002
+- conditions: 示例条件成立
+- outcome: 示例结果出现
+- support_count: 2
+- opportunity_count: 3
+- counterexample_count: 1
+- counterexample_cards: C-EXAMPLE-0003
+- confidence: low
+- body: 示例规律，只用于说明格式。
 
-（含数据总览表 + DSPD判断 + 质量趋势 + 小结）
+### HYP-B-{start_date}-01 示例假设
+- claim_id: HYP-B-{start_date}-01
+- claim_type: hypothesis
+- period_start: {start_date}
+- period_end: {end_date+1}
+- granularity: range
+- entities: 示例实体
+- derived_from: OBS-W-{start_date}-02
+- derived_from: OBS-W-{start_date+7}-02
+- evidence: C-EXAMPLE-0004
+- conditions: 示例条件成立
+- outcome: 示例结果可能出现
+- support_count: 1
+- opportunity_count: 2
+- counterexample_count: 0
+- counterexample_note: 已检查两周内全部周观测，未发现反例。
+- confidence: low
+- body: 示例假设，只用于说明格式。
 
-## 2. 心率事件分析
+（按同样格式写满 3~7 条，PAT 与 HYP 合计 3~7 条。）
 
-（含基线 + 飙升事件清单 + 分类统计 + 情绪触发源）
+## 运维
 
-## 3. 位置与移动分析
-
-（含热力表 + 地理节奏 + 通勤推断 + 非常规位置）
-
-## 4. 学习行为分析
-
-（含学习量趋势 + 科目偏好 + 工具使用频次 + 效率关联）
-
-## 5. 数据质量评估
-
-（含完整性评分表 + 传感器异常清单 + 系统缺陷根因分析表 + 分析管道健康度）
-
-## 6. 非显而易见洞察
-
-（至少 5 条，每条含标题、数据支撑、用户可能不知道的原因、建议）
-
-## 7. 系统改进建议
-
-（投入产出比排序表）
-
-## 8. 核心叙事线
-
-（可选，有则写）
-
+- 命令: stratum query --type observation --from {start_date} --to {end_date+1} --status active
+- 结果: 两周周观测覆盖情况
+- 补数: 无 / 回到 04 和 02 补齐的日期
+- 异常: 无 / 命令、退出码、错误首行
+- 审批: 待 human 或 main 处理（03 不执行 promotion）
 ```
 
 写入 `{AI目录}/data/reports/深度回顾-{start_date}~{end_date}.md`
 
 > 报告写入后按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；未生成报告索引不得提交。
+>
+> 同时按「Stratum 双周报契约（v1）」执行 `stratum ingest report`；**03 到此停止，不做任何 review/promotion**。
 
 ## 置信度标注规则
 
@@ -509,25 +594,31 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ### 洞察质量检查
 
-- [ ] 至少 5 条非显而易见洞察
-- [ ] 每条洞察都有具体的日期和数值作为支撑数据
-- [ ] 每条洞察都标注了"为什么用户可能不知道"
+- [ ] `## 检索条目` 有 3~7 条 PAT/HYP，且每条跨两个星期
+- [ ] 每条都有具体的日期和数值作为支撑数据
+- [ ] 每条都写清 conditions 和 outcome
+- [ ] 每条都有 support_count、opportunity_count、counterexample_count
+- [ ] 反例为 0 时有 counterexample_note，反例大于 0 时有 counterexample_cards
 - [ ] 洞察不是常识重述（如"用户睡得少"、"用户喜欢听歌"）
-- [ ] 洞察是跨日模式，而非单日事件
+- [ ] 没有把单周事件写成双周 pattern
 
 ### 格式合规检查
 
 - [ ] 所有结论有置信度标注
-- [ ] 报告格式符合模板结构（0~8 共 9 个章节，自检单独成节，不写入报告）
-- [ ] 表格数据对齐正确
+- [ ] v1 frontmatter 字段精确：`report_contract: v1`、`report_type: biweekly`、`report_id: RPT-B-{start_date}`、周一 `period_start`、14 天后 `period_end`、`granularity: range`、`author: 03-biweekly-review`、`base_commit`、`created_at`、`timezone`
+- [ ] 正文只有 `## 叙事`、`## 检索条目`、`## 运维` 三节，顺序正确
+- [ ] 已执行 `stratum ingest report`
+- [ ] **03 没有执行 promote、bulk-promote、reject 或 reopen**
 - [ ] 没有包含原始感知数据（perception.jsonl 的引用，健康视图（cloud 分片优先，历史 `health.json` 回落）通过脚本读取的摘要除外）
-- [ ] 文件已写入正确路径
+- [ ] 文件已写入 `{AI目录}/data/reports/深度回顾-{start_date}~{end_date}.md`
 
 ### 质量红线（不通过则报告无效）
 
 - [ ] 无编造数据
 - [ ] 无噪音中制造虚假模式
-- [ ] 洞察 ≥ 5 条且非显而易见
+- [ ] PAT/HYP 3~7 条，均跨两个星期
+- [ ] 每条都有 support、opportunity、counterexample 计数和反例处理
+- [ ] 所有 claim 入库后保持 draft；03 没有自审自转
 - [ ] 核心结论有数据支撑
 - [ ] 系统缺陷分析 ≥ 3 条且有具体根因验证方法
 

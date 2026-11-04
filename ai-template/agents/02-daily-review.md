@@ -27,7 +27,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ## 待办纪律（公共）
 
-> 统一见 `{AI目录}/agents/公共-操作规范.md` §1。开工第一步按该节建清单；本角色交货项＝复盘报告落盘、事实修正（如有）、记忆收割与 `任务.md` 落账、执行日志、发通知（本任务若要求）、git 提交。
+> 统一见 `{AI目录}/agents/公共-操作规范.md` §1。开工第一步按该节建清单；本角色交货项＝复盘报告落盘、Stratum source 补齐与报告入库、卡片/claim 转正、事实修正（如有）、记忆收割与 `任务.md` 落账、执行日志、发通知（本任务若要求）、git 提交。
 
 ## 复盘完整流程（主智能体协调）
 
@@ -95,6 +95,73 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 | `{AI目录}/data/daily/{date}/复盘-{date}.md` | 复盘报告（输出） |
 | `{AI目录}/memory/` | 记忆写入目标 |
 
+## Stratum 日复盘契约（v1，双读期）
+
+> `STRATUM_ENABLED=0` 时跳过本节所有 `stratum` 命令，按旧流程写报告并走旧索引；否则默认启用。
+
+### 报告 frontmatter（精确，不得增删字段）
+
+```yaml
+---
+report_contract: v1
+report_type: daily
+report_id: RPT-D-{date}
+period_start: {date}
+period_end: {date+1}
+granularity: day
+author: 02-daily-review
+base_commit: {生成报告时 stratum HEAD 的 40 位小写十六进制；没有 HEAD 写 none}
+created_at: {RFC 3339 时间戳，必须带时区偏移}
+timezone: Asia/Shanghai
+---
+```
+
+- 只能写上述字段，只允许单行标量；不写嵌套、列表、锚点或 flow 语法。
+- `report_id` 中的日期必须等于 `period_start`。修正版在末尾加 `-r2`、`-r3`。
+- 旧报告的 Obsidian `date/tags/aliases/links` 不再写进 v1 frontmatter；旧索引仍按文件名识别报告。
+
+### 正文结构（精确，只有三节）
+
+顺序固定，各出现一次：
+
+```text
+## 叙事
+## 检索条目
+## 运维
+```
+
+- `## 叙事`：给人读，段落和列表都行。旧报告的全天评价、时间线、对比、异常、人的状态、领域进度、子智能体评价、记忆收割、事实修正、对话侧决定、计划复盘、被推翻结论、代码待办、关联文件，全部并入这里，用粗体引导句和列表组织，**不用二级或三级标题**。
+- `## 检索条目`：只放 claim 三级标题块，字段语法按 `stratum/contracts/claim-schema.md`。
+- `## 运维`：只写命令、退出码、失败、补数、workspace 状态和 `data_gap` 原因。运维不是 claim，也不是 evidence。
+- `## 叙事` 和 `## 运维` 内不得出现三级标题；报告中不得写 `- status:`。
+
+### 日层 claim
+
+- 只用 `OBS`、`CHG`、`FND`，对应 `observation`、`change`、`finding`。
+- 每条 claim 必须有 `claim_id`、`claim_type`、`period_start`、`period_end`、`granularity`、`entities`、`evidence`、`confidence`、`body`。
+- **日层不用 `derived_from`**。日层通过 `evidence` 连接卡片与块。
+- 每个 claim 至少一条 `evidence`，或显式写 `data_gap`。只有 `data_gap` 的 claim 可以保持 draft，不能 promotion。
+- 不写 `conditions`、`outcome`、`support_count`、`opportunity_count`、`counterexample_count`，这些属于双周报。
+- 不为凑数量写 claim。有证据的日期建议 1~10 条；没有可用证据可以 0 条，但必须在 `## 运维` 写 `data_gap` 原因。
+- 运维事实、命令结果、叙事结论一律不写成 claim。
+
+### 执行顺序
+
+1. `stratum status --date {date}` 检查块覆盖。
+2. 缺块时修正批次源文件，重新 `stratum ingest source <file>`，再查一次 status。
+3. 建卡：`stratum add card --block BLK-... --type event --body "..." --date {date} --author 02-daily-review`。
+4. 写 v1 报告。
+5. `stratum ingest report "{AI目录}/data/daily/{date}/复盘-{date}.md"`。
+6. 先转正卡片：`stratum review bulk-promote --type card --date {date} --author 02-daily-review --reason "daily card review"`。
+7. 再转正日层 claim：`stratum review bulk-promote --type claim --date {date} --author 02-daily-review --reason "daily claim review"`。
+8. 验证：`stratum query --type claim --from {date} --to {date+1} --status active`。
+
+- `stratum add card` 至少一个 `--block`；卡片正文不写 claim 字段。
+- 卡片先转正，依赖 draft 卡片的 claim 才能转正。
+- 带 `data_gap` 的 claim 不转正。
+- `bulk-promote` 只用于 card 和日层 claim，不要用它转正周报或双周报。
+- ingest 或 promote 失败时按纯文本错误修正后重试；不得直接写 SQLite。
+
 ## 工作流（步骤 0~7，子步骤以字母标注）
 
 ### 步骤0: 加载用户上下文（建立认知基准）
@@ -140,7 +207,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 3. 进度提醒（落后时在报告中温和标注）
 4. 如有阶段计划，检查是否按计划推进
 
-具体路径与字段以对应领域任务包声明为准；写入复盘报告的对应章节（如"领域进度"）。
+具体路径与字段以对应领域任务包声明为准；写入 `## 叙事` 的领域进度部分。
 
 ### 步骤1c: 合理性检查（检查推断错误和前后矛盾）
 
@@ -149,7 +216,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 1. **推断过度检查**：逐段看综合判断，是否有证据不足的高置信结论
    - 标注示例：`> [检查] 13:00 段"用户在学习"标注为"确定"但仅有 PC 窗口证据，缺乏语音/HR 佐证，应为"中"`
 2. **身份猜测检查**：是否有给身份不明的人安了具体称呼（家人/同学/同行者等）
-   - 改为泛称，在事实修正章节记录
+   - 改为泛称，在 `## 叙事` 的事实修正部分记录
 3. **时间线矛盾检查**：同一人物/活动在不同时段描述是否一致
    - 如 10:00 记在某地、10:05 又记在另一地，需核实是否有 GPS 突变
 4. **主角归属检查**：逐事件检查「主人公是谁」
@@ -188,7 +255,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
    `git log --since="{date} 00:00" --until="{date} 23:59" --date=format:"%H:%M" --format="%h %ad %s" -- {AI目录}/`
    （仓库有并发会话，按**当天日期 + 任务前缀**过滤，忽略无关提交）
 2. 关注**数据检查批次提交**（`数据检查: {date} HH:MM~HH:MM时段理解记录`）与**复盘提交**，它们的 commit body 里有 `## 任务概要` + `## 工作过程评价`（阻碍/改进/质量优化/成本优化）。用 `git log --format=%B -1 <hash>` 读全文。
-3. 汇总评价，写入复盘报告 `## 子智能体工作评价` 章节：
+3. 汇总评价，写入 `## 叙事` 的子智能体工作评价部分：
    - **完成度**：当天各批次/任务是否按时齐全完成（有 commit 即完成；缺失时段标出）
    - **共性问题**：反复出现的阻碍/失误（同类判断反复出错、某步骤反复卡壳）
    - **改进与成本**：各批次提的改进方向、成本优化（工具调用/API 请求/上下文）
@@ -206,7 +273,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
    - `carried`：未完成，带入次日
    - `dropped`：用户同意放弃，或 debt 超期降级
 4. 对照 `intent` / `care` / `not_do` / `open_loops`：哪些服务到了、哪些没有。
-5. 结果写进复盘报告 `## 计划复盘` 一节；**不 `edit` 计划文件、不改 plan JSON、不写 long-task 文件**。需要重排由主会话读复盘后调 `plan revise`。
+5. 结果写进 `## 叙事` 的「计划复盘」部分；**不 `edit` 计划文件、不改 plan JSON、不写 long-task 文件**。需要重排由主会话读复盘后调 `plan revise`。
 
 ---
 
@@ -267,7 +334,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 ### 步骤3a: 人的状态（写人，不写系统）
 
-在写「对比昨日」的数值前，先用 2~3 天窗口回答三个问题，答案进报告的 `## 人的状态`：
+在写「对比昨日」的数值前，先用 2~3 天窗口回答三个问题，答案进 `## 叙事` 的「人的状态」部分：
 
 1. 用户在往哪走：睡眠、精力、学习、在忙的主线，用趋势说，别只看当天。
 2. 情绪与状态：以对话原话、作息形态、通话/外出为主证据；**不拿心率当情绪判据**。
@@ -303,7 +370,7 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 
 1. 对清单中每条错误，定位对应批次文件 `{AI目录}/data/daily/{date}/理解-{date}-批次-{HH}.md`（迁移期旧数据在 `理解-{date}.md`），用 `edit` 修改对应时段内容
 2. 在修正处标注 `> [修正]` 注明修正原因
-3. 在复盘报告「事实修正」章节逐条记录
+3. 在 `## 叙事` 的事实修正部分逐条记录
 4. 修正批次文件后无需改当日摘要（摘要由程序下次运行自动更新）
 
 > 修正示例：
@@ -424,6 +491,18 @@ tags: [记忆, 用户画像, <主题>]        # 人物/事项/属性
    有任何断链或非叶标签，不得结束复盘。
 7. **报告自检结果追加一行**：`索引: cards=N blocks=N resolve=100%`；如果当天没有可建卡内容，写 `索引: cards=0`。
 
+### 步骤5f: Stratum 建卡（v1，双读期）
+
+旧索引建卡照步骤 5e 执行；Stratum 卡片另建，两边并行，不互相替代。
+
+1. `stratum status --date {date}` 检查块覆盖；缺块时修正批次源文件并重新 `stratum ingest source <file>`。
+2. 用 `stratum add card --date {date}` 建卡，至少一个 `--block`，正文不写 claim 字段：
+   ```bash
+   stratum add card --block BLK-... --type event --body "..." --date {date} --author 02-daily-review
+   ```
+3. 卡片入库后是 draft；转正留到步骤 6a，先转卡再转 claim。
+4. 没有可建卡内容时允许 0 张，但要在 `## 运维` 写原因。
+
 ### 步骤6: 写复盘报告
 
 将复盘结果写入 `{AI目录}/data/daily/{date}/复盘-{date}.md`。如文件已存在则覆盖。
@@ -434,152 +513,84 @@ tags: [记忆, 用户画像, <主题>]        # 人物/事项/属性
 
 ```markdown
 ---
-date: {date}
-tags: [基础信息, 复盘报告, 感知分析]
-aliases:
-  - {date} 复盘报告
-links:
-  - [[当日摘要-{date}|当日摘要]]
-  - [[理解-{date}|当日理解]]
-  - [[复盘-{date-1}|昨日复盘]]
+report_contract: v1
+report_type: daily
+report_id: RPT-D-{date}
+period_start: {date}
+period_end: {date+1}
+granularity: day
+author: 02-daily-review
+base_commit: {生成报告时 stratum HEAD 的 40 位小写十六进制；没有 HEAD 写 none}
+created_at: {RFC 3339 时间戳，必须带时区偏移}
+timezone: Asia/Shanghai
 ---
 
-# {date} 复盘报告
+## 叙事
 
-## 全天评价
+（用你自己的视角写全天脉络：这一天怎么过的、主线是什么、转折在哪。把全天评价、时间线事件、对比昨日、异常检测、人的状态、领域进度、子智能体工作评价、记忆收割、事实修正、对话侧决定、计划复盘、被推翻的结论、代码待办、关联文件都写进这一节。用段落和项目符号，粗体引导，不用二级或三级标题。）
 
-> 用你自己的视角和语言，评价用户今天一整天。不是复述事实，而是给一个像朋友一样的直觉印象。可以聊聊他今天的状态怎么样、做了什么有意思的事、情绪起伏大不大、整体感觉如何。不用太长，一两段就行，真诚、自然、有自己的判断。
+## 检索条目
 
-## 时间线事件
+### OBS-D-{date}-01 示例观测
+- claim_id: OBS-D-{date}-01
+- claim_type: observation
+- period_start: {date}
+- period_end: {date+1}
+- granularity: day
+- entities: 示例实体
+- evidence: C-EXAMPLE-0001
+- confidence: medium
+- body: 示例观测内容，只用于说明格式。
 
-> 按发生时间排列，每条写清前因后果。跨天事件回溯起点。
+### CHG-D-{date}-01 示例变化
+- claim_id: CHG-D-{date}-01
+- claim_type: change
+- period_start: {date}
+- period_end: {date+1}
+- granularity: day
+- entities: 示例实体
+- evidence: C-EXAMPLE-0001
+- confidence: medium
+- baseline: 示例基线
+- delta: 示例变化量
+- body: 示例状态变化，只用于说明格式。
 
-### [事件名称]（HH:MM~HH:MM）[类型标注: 主线事件/持续事件/突发事件/收尾事件]
+### FND-D-{date}-01 示例发现
+- claim_id: FND-D-{date}-01
+- claim_type: finding
+- period_start: {date}
+- period_end: {date+1}
+- granularity: day
+- entities: 示例实体
+- evidence: C-EXAMPLE-0001
+- confidence: low
+- body: 示例发现，只用于说明格式。
 
-**时间线**：
-- 起点(MM-DD): 事件从何时开始
-- 今日: 今天发生了什么
-- 状态: 继续中 / 已解决 / 搁置
+## 运维
 
-**完整描述**：
-写清起因、经过、结果。引用理解文件中的关键数据点（语音 sim 值、HR 变化、App 记录等）。不止写"做了什么"，还要写"为什么做""做成了什么样"。
-
-**关联事件**：
-- ← 延续自 [某事件]
-- → 导致 [某事件]
-
----
-
-### [下一个事件]（HH:MM~HH:MM）[类型标注]
-
-...
-
-## 对比昨日
-
-- 作息: 变化/一致/异常（简要说明 + 置信度）
-- 活动: 变化/一致/无对比数据（简要说明 + 置信度）
-- 位置: 变化/一致/无对比数据（简要说明 + 置信度）
-
-## 异常检测
-
-- 有/无异常
-
-如有异常则逐条列出：
-1. 时间: 异常类型，描述 [置信度]
-
-## 人的状态
-
-> 这一节只写人，不写系统。三到五行，必须有判断、有依据；宁可写得像话，也不要凑字数或复述时间线。
-
-- 这几天在往哪走（睡眠/精力/学习/在忙的事，用近 3 天趋势说，不要只看今天）
-- 情绪与状态（依据：对话语气、原话、作息、通话与外出形态；不拿心率当情绪证据）
-- 昨天说要做的，今天兑现了没有（一行一条：`承诺（日期）→ 兑现 / 没动 / 改口`）
-- 一句提醒（如果明天有硬线或用户明显在拖，就在这里说一句；一天最多一句）
-
-## 领域进度（如适用）
-
-- 今日完成：{各任务项与数量}
-- 计划对比：按计划推进中 / 略微落后 / 大幅偏离
-- 与昨日对比：进步 / 持平 / 退步
-- 里程碑倒计时：如适用（考试/截止），按领域任务包声明计算剩余天数
-
-## 子智能体工作评价
-
-回顾当天各子智能体（01 数据检查各批次、02 复盘等）的工作过程（来自步骤 1e 的 git 历史）：
-
-- 完成度：{各批次/任务完成情况}
-- 共性问题：{反复出现的阻碍/失误}
-- 改进与成本：{改进方向 + 成本优化}
-- 需沉淀：{要写进规则/prompt 的教训}
-
-## 记忆收割
-
-列出本次收割/更新的记忆条目（按归属判定表归类）：
-
-- 名称: xxx（去处: profile/semantic/xxx 或 self/认知等）
-- 执行日志: 已追加
-
-## 事实修正
-
-列出本次修正的理解文件错误（如有，无则写"无修正"）：
-
-| 时间 | 原内容 | 修正后 | 修正原因 |
-|------|--------|--------|----------|
-| HH:MM | 错误描述 | 正确描述 | 依据 profile/core.md 用户画像 |
-
-## 对话侧决定
-
-当天与 AI 商定的设计/口径/规则（技术选型、数值上限、流程改法），一行一条；无则写"无"：
-
-- [决定] HH:MM 内容：去向（已落 `memory/xxx.md` / 待办 / 未落，未落须说明为何）
-
-> 核对行必写：`chatlog N 条 / 用户实质发言 M 条`（M=0 且当天有活动，标 `[对话未取到]` 并写原因）。
-
-## 计划复盘
-
-> 只写复盘结论，不改 `计划-{date}.md`；plan 的唯一写者是主会话的 `plan` 工具。
-
-- 今日意图是否服务到：是 / 部分 / 否（为什么）
-- 检查点：`cov-00` done / skipped / carried / dropped（逐项；无计划写"无计划"）
-- 未闭环：still open / closed（逐条）
-- 明日 carry：{1~3 条；无则"无"}
-
-## 被推翻 / 更正的结论
-
-当天哪些结论被推翻或被用户更正，以及根因落在哪一层（机械层＝脚本 / 数据格式；分析层＝判断口径；规范层＝提示词 / 规则）。**用户更正是一等质量信号，不得省略**；无则写"无"：
-
-| 结论 | 更正为 | 来源 | 根因层级 |
-|------|--------|------|----------|
-| ... | ... | 用户口述 / 数据复核 | 机械层 / 分析层 / 规范层 |
-
-## 代码待办
-
-列出本次登记到 `self/任务.md` 的代码/工具问题（无则写"无"）：
-
-- 问题：xxx（现象 + 来源文件）
-
-## 审计摘要（由 05 夜间审计于 02:00 追加）
-
-（待 05 审计追加：02 复盘写到此为止，不填内容、不留分析；05 于 02:00 用 edit 覆盖本行，写 5~8 行概览并指向 `audit-{date}.txt`）
-
-## 关联文件
-
-按 Obsidian 层级分组：中心层（memory）优先，基础信息层（daily）次之。
-
-### 中心层（memory，本日收割/引用）
-- 相关记忆: 本日收割或引用的记忆文件，如 [[memory/profile/semantic/xxx]]、[[memory/self/xxx]]，无则写"无"
-
-### 基础信息层（daily）
-- 当日摘要: [[当日摘要-{date}|当日进度摘要]]
-- 当日理解: [[理解-{date}|当日理解记录]]
-- 昨日复盘: [[复盘-{date-1}|昨日复盘]]
-
-> 用户与 AI 对话不再落盘日志文件，需要时用 query_chatlog 查全天。
-
-## 自检结果
-
-- 通过/未通过
+- 命令: stratum status --date {date}
+- 结果: 块覆盖完整 / 缺失与补数说明
+- 补数: 无 / 重新 ingest 的批次文件
+- 异常: 无 / 命令、退出码、错误首行
+- data_gap: 无 / 原因
+- 审计: 待 05 于 02:00 追加（写在本节内，不新增二级章节）
 ```
+
+### 步骤6a: Stratum 报告入库与转正（v1，双读期）
+
+报告落盘后按顺序执行；任一步失败按纯文本错误修正后重试，不得直接写 SQLite：
+
+```bash
+stratum ingest report "{AI目录}/data/daily/{date}/复盘-{date}.md"
+stratum review bulk-promote --type card --date {date} --author 02-daily-review --reason "daily card review"
+stratum review bulk-promote --type claim --date {date} --author 02-daily-review --reason "daily claim review"
+stratum query --type claim --from {date} --to {date+1} --status active
+```
+
+- `ingest report` 成功后所有 claim 是 draft。
+- 先转卡片，再转日层 claim；带 `data_gap` 的 claim 不转正。
+- 只转 card 和日层 claim；不要转周报或双周报。
+- `STRATUM_ENABLED=0` 时跳过本步。
 
 ### 步骤6b: 执行日志 + 记忆收尾门（记忆体系收尾）
 
@@ -597,28 +608,31 @@ links:
 - [ ] 步骤1：已读批次索引 + 当日摘要；每个批次的综合判断/关键观察已核对，关键疑点已回读原文
 - [ ] 步骤1c: 合理性检查已完成：推断过度/身份猜测/时间线矛盾/主角归属四项全部检查
 - [ ] 步骤1d: 对话核对已执行，且报告内有核对行 `chatlog N 条 / 用户实质发言 M 条` 与「对话侧决定」节（M=0 须写原因；无实质发言写"无"，不许空省）
-- [ ] 步骤1e: 子智能体工作回顾已完成：已查当天 git 历史 + 各批次「工作过程评价」，报告含「子智能体工作评价」章节
-- [ ] 步骤1f: 已读 `计划-{date}.md`（或确认无计划）与各批次 `## 计划关联`，报告含 `## 计划复盘`，且未修改 plan / long-task 文件
-- [ ] 发现的问题已修正并记录在事实修正章节
+- [ ] 步骤1e: 子智能体工作回顾已完成：已查当天 git 历史 + 各批次「工作过程评价」，叙事中含子智能体工作评价
+- [ ] 步骤1f: 已读 `计划-{date}.md`（或确认无计划）与各批次 `## 计划关联`，叙事中含计划复盘，且未修改 plan / long-task 文件
+- [ ] 发现的问题已修正并记录在叙事的事实修正部分
 - [ ] 关键事件已按时间线串联提取，每个事件有完整描述（起因→经过→结果）
 - [ ] 跨天事件已回溯到起点（读了 2~7 天前的理解文件），时间线完整
 - [ ] 突发事件已显式标注 `[突发事件]`，说明了触发原因和影响
 - [ ] 事件之间已标注关联（延续/导致/并行）
-- [ ] 报告中的「时间线事件」章节按发生时间排列，形成贯穿全天的叙述流
+- [ ] 叙事中的时间线事件按发生时间排列，形成贯穿全天的叙述流
 - [ ] 跨日对比已完成
 - [ ] 异常检测已完成
-- [ ] 步骤3a: 报告含 `## 人的状态`，用近 3 天趋势写睡眠/精力/主线、情绪依据与承诺兑现；无判断时标 `[证据不足]`
-- [ ] 领域进度已回顾（步骤 1b，如有领域任务包），报告中有对应的进度章节
-- [ ] 发现的理解记录错误已修正（步骤 4b），报告中有对应记录；如无修正则标注"无修正"
-- [ ] 发现的代码/工具问题已登记 `self/任务.md` 待办，报告中有「代码待办」章节；无则标注"无"
+- [ ] 步骤3a: 叙事中含人的状态，用近 3 天趋势写睡眠/精力/主线、情绪依据与承诺兑现；无判断时标 `[证据不足]`
+- [ ] 领域进度已回顾（步骤 1b，如有领域任务包），叙事中有对应的进度说明
+- [ ] 发现的理解记录错误已修正（步骤 4b），叙事中有对应记录；如无修正则标注"无修正"
+- [ ] 发现的代码/工具问题已登记 `self/任务.md` 待办，叙事中有代码待办；无则标注"无"
 - [ ] 记忆已收割（按归属判定表逐条归类，无增量零写入；已刷新必读.md + SELF-INDEX + persona-lite + core-lite）
 - [ ] 记忆收尾门已运行（git commit 后执行 `{AI目录}/analysis/memory_finalize.py`；`MEMORY-STATUS` 已刷新，失败项已发通知）
 - [ ] 步骤5c: 自主探索已完成（按 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」执行；洞察候选已写入 `self/认知.md`）
 - [ ] 执行日志已追加（步骤 6b）
 - [ ] 报告已写入 `{AI目录}/data/daily/{date}/复盘-{date}.md`
-- [ ] 报告 frontmatter 包含 `links:` 字段，引用了当日摘要、当日理解、昨日复盘
-- [ ] 报告末尾包含 `## 关联文件` 章节，列出了相关文件的 wiki 链接
-- [ ] 报告包含 `## 事实修正`、`## 对话侧决定`、`## 计划复盘` 与 `## 被推翻 / 更正的结论` 章节（无内容也保留，写"无"）
+- [ ] v1 frontmatter 字段精确：`report_contract: v1`、`report_type: daily`、`report_id: RPT-D-{date}`、`period_start: {date}`、`period_end: {date+1}`、`granularity: day`、`author: 02-daily-review`、`base_commit`、`created_at`、`timezone`；无多余字段
+- [ ] 正文只有 `## 叙事`、`## 检索条目`、`## 运维` 三节，顺序正确；叙事/运维内无三级标题
+- [ ] 日层 claim 只有 OBS/CHG/FND；没有 `derived_from`；每条有 evidence 或 data_gap；没有 `status` 字段
+- [ ] 运维内容只写在 `## 运维`，没有写进 claim 或 evidence
+- [ ] 已执行 `stratum ingest report`；先 `bulk-promote --type card`，再 `bulk-promote --type claim`；带 data_gap 的 claim 未转正
+- [ ] 叙事中包含事实修正、对话侧决定、计划复盘、被推翻的结论、关联文件等信息（无内容也写"无"）
 - [ ] 收割的记忆文件（profile/semantic、self/*）添加了 wiki 回链到复盘报告
 - [ ] 没有碰源数据文件（`perception.jsonl`/音频等不读不改；健康视图（cloud 分片优先，历史 `health.json` 回落）仅只读）
 - [ ] 理解记录的修改仅限于事实修正（步骤 4b），没有做其他修改
@@ -643,7 +657,7 @@ links:
 - **不做完整性验证**：数据是否完整由数据检查子智能体（`01-data-check.md`）和 `check_coverage.py` 脚本负责
 - **不碰 perception.jsonl / 音频等源数据（不读不改）**：复盘基于理解记录中的【原始数据摘要】与健康清单做多天交叉验证。**唯一例外：健康视图（cloud 分片优先，历史 `health.json` 回落）可只读**（用于心率/作息交叉验证，见「深度洞察方法指南」），禁止修改。
 - **不修改代码/工具脚本**：复盘发现的代码问题（`{AI目录}/analysis/`、调度脚本、`tasks/*.yaml` 等）**不当场修改**，登记到 `{AI目录}/memory/self/任务.md` 待办（格式见「复盘自优化机制」），交主智能体后续处理
-- **理解记录可直接修正（唯一产物写回）**：步骤 4b 发现的明显事实错误，直接用 `edit` 修正对应批次文件（或迁移期 `理解-{date}.md`），修正处标注 `[修正]`，并在报告「事实修正」章节记录；除此之外不改任何产物与源数据
+- **理解记录可直接修正（唯一产物写回）**：步骤 4b 发现的明显事实错误，直接用 `edit` 修正对应批次文件（或迁移期 `理解-{date}.md`），修正处标注 `[修正]`，并在 `## 叙事` 的事实修正部分记录；除此之外不改任何产物与源数据
 - **不盲信单一来源**：仅靠理解记录一段的推论就下结论，属于违规。必须多天、多时段交叉验证
 
 ## 常见陷阱
