@@ -351,7 +351,9 @@ timezone: Asia/Shanghai
 
 **注意**：这不是 02 每日复盘的记忆收割，只收割跨日的新信息。已在每日复盘中收割过的内容不要重复收割。
 
-### 步骤 4b：索引层观察/发现卡（新增）
+### 步骤 4b：索引层观察/发现卡（仅 `STRATUM_ENABLED=0` 回退时）
+
+> 默认流程跳过本节；观察期旧索引只读冻结，不写 `data/index/*.jsonl`。
 
 周报负责把本周结论编成卡片，不改批次原文。准入规则唯一真源见 `{AI目录}/data/index/README.md` §卡片与概念准入，此处只列观察/发现口径。
 
@@ -382,7 +384,7 @@ timezone: Asia/Shanghai
 
 **如果文件已存在则覆盖**（因为可能有修正）。
 
-> 报告写入后按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；未生成报告索引不得提交。
+> 报告写入后，仅在 `STRATUM_ENABLED=0` 回退时按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；默认流程不写旧索引，直接按 Stratum 契约入库。
 >
 > 同时按「Stratum 周报契约（v1）」先 `stratum lint`，再 `stratum ingest report`，然后逐条 `stratum review promote`；不得使用 `bulk-promote`。
 

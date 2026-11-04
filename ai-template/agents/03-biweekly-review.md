@@ -433,7 +433,9 @@ stratum review promote HYP-B-{start_date}-01 --author main --reason "hypothesis 
 2. **写入 profile**：确认稳定的增量按三态决策（ADD/UPDATE/NOOP，先 `grep -rn` 查重）写入 `{AI目录}/memory/profile/semantic/`（people/、事项/、属性四文件）与 `{AI目录}/memory/profile/state.md`（整文件覆盖，不追加日期快照；同步重写 `date` 与 `当前日期`）；与 02 相同，画像条目写"浓缩真值 + `[MM-DD]` + → [[复盘-YYYY-MM-DD]] 指针"，不复制证据链
 3. **自洽约束**：本步骤可正式改写 profile；自主探索（步骤 2b）仍**只写 `{AI目录}/memory/self/认知.md` 草稿，不得直接改 profile**，两者不得混淆
 
-### 步骤 2d：索引层观察/发现卡（新增）
+### 步骤 2d：索引层观察/发现卡（仅 `STRATUM_ENABLED=0` 回退时）
+
+> 默认流程跳过本节；观察期旧索引只读冻结，不写 `data/index/*.jsonl`。
 
 双周报负责把跨日结论编成卡片，不改批次原文。准入规则唯一真源见 `{AI目录}/data/index/README.md` §卡片与概念准入，此处只列观察/发现口径。
 
@@ -547,7 +549,7 @@ timezone: Asia/Shanghai
 
 写入 `{AI目录}/data/reports/深度回顾-{start_date}~{end_date}.md`
 
-> 报告写入后按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；未生成报告索引不得提交。
+> 报告写入后，仅在 `STRATUM_ENABLED=0` 回退时按 `{AI目录}/agents/复盘-公共.md`「报告索引」生成 `reports.jsonl` / `report_relations.jsonl`；默认流程不写旧索引，直接按 Stratum 契约入库。
 >
 > 同时按「Stratum 双周报契约（v1）」先 `stratum lint` 再 `stratum ingest report`；**03 到此停止，不做任何 review/promotion**。
 
