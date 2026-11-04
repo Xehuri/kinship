@@ -12,11 +12,11 @@ memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, 
 > - 你与主智能体本是一体的 AI（对外都署名"{主智能体名称}"），只是当下分工不同，**专心本职，别搞混**
 > - 不要执行主智能体的职责：不调度子智能体、不验收他人输出、不直接与用户闲聊
 > - 若你被载入 `{AI目录}/AGENTS.md`（主智能体一级记忆），其中的"我"是主智能体视角，只作认知背景参考，不代表你当前职责
-> - 你的全部工作边界以本文件为准：读事实文件、写理解记录、写 `## 转达` 段、git 提交
+> - 你的全部工作边界以本文件为准：读事实文件、写理解记录、写 `## 转达` 段、`stratum ingest source`、git 提交
 
 ## 待办纪律（公共）
 
-> 统一见 `{AI目录}/agents/公共-操作规范.md` §1。开工第一步按该节建清单；本角色交货项＝写理解文件、更新当日摘要/健康清单、写 `## 转达` 段、git 提交，各自列为独立待办。
+> 统一见 `{AI目录}/agents/公共-操作规范.md` §1。开工第一步按该节建清单；本角色交货项＝写理解文件、更新当日摘要/健康清单、`stratum ingest source`、写 `## 转达` 段、git 提交，各自列为独立待办。
 
 ## 任务目标
 
@@ -257,6 +257,8 @@ python {AI目录}/analysis/fact_extractor.py {date} --hours {start}~{end}
 - [ ] **8b 草稿纸**：已写 N 条（≥1，含"无候选"理由行）
 - [ ] **8c 规律核对**：批次文件末尾已写一行「规律核对」
 - [ ] **commit body 已写完整**：`## 任务概要` 含 6 个字段（覆盖/理解/任务/转达/关键/发现），`## 事件时间线` 已按时间列出本批次主要事件（5~15 条），`## 工作过程评价` 已写阻碍/改进/质量优化/成本优化四项
+- [ ] **步骤6a**：每个批次文件已执行 `stratum ingest source`；失败已重试并记录，未阻塞后续批次
+- [ ] **批次边界**：未创建卡片、claim、pattern 或 hypothesis，未写 `## 检索条目`/`## 运维`，未执行 `stratum ingest report`/`stratum add card`/`stratum review`
 
 ### 步骤 6: 收尾提交 git（含任务概要）
 
@@ -304,6 +306,22 @@ git commit -m "数据检查: {date} {start}~{end}时段理解记录
 - **git 提交只提交本批次涉及的文件**：`理解-{date}-批次-{HH}.md`、`当日摘要-{date}.md`、`健康清单-{date}.md`，以及挂载任务声明的产物。**禁止用 `git add {AI目录}/` 全量提交**（会把其他批次/复盘/记忆文件一起带上，造成冲突）。
 - 如果 `git commit` 失败（比如没有改动），说明工作区已干净，没问题
 - 不需要提交 `backend/` 或 `frontend/` 下的文件
+
+### 步骤 6a: Stratum source ingest（v1，双读期）
+
+**每写完或更新一个批次文件，就执行一次 source ingest。** 批次只负责 source 层：
+
+```bash
+stratum ingest source "{AI目录}/data/daily/{date}/理解-{date}-批次-{HH}.md"
+```
+
+- `STRATUM_ENABLED=0` 时跳过本步，按旧流程继续，不报错。
+- 批次**只写 source**：不建卡片，不写 claim、observation、pattern 或 hypothesis，不写 `## 检索条目` 或 `## 运维`，不执行 `stratum ingest report`、`stratum add card`、`stratum review`。
+- 可选只读查询：`stratum query --type claim --from {date} --to {date+1} --status active`。查询失败不阻塞；查询结果只作上下文，**不得复制成 claim**。
+- 失败处理：记录命令、退出码和错误首行；重试一次；仍失败就把失败写进 `## 转达` 的「事实」，并继续后续批次。**ingest 失败不阻塞批次，也不跳过后续文件。**
+- 不在批次里手工改 `.stratum/` 或 SQLite；块身份由 Stratum 维护。
+
+> 双读期旧流程不变：事实文件、摘要、健康清单、git 提交照旧；Stratum 只增加 source 入库。
 
 ### 步骤 6b: 写执行日志（强制）
 
