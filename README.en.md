@@ -51,6 +51,21 @@ At runtime the backend expects:
 
 All kernel models, including ERes2NetV2, are downloaded by the `kernel_models` onboarding step. The kernel tarball contains no `models/` directory and no `.ckpt` files. The kernel API remains 1.0.0.
 
+## AI runtime prerequisite: Stratum
+
+AI subagents use the independent **Stratum CLI** for batch ingestion, report claims, review, and query. It is not a Python dependency or a git submodule of this repository.
+
+- <https://github.com/Xehuri/stratum>
+- <https://github.com/Xehuri/stratum/releases/tag/v0.1.0>
+
+```bash
+python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.0"
+stratum init --root "<AI root>" --name personal
+stratum status
+```
+
+`.stratum/` is runtime state and must be gitignored. Keep the old `data/index/*.jsonl` during dual-read. `STRATUM_ENABLED=0` is only a temporary fallback, not a long-term mode.
+
 ---
 
 ## Architecture

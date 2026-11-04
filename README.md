@@ -53,6 +53,23 @@ Kinship 分为三个位置，不是单一仓库：
 
 运行时后端依赖三个位置：`<project>/kernel`（已安装的内核包，无需源码）、`data.ai_root`（唯一 AI 根，默认 `<project>/ai`，可指向私有 `kinship-data`）、以及独立的私有数据根（配置、证书、认证状态、模型与运行时数据）。全部内核模型（含 ERes2NetV2）由 `kernel_models` 引导步骤下载；内核压缩包不含 `models/` 目录与 `.ckpt` 文件；内核 API 保持 1.0.0。
 
+## AI 运行时前置：Stratum
+
+AI 子智能体的批次入库、报告 claim、review 与 query 依赖独立的 **Stratum CLI**，不是本仓库的 Python 包依赖。仓库与版本：
+
+- <https://github.com/Xehuri/stratum>
+- <https://github.com/Xehuri/stratum/releases/tag/v0.1.0>
+
+安装与初始化：
+
+```bash
+python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.0"
+stratum init --root "<AI根>" --name personal
+stratum status
+```
+
+`.stratum/` 是运行时状态，必须 gitignore。旧 `data/index/*.jsonl` 在 dual-read 期保留。临时回退可设 `STRATUM_ENABLED=0`，但这是过渡方案，不是长期方案。
+
 ## 生产拓扑
 
 ```text
