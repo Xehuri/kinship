@@ -105,6 +105,9 @@ export function renderMessage(m: Message): string {
             if (b.type === "toolCall")
               return `[toolCall ${b.name} ${JSON.stringify(b.arguments)}]`;
             if (b.type === "image") return "[image]";
+            // 只渲染 thinking 的语义文本：不输出 JSON 字段名/转义，也不回放 thinkingSignature
+            // （boundary tail 是文本重放，签名无意义）。
+            if (b.type === "thinking") return b.thinking;
             return JSON.stringify(b);
           })
           .join("");

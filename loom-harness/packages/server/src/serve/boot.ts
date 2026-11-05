@@ -851,6 +851,7 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
             model: handle,
             cfg: options.config.compaction,
             stateRoot: options.stateRoot,
+            log,
           }),
     // GAP-3/GAP-4：显式 planRoot 才挂 plan/long_task（LOOM_PLAN_ROOT > plan.root；
     // 缺省不传 = 两工具不挂面，boot 已在函数头 info 行说明 disabled 原因）。
@@ -1159,6 +1160,7 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
           model,
           cfg: comp,
           stateRoot: options.stateRoot,
+          log,
         });
   // W42c convergence 四值唯一物化点（段在场才造对象；缺席 = undefined = 两消费缝
   // 逐字节旧行为——registry 不给 limits 键 → loop.ts `opts.limits ?? {...DEFAULT_LIMITS}`，

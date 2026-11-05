@@ -109,8 +109,22 @@ describe("classifyCompactionError", () => {
     expect(classifyCompactionError({ message: "request aborted by peer" })).toBe("transient");
     expect(classifyCompactionError({ name: "AbortError", message: "This operation was aborted" })).toBe("abort");
     expect(classifyCompactionError({ message: "aborted by user" })).toBe("abort");
+    expect(classifyCompactionError({ message: "connection aborted by user" })).toBe("abort");
     const generic = { message: "The operation was aborted" };
     expect(classifyCompactionError(generic)).toBe("terminal");
+  });
+
+  it("classifies additional network/disconnect wordings as transient", () => {
+    expect(classifyCompactionError(new Error("IncompleteRead(0 bytes read)"))).toBe("transient");
+    expect(classifyCompactionError(new Error("connection error"))).toBe("transient");
+    expect(classifyCompactionError(new Error("upstream stream aborted"))).toBe("transient");
+  });
+
+  it("classifies HTTP 413 as non-retryable overflow", () => {
+    expect(classifyCompactionError({ status: 413, message: "payload too large" })).toBe("overflow");
+    expect(classifyCompactionError({ response: { status: 413 }, message: "request entity too large" })).toBe(
+      "overflow",
+    );
   });
 
   it("classifies rate limits, 5xx, network and timeout errors as transient", () => {

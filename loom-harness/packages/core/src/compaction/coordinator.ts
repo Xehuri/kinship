@@ -66,14 +66,19 @@ export class CompactionCoordinator {
     );
   }
 
-  /** 启动一次后台压缩；并发/起始状态写失败语义与 `CompactionWorker.start` 相同。 */
+  /**
+   * 启动一次后台压缩；并发/起始状态写失败语义与 `CompactionWorker.start` 相同。
+   * `retryCount` 覆盖本次 attempt 的重试预算（retry_pending 逃生路径传 0）。
+   */
   start(
     reason: CompactionReason,
     floor?: number,
+    retryCount?: number,
   ): { attemptId: string; done: Promise<WorkerOutcome> } {
     return this.#worker.start({
       reason,
       ...(floor === undefined ? {} : { floor }),
+      ...(retryCount === undefined ? {} : { retryCount }),
     });
   }
 

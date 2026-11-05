@@ -345,6 +345,32 @@ describe("CompactionCoordinator commit failure", () => {
   });
 });
 
+describe("CompactionCoordinator per-attempt retry budget", () => {
+  it("forwards retryCount to the worker start input", async () => {
+    const messages = [
+      user("u0", 100),
+      assistant("a0", 200),
+      user("u1", 300),
+      assistant("a1", 400),
+    ];
+    const session = newSession(messages, new MemorySessionStore());
+    let summarizeCalls = 0;
+    const coordinator = makeCoordinator(session, {
+      summarize: () => {
+        summarizeCalls += 1;
+        throw { kind: "transient", message: "still down" };
+      },
+      workerOptions: { retryCount: 10 },
+    });
+
+    const outcome = expectFailed(await coordinator.start("fallback", undefined, 0).done);
+
+    expect(summarizeCalls).toBe(1);
+    expect(outcome.attemptsUsed).toBe(0);
+    expect(coordinator.state?.status).toBe("retry_pending");
+  });
+});
+
 describe("CompactionCoordinator stale recovery", () => {
   it("moves a crash-left compacting sidecar to retry_pending without starting an attempt", () => {
     const session = newSession([user("u0", 100)]);

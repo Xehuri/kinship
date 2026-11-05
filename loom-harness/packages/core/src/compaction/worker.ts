@@ -203,6 +203,9 @@ export class CompactionWorker {
   start(input: StartCompactionInput): { attemptId: string; done: Promise<WorkerOutcome> } {
     if (this.#running !== null) throw new CompactionBusyError(this.#running.attemptId);
     if (input.floor !== undefined) assertIntegerInRange(input.floor, 0, "floor");
+    if (input.retryCount !== undefined) {
+      assertIntegerInRange(input.retryCount, 0, "retryCount");
+    }
 
     const prior = this.#readState();
     if (prior.status === "compacting") throw new CompactionBusyError(prior.attemptId);
@@ -230,6 +233,7 @@ export class CompactionWorker {
       floor,
       began,
       signal: controller.signal,
+      ...(input.retryCount === undefined ? {} : { retryCount: input.retryCount }),
     };
     const done = (async (): Promise<WorkerOutcome> => {
       try {

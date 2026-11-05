@@ -371,6 +371,15 @@ const DEFAULT_MAX_CONTINUATIONS = 5;
 const DEFAULT_LLM_ERROR_RETRIES = 2;
 /** W42a：重试退避基数 ms（第 n 次重发前等 base×2^n → 缺省 1s/2s）。 */
 const DEFAULT_LLM_ERROR_RETRY_BACKOFF_MS = 1000;
+/**
+ * retry_pending 未变更期间的冷却窗口：窗口内若投影仍装得下，就直接放行本次 LLM 调用，
+ * 不重复发起注定失败/超时的压缩重试（issue #7：每次 turn 重试耗尽 = 用户被永久卡住）。
+ */
+const COMPACTION_RETRY_PENDING_COOLDOWN_MS = 10 * 60_000;
+/** fail-open 的安全余量下限：投影 + 输出保留 + 余量必须严格小于模型窗口。 */
+const COMPACTION_FAIL_OPEN_MIN_MARGIN_TOKENS = 16_384;
+/** fail-open 的安全余量比例（对模型窗口）。 */
+const COMPACTION_FAIL_OPEN_MARGIN_RATIO = 0.05;
 
 /** Single turn 的退出状态。 */
 type TurnOutcome = "done" | "continue" | "abort" | "error";
@@ -2175,7 +2184,10 @@ export class AgentSession {
   /**
    * 每次 LLM 调用前的压缩闸门（W57 P2c-2）。顺序即状态机优先级：
    *   1. 有在飞 attempt → 等它；失败则让本 turn 失败，成功则用新 boundary 继续。
-   *   2. retry_pending → 用原 reason 再试一次（失败仍保持 retry_pending）。
+   *   2. retry_pending → 冷却窗口内且投影装得下就直接放行（fail-open，不重复压缩）；
+   *      否则用原 reason 试一次（retryCount 0，失败不再拖满预算）。
+   *      装不下时重试失败照旧让 turn 失败；装得下且重试 failed 时 fail-open（state 保持
+   *      retry_pending，绝不吞 abort / recovery / 基础设施错误）。
    *   3. compacting 但无在飞 worker（崩溃残留）→ 明确报错，绝不发正常 LLM 请求；
    *      boot 恢复可先调 `CompactionCoordinator.recoverStaleCompacting()`。
    *   4. idle → 估算投影后的整次请求；`>= fallbackTokens` 时启动 reason="fallback"。
@@ -2200,8 +2212,41 @@ export class AgentSession {
     const status = state?.status ?? "idle";
     switch (status) {
       case "retry_pending": {
-        await this._startCompactionAndWait(coordinator, state?.reason ?? "fallback");
-        return;
+        const fits = this._projectedRequestFitsContext();
+        const ageMs =
+          state === null ? Number.POSITIVE_INFINITY : this._retryPendingAgeMs(state);
+        if (fits && ageMs < COMPACTION_RETRY_PENDING_COOLDOWN_MS) {
+          this._ctx.log.warn(
+            "compaction retry_pending: cooldown active, proceeding without compaction",
+            {
+              status: "retry_pending",
+              ageMs,
+              cooldownMs: COMPACTION_RETRY_PENDING_COOLDOWN_MS,
+            },
+          );
+          return;
+        }
+        try {
+          // retry_pending 只给单次 attempt（retryCount 0）：失败的重试不得再阻塞用户 turn
+          // 走满 10 次重试预算。
+          await this._startCompactionAndWait(coordinator, state?.reason ?? "fallback", 0);
+          return;
+        } catch (error) {
+          if (!fits) throw error;
+          if (error instanceof CompactionFailedError && error.outcome.kind === "failed") {
+            this._ctx.log.warn(
+              "compaction retry_pending: retry failed, proceeding without compaction",
+              {
+                status: "retry_pending",
+                error: error.outcome.error.message.slice(0, 500),
+                errorClass: error.outcome.errorClass,
+                attemptsUsed: error.outcome.attemptsUsed,
+              },
+            );
+            return;
+          }
+          throw error; // aborted / recovery / infra errors are not swallowed
+        }
       }
       case "compacting": {
         throw new CompactionRecoveryRequiredError(this.id, state?.attemptId ?? null);
@@ -2224,8 +2269,9 @@ export class AgentSession {
   private async _startCompactionAndWait(
     coordinator: CompactionCoordinator,
     reason: CompactionReason,
+    retryCount?: number,
   ): Promise<void> {
-    const outcome = await coordinator.start(reason).done;
+    const outcome = await coordinator.start(reason, undefined, retryCount).done;
     if (!outcome.ok) throw new CompactionFailedError(outcome);
   }
 
@@ -2289,6 +2335,25 @@ export class AgentSession {
       systemPrompt: this.systemPrompt,
       usageFloorIndex: boundary === null ? 0 : 1,
     });
+  }
+
+  /** True only when the projected next request plus output reserve plus safety margin fits the model window. */
+  private _projectedRequestFitsContext(): boolean {
+    const window = this.model.contextWindow;
+    if (!Number.isFinite(window) || window <= 0) return false;
+    const outputReserve = Math.max(
+      0,
+      this._llmOptions.maxTokens ?? this.model.maxTokens ?? 0,
+    );
+    const margin = Math.max(
+      COMPACTION_FAIL_OPEN_MIN_MARGIN_TOKENS,
+      Math.ceil(window * COMPACTION_FAIL_OPEN_MARGIN_RATIO),
+    );
+    return this._estimateProjectedRequestTokens() + outputReserve + margin < window;
+  }
+
+  private _retryPendingAgeMs(state: CompactionState): number {
+    return Math.max(0, Date.now() - state.updatedAt);
   }
 
   /**

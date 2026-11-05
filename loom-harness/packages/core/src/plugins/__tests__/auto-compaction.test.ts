@@ -1031,12 +1031,14 @@ describe("autoCompaction 分块摘要（W52 死锁修复）", () => {
     await expect(compact.transformMessagesBeforeLlm!(heavy(8), ctx)).rejects.toThrow("boom");
     expect(ctx.state.get(ACTIVE_BOUNDARY_KEY)).toBeUndefined();
 
-    // 无缓存/边界推进：下一 turn 从头重算全部 4 块，而不是从第 2 块继续。
+    // 无缓存/边界推进：下一 turn 从头重算全部 7 块，而不是从第 2 块继续。
     failing = false;
     chunkCalls = 0;
     const view = await compact.transformMessagesBeforeLlm!(heavy(8), ctx);
     expect(view).toBeDefined();
-    expect(chunkCalls).toBe(4);
+    // 新摘要尺子（CJK=1、其余 1/2 字符/token）+ keepRecent=1 使 7 条前缀消息各成一块；
+    // 旧尺子（1/4 字符/token）才会落成 4 块。这是合法的分块数量变化，不是回归。
+    expect(chunkCalls).toBe(7);
     expect(textOf(view![0]!)).toContain("MERGED");
     expect(textOf(view![0]!)).toContain("of 7 earlier messages");
   });

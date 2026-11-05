@@ -18,6 +18,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 修复
 
+- **Loom 压缩死锁修复（2026-11-05，issue #7）**：压缩网络错误分类补齐 `IncompleteRead` / `connection error` / `upstream stream aborted`，413 归 overflow，用户 abort 优先；摘要输入改用摘要专用保守尺子（thinking 直渲染、token-aware 截断、两两分层 merge、`single` 总量超预算回退分块），`auto`/`single` 遇 overflow 自动降级 `chunked` 重试一次；`retry_pending` 增加 10 分钟冷却 + 窗口余量 fail-open（仅 failed，失败重试单次预算），worker started/retrying/failed/succeeded/noop/aborted 事件接入宿主日志。主请求触发阈值语义保持不变。
 - **Stratum query 关系扩散（2026-11-05）**：`stratum query --follow` 增加一跳 card/claim/report 关系扩展；`report` 查询跟随 `report_cards` / `report_relations`。关系以 context 行返回，带 relation 与来源 ID。
 - **因果链关系命令与旧脚本归档（2026-11-05）**：新增 `stratum add relation`（card-to-card，`triggered_by` / `precedes` / `supported_by` 等）；02 负责日链，03/04 负责 claim `derived_from`；旧 `build_relations.py` 归档到 `analysis/legacy-index-archive/`，不再从活动流程调用。
 - **旧索引弃用与一次性导入（2026-11-05）**：02/03/04 默认流程移除旧 `data/index` 编目；旧索引不再写入、不再作为回退。新增 `scripts/import-legacy-index.sh` / `.ps1`，首次迁移通过 `stratum migrate-legacy` 导入一次；文档、prompt 检查和 CI 同步。

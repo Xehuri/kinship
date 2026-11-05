@@ -63,6 +63,7 @@ import {
   type Api,
   type CompactionCheckpointPayload,
   type CompactionSummaryPerspective,
+  type CompactionWorkerEvent,
   type Hook,
   type LlmOptions,
   type Message,
@@ -77,6 +78,16 @@ export interface CompactionModelHandle {
   readonly llmOptions: LlmOptions;
 }
 
+/**
+ * 压缩 worker 事件日志出口（issue #7 可观测缝）。刻意不 import boot.ts 的 ServeLog：
+ * 避免 serve 层内运行时环；ServeLog 参数面更宽（多 "debug"），可直接赋值到此处（逆变）。
+ */
+export type CompactionLog = (
+  level: "info" | "warn" | "error",
+  msg: string,
+  fields: Record<string, unknown>,
+) => void;
+
 export interface BuildCompactionHooksInput {
   readonly model: CompactionModelHandle;
   readonly cfg: CompactionConfig;
@@ -84,10 +95,63 @@ export interface BuildCompactionHooksInput {
 
 export interface BuildSessionCompactionInput extends BuildCompactionHooksInput {
   readonly stateRoot: string;
+  /** 声明即把 worker 事件落宿主日志（缺席 = 仅内存 EventHub 面，逐字节旧行为）。 */
+  readonly log?: CompactionLog;
 }
 
 function isFinitePositive(value: number): boolean {
   return Number.isFinite(value) && value > 0;
+}
+
+/** 错误正文截断：只落 message 字符串，绝不落原始 Error 对象（循环引用/敏感上下文风险）。 */
+function truncate(value: string, max: number): string {
+  return value.length <= max ? value : value.slice(0, max) + "…";
+}
+
+/**
+ * worker 事件 → 宿主日志行。level 按事件语义（retrying/failed/aborted = warn，其余 info）；
+ * 字段只取标量元数据与截断后的 error.message；summary 正文与 delta 增量绝不进日志。
+ * delta 在调用侧已过滤，此处的 delta 分支只为穷尽 switch（返回不记）。
+ */
+function logCompactionEvent(log: CompactionLog, event: CompactionWorkerEvent): void {
+  const fields: Record<string, unknown> = { event: event.type, attemptId: event.attemptId };
+  let level: "info" | "warn" | "error" = "info";
+  switch (event.type) {
+    case "started":
+      fields.reason = event.reason;
+      break;
+    case "retrying":
+      level = "warn";
+      fields.retry = event.retry;
+      fields.delayMs = event.delayMs;
+      fields.errorClass = event.errorClass;
+      fields.error = truncate(event.error.message, 500);
+      if (event.perspective !== undefined) fields.perspective = event.perspective;
+      break;
+    case "succeeded":
+      fields.coveredCount = event.coveredCount;
+      fields.attemptsUsed = event.attemptsUsed;
+      fields.checkpointId = event.checkpointId;
+      break;
+    case "noop":
+      fields.coveredCount = event.coveredCount;
+      break;
+    case "failed":
+      level = "warn";
+      fields.errorClass = event.errorClass;
+      fields.attemptsUsed = event.attemptsUsed;
+      fields.error = truncate(event.error.message, 500);
+      if (event.perspective !== undefined) fields.perspective = event.perspective;
+      break;
+    case "aborted":
+      level = "warn";
+      fields.abortReason = event.abortReason;
+      fields.attemptsUsed = event.attemptsUsed;
+      break;
+    case "delta":
+      return;
+  }
+  log(level, "loom compaction worker", fields);
 }
 
 /**
@@ -173,6 +237,7 @@ export function buildSessionCompactionOptions(
   input: BuildSessionCompactionInput,
 ): SessionCompactionOptions | undefined {
   const { model, cfg, stateRoot } = input;
+  const log = input.log;
   if (!cfg.enabled || cfg.fallbackTokens === undefined) return undefined;
   const complete = (
     prompt: string,
@@ -247,6 +312,15 @@ export function buildSessionCompactionOptions(
     requestTimeoutMs: cfg.requestTimeoutMs ?? 300_000,
     retryCount: cfg.retryCount ?? 10,
     ...(cfg.stream === undefined ? {} : { stream: cfg.stream }),
+    // issue #7：有 log 才挂 onEvent（缺席 = 不物化键 = 旧行为）；delta 过滤在回调侧。
+    ...(log === undefined
+      ? {}
+      : {
+          onEvent: (event: CompactionWorkerEvent) => {
+            if (event.type === "delta") return; // 流式增量噪声不进日志
+            logCompactionEvent(log, event);
+          },
+        }),
   };
 }
 

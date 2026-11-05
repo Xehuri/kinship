@@ -63,6 +63,8 @@ export interface AttemptPlan {
   readonly floor: number;
   readonly began: CompactionState;
   readonly signal: AbortSignal;
+  /** 单次 attempt 的重试预算覆盖；缺省走 worker settings.retryCount。 */
+  readonly retryCount?: number;
 }
 
 export interface AttemptRuntime {
@@ -78,7 +80,10 @@ export async function runCompactionAttempt(
   plan: AttemptPlan,
   runtime: AttemptRuntime,
 ): Promise<WorkerOutcome> {
-  const budget = new CompactionRetryBudget({ maxRetries: runtime.settings.retryCount });
+  // 单次 attempt 可覆盖重试预算（retry_pending 逃生路径用 0，避免失败重试再次拖死用户 turn）。
+  const budget = new CompactionRetryBudget({
+    maxRetries: plan.retryCount ?? runtime.settings.retryCount,
+  });
   const { raw, prevCovered, ctx } = plan.snapshot;
   const retrySettings: RetrySettings = {
     requestTimeoutMs: runtime.settings.requestTimeoutMs,
@@ -110,11 +115,10 @@ export async function runCompactionAttempt(
       return finishNoop(plan, runtime, coveredCount);
     }
 
-    const additionalPerspectives = runtime.deps.additionalSummaryPerspectives;
-    let summaryText: string;
-    if (additionalPerspectives === undefined || additionalPerspectives.length === 0) {
-      summaryText = validateSummaryText(
-        await summarizeCompactionPrefix({
+    const summarizeAll = async (mode: SummaryMode): Promise<string> => {
+      const additionalPerspectives = runtime.deps.additionalSummaryPerspectives;
+      if (additionalPerspectives === undefined || additionalPerspectives.length === 0) {
+        return await summarizeCompactionPrefix({
           prefix: raw.slice(0, coveredCount),
           summarize: (messages, callCtx, onDelta) =>
             summarizeWithRetry(
@@ -127,7 +131,7 @@ export async function runCompactionAttempt(
               onDelta,
             ),
           summaryChunkTokens: runtime.settings.summaryChunkTokens,
-          summaryMode: runtime.settings.summaryMode,
+          summaryMode: mode,
           summaryMaxSplitDepth: runtime.settings.summaryMaxSplitDepth,
           ...(runtime.settings.singleCallBudgetTokens === undefined
             ? {}
@@ -145,9 +149,10 @@ export async function runCompactionAttempt(
               part: delta.part,
               delta: delta.delta,
             }),
-        }),
-      );
-    } else {
+        });
+      }
+
+      perspectiveKey = undefined;
       const perspectives: readonly CompactionSummaryPerspective[] = [
         { key: "ops", title: "OPS STATE", summarize: runtime.deps.summarize },
         ...additionalPerspectives,
@@ -180,7 +185,7 @@ export async function runCompactionAttempt(
                 onDelta,
               ),
             summaryChunkTokens: runtime.settings.summaryChunkTokens,
-            summaryMode: runtime.settings.summaryMode,
+            summaryMode: mode,
             summaryMaxSplitDepth: runtime.settings.summaryMaxSplitDepth,
             ...(runtime.settings.singleCallBudgetTokens === undefined
               ? {}
@@ -207,9 +212,29 @@ export async function runCompactionAttempt(
         parts.push({ title: perspective.title, text });
       }
       perspectiveKey = undefined;
-      summaryText = validateSummaryText(
-        parts.map(({ title, text }) => "## " + title + "\n\n" + text).join("\n\n"),
-      );
+      return parts.map(({ title, text }) => "## " + title + "\n\n" + text).join("\n\n");
+    };
+
+    let effectiveMode = runtime.settings.summaryMode;
+    let summaryText: string;
+    try {
+      summaryText = validateSummaryText(await summarizeAll(effectiveMode));
+    } catch (error) {
+      // 单次 overflow 降级到 chunked 重试；chunked 再失败仍走既有失败/重试路径。
+      if (effectiveMode !== "chunked" && classifyCompactionError(error) === "overflow") {
+        effectiveMode = "chunked";
+        runtime.emit({
+          type: "retrying",
+          attemptId: plan.attemptId,
+          retry: budget.used,
+          delayMs: 0,
+          errorClass: "overflow",
+          error: toError(error),
+        });
+        summaryText = validateSummaryText(await summarizeAll(effectiveMode));
+      } else {
+        throw error;
+      }
     }
     throwIfAborted(plan.signal, runtime.abortReason);
 

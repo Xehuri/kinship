@@ -20,7 +20,7 @@
  * （主会话面端到端钉见 boot-assembly.test.ts W49-C describe；side/子会话零接线=构造性证明。）
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   ACTIVE_BOUNDARY_KEY,
@@ -805,5 +805,97 @@ describe("子会话 fallback 压缩：阈值按子模型窗口封顶、无水位
         stateRoot,
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("onEvent → 宿主日志缝：worker 事件可观测（issue #7）", () => {
+  const stateRoot = "/tmp/loom-compaction-log-test";
+  const cfg: CompactionConfig = {
+    enabled: true,
+    fallbackTokens: 750_000,
+    summaryMode: "chunked",
+  };
+
+  it("started：info 级 + 固定消息头 + event/attemptId/reason 字段", () => {
+    const spy = vi.fn();
+    const options = buildSessionCompactionOptions({ model: fakeHandle, cfg, stateRoot, log: spy });
+    expect(typeof options?.onEvent).toBe("function");
+    options?.onEvent?.({ type: "started", attemptId: "a1", reason: "fallback" });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(
+      "info",
+      "loom compaction worker",
+      expect.objectContaining({ event: "started", attemptId: "a1", reason: "fallback" }),
+    );
+  });
+
+  it("failed：warn 级 + errorClass/attemptsUsed，error 只落截断后的 message 字符串", () => {
+    const spy = vi.fn();
+    const options = buildSessionCompactionOptions({ model: fakeHandle, cfg, stateRoot, log: spy });
+    options?.onEvent?.({
+      type: "failed",
+      attemptId: "a2",
+      errorClass: "terminal",
+      attemptsUsed: 1,
+      error: new Error("boom"),
+    });
+    expect(spy).toHaveBeenCalledWith(
+      "warn",
+      "loom compaction worker",
+      expect.objectContaining({
+        event: "failed",
+        attemptId: "a2",
+        errorClass: "terminal",
+        attemptsUsed: 1,
+        error: "boom",
+      }),
+    );
+  });
+
+  it("delta：非日志面，两发零调用（流式增量不进宿主日志）", () => {
+    const spy = vi.fn();
+    const options = buildSessionCompactionOptions({ model: fakeHandle, cfg, stateRoot, log: spy });
+    options?.onEvent?.({
+      type: "delta",
+      attemptId: "a3",
+      chunk: 0,
+      retry: 0,
+      part: "content",
+      delta: "TOKEN-A",
+    });
+    options?.onEvent?.({
+      type: "delta",
+      attemptId: "a3",
+      chunk: 1,
+      retry: 0,
+      part: "reasoning",
+      delta: "TOKEN-B",
+    });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("log 缺席：onEvent 键不物化（旧行为零日志面）", () => {
+    const options = buildSessionCompactionOptions({ model: fakeHandle, cfg, stateRoot });
+    expect(options !== undefined && "onEvent" in options).toBe(false);
+  });
+
+  it("子会话选项经 spread 透传 log：onEvent 为函数且逐事件落日志", () => {
+    const spy = vi.fn();
+    const options = buildSubagentCompactionOptions({
+      model: {
+        model: { contextWindow: 262_144, maxTokens: 32_768 } as unknown as Model<Api>,
+        llmOptions: {} as LlmOptions,
+      },
+      cfg,
+      stateRoot,
+      log: spy,
+    });
+    expect(typeof options?.onEvent).toBe("function");
+    options?.onEvent?.({ type: "started", attemptId: "sub-1", reason: "fallback" });
+    expect(spy).toHaveBeenCalledWith(
+      "info",
+      "loom compaction worker",
+      expect.objectContaining({ event: "started", attemptId: "sub-1", reason: "fallback" }),
+    );
   });
 });

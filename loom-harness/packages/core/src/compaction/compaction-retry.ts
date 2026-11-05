@@ -50,7 +50,7 @@ const TRANSIENT_CODES = [
 const RATE_LIMIT_RE = /rate[\s_-]?limit|too many requests|throttl|resource[ _-]?exhausted|quota (?:exceeded|exhausted)|overloaded|temporarily unavailable/i;
 const TIMEOUT_RE = /\btimed?\s*out\b|\btimeout\b|deadline exceeded|etimedout/i;
 const ABORT_RE = /\babort(?:ed)?\s+by\s+user\b|\buser\s+abort(?:ed)?\b|\bcancel(?:l)?ed\s+by\s+user\b/i;
-const NETWORK_RE = /socket hang up|connection (?:reset|refused|closed|terminated|aborted)|aborted\s+by\s+peer|other side closed|network (?:error|failure|unreachable)|fetch failed|upstream (?:connect|request)|bad gateway|service unavailable|gateway timeout|econnreset|eai_again|enotfound/i;
+const NETWORK_RE = /socket hang up|connection (?:reset|refused|closed|terminated|aborted)|connection\s+error|aborted\s+by\s+peer|other side closed|network (?:error|failure|unreachable)|fetch failed|incomplete\s*read|upstream (?:connect|request|stream\s+aborted)|bad gateway|service unavailable|gateway timeout|econnreset|eai_again|enotfound/i;
 const STREAM_CREATE_RE = /(?:failed to|failure to|could not|unable to)\s+(?:create|open|start)\s+(?:the\s+)?stream|stream (?:creation|create)\s+(?:failed|error)/i;
 const STREAM_TRUNCATED_RE = /stream ended without finish_reason|unexpected end of (?:stream|response)|stream (?:closed|ended|terminated) before finish/i;
 const HTTP_TRANSIENT_RE = /\b(?:408|425|429|5\d\d)\b/;
@@ -175,6 +175,9 @@ export function classifyCompactionError(error: unknown): CompactionErrorClass {
   if (hasAny(signals.codes, TIMEOUT_CODES) || hasAny(signals.codes, TRANSIENT_CODES)) return "transient";
 
   const status = signals.status;
+  // 413 是请求体积超限（provider 的结构化信号），必须先于 408/425/429/5xx 的 transient
+  // 判定；否则它会落到 terminal，把本可用分块/拆分恢复的压缩直接判死。
+  if (status === 413) return "overflow";
   if (status !== null && (status === 408 || status === 425 || status === 429 || status >= 500)) {
     return "transient";
   }
@@ -183,9 +186,11 @@ export function classifyCompactionError(error: unknown): CompactionErrorClass {
   if (STREAM_CREATE_RE.test(text)) return "sync";
   if (RATE_LIMIT_RE.test(text) || HTTP_TRANSIENT_RE.test(text)) return "transient";
   if (TIMEOUT_RE.test(text)) return "transient";
+  // 用户主动中止优先于网络 aborted 判定（`connection aborted by user` 是 abort，
+  // `connection aborted` / `request aborted by peer` 才是 transient）。
+  if (ABORT_RE.test(text)) return "abort";
   if (NETWORK_RE.test(text)) return "transient";
   if (STREAM_TRUNCATED_RE.test(text)) return "transient";
-  if (ABORT_RE.test(text)) return "abort";
   if (matchesAny(text, OVERFLOW_RES)) return "overflow";
   return "terminal";
 }

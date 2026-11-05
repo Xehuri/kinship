@@ -21,6 +21,10 @@ const IMAGE_TOKENS = 1000;
 
 /**
  * 估算单条文本的 token：CJK 码点按 ≈ 1 token/字计，其余字符按 ≈ 1/4 token 计（向上取整）。
+ *
+ * **主请求尺子**：本函数（及 {@link estimateRequestTokens}）服务于主请求触发判据，必须保留「thinking 按
+ * JSON.stringify（含 thinkingSignature）计」的语义；摘要输入请改用 {@link estimateSummaryText} /
+ * {@link estimateSummaryTokens}。
  * 偏向**高估**——本数用于压缩触发判据，低估的代价是漏触发后 context 溢出（安全 bug，见 #14）。
  *
  * **按码点迭代**（`for...of`）而非按 `.length`（UTF-16 码元）：这样扩展 B+ 的代理对 CJK（如 𠀀）算 1 个
@@ -182,3 +186,78 @@ export const hybridTokenCounter: TokenCounter = {
     return estimateRequestTokens(input);
   },
 };
+
+// ─────────── 摘要输入尺子（compaction 专用；与主请求尺子刻意分开）───────────
+//
+// 摘要请求与主请求的成本结构不同：摘要输入里 thinking 只以语义文本进入 prompt（见 summary-template
+// renderMessage），不会回放 thinkingSignature；且聊天模板会转义/包装文本。沿用主请求的 1/4 字符率会让
+// 中文摘要输入被低估约 4 倍（issue #7：813k 预算实际发出 1.31M）。这里改用 **1/2 字符/token** 的保守
+// 尺子，并让渲染、估算、截断、分块共用它——三者用不同尺子就会再次漂移。
+
+/** 摘要专用截断标记；单条消息 / 块被预算截断时追加到文本末尾。 */
+export const SUMMARY_TRUNCATION_MARK = "\n…（摘要输入超预算，已截断）";
+
+/** 摘要尺子的 ASCII 字符/token 比；取值 2 = 1/2 token/字符，比主请求的 1/4 保守一倍。 */
+export const SUMMARY_CHARS_PER_TOKEN = 2;
+
+/**
+ * 摘要文本估算：CJK 码点 = 1 token，其余字符 = ceil(rest / {@link SUMMARY_CHARS_PER_TOKEN})。
+ * 比 {@link estimateTokensByChars} 更保守（同文本约 2 倍），专供摘要输入预算使用。
+ */
+export function estimateSummaryText(text: string): number {
+  let cjk = 0;
+  let rest = 0;
+  for (const ch of text) {
+    if (CJK_CP.test(ch)) cjk++;
+    else rest++;
+  }
+  return cjk + Math.ceil(rest / SUMMARY_CHARS_PER_TOKEN);
+}
+
+/**
+ * 估算摘要消息体积。thinking 只数语义文本（不 JSON.stringify、不计 thinkingSignature），
+ * toolCall 数 name + arguments 序列化；未知块按 JSON 序列化兜底。
+ */
+export function estimateSummaryTokens(messages: Message[]): number {
+  let tokens = 0;
+  for (const m of messages) {
+    if (typeof m.content === "string") {
+      tokens += estimateSummaryText(m.content);
+      continue;
+    }
+    for (const b of m.content) {
+      if (b.type === "image") {
+        tokens += IMAGE_TOKENS;
+      } else if (b.type === "thinking") {
+        tokens += estimateSummaryText(b.thinking);
+      } else if (b.type === "toolCall") {
+        tokens += estimateSummaryText(b.name);
+        tokens += estimateSummaryText(JSON.stringify(b.arguments));
+      } else if (b.type === "text") {
+        tokens += estimateSummaryText(b.text);
+      } else {
+        tokens += estimateSummaryText(JSON.stringify(b));
+      }
+    }
+  }
+  return tokens;
+}
+
+/**
+ * 按摘要尺子把文本裁到 ≤ maxTokens，并在截断时追加 {@link SUMMARY_TRUNCATION_MARK}。
+ * 标记本身也计入预算（除非 maxTokens 连标记都放不下），保证截断后的估算仍不超预算。
+ */
+export function truncateTextToSummaryBudget(text: string, maxTokens: number): string {
+  if (estimateSummaryText(text) <= maxTokens) return text;
+  const markTokens = estimateSummaryText(SUMMARY_TRUNCATION_MARK);
+  const contentBudget = Math.max(0, Math.floor(maxTokens) - markTokens);
+  let used = 0;
+  let out = "";
+  for (const ch of text) {
+    const cost = CJK_CP.test(ch) ? 1 : 1 / SUMMARY_CHARS_PER_TOKEN;
+    if (used + cost > contentBudget) break;
+    used += cost;
+    out += ch;
+  }
+  return out + SUMMARY_TRUNCATION_MARK;
+}

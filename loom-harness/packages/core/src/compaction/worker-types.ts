@@ -101,6 +101,8 @@ export interface StartCompactionInput {
   /** 覆盖下限（不得低于 prevCovered）；缺省 = prevCovered。 */
   readonly floor?: number;
   readonly attemptId?: string;
+  /** 本次 attempt 的重试次数覆盖；缺省 = worker 的 `retryCount`（生产 10）。 */
+  readonly retryCount?: number;
 }
 
 export type CompactionWorkerEvent =

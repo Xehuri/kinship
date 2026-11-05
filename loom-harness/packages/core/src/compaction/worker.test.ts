@@ -388,6 +388,53 @@ describe("CompactionWorker retry policy", () => {
     },
   );
 
+  it("honors a per-attempt retryCount override of 0 without retrying", async () => {
+    const raw = [user("one"), user("two"), user("three"), user("four")];
+    let calls = 0;
+    let commits = 0;
+
+    const worker = makeWorker(
+      raw,
+      {
+        summarize: () => {
+          calls += 1;
+          throw { kind: "transient", message: "still down" };
+        },
+        commit: async () => {
+          commits += 1;
+        },
+      },
+      { retryCount: 10 },
+    );
+
+    const outcome = await worker.start({ reason: "fallback", retryCount: 0 }).done;
+
+    expect(calls).toBe(1);
+    expect(commits).toBe(0);
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok || outcome.kind !== "failed") throw new Error("expected failure");
+    expect(outcome.attemptsUsed).toBe(0);
+    expect(readState().status).toBe("retry_pending");
+  });
+
+  it("retries by default when start() carries no retryCount override", async () => {
+    const raw = [user("one"), user("two"), user("three"), user("four")];
+    let attempts = 0;
+
+    const worker = makeWorker(raw, {
+      summarize: () => {
+        attempts += 1;
+        if (attempts === 1) throw { kind: "transient", message: "upstream reset" };
+        return "recovered-summary";
+      },
+    });
+
+    const outcome = expectCompacted(await worker.start({ reason: "manual" }).done);
+
+    expect(attempts).toBe(2);
+    expect(outcome.attemptsUsed).toBe(1);
+  });
+
   it("times out a hung request, consumes the retry budget, and fails without hanging", async () => {
     const raw = [user("one"), user("two"), user("three"), user("four")];
     let calls = 0;
@@ -644,9 +691,9 @@ describe("CompactionWorker summary mode threading", () => {
 
     const outcome = expectCompacted(await worker.start({ reason: "manual" }).done);
 
-    expect(calls).toHaveLength(3);
-    expect(calls[0]).toHaveLength(2);
-    expect(calls[1]).toHaveLength(2);
+    expect(calls).toHaveLength(7);
+    expect(calls[0]).toHaveLength(1);
+    expect(calls[1]).toHaveLength(1);
     expect(calls[2]!.map(textOf).join("\n")).toContain("2 段分段摘要");
     expect(commits).toHaveLength(1);
     expect(commits[0]!.coveredCount).toBe(4);
@@ -714,10 +761,86 @@ describe("CompactionWorker summary mode threading", () => {
 
     const outcome = expectCompacted(await worker.start({ reason: "manual" }).done);
 
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(7);
     expect(calls.slice(0, 4).every((messages) => messages.length === 1)).toBe(true);
-    expect(calls[4]!.map(textOf).join("\n")).toContain("4 段分段摘要");
+    expect(
+      calls.slice(4).every((messages) => textOf(messages[0]!).includes("分段摘要")),
+    ).toBe(true);
     expect(outcome.coveredCount).toBe(4);
+  });
+
+  it("retries once with chunked summaries when a single-call summary overflows", async () => {
+    const raw = [user("one"), user("two"), user("three"), user("four")];
+    const calls: Message[][] = [];
+    const commits: CompactionCommit[] = [];
+    const events: CompactionWorkerEvent[] = [];
+    let attempts = 0;
+
+    const worker = makeWorker(
+      raw,
+      {
+        summarize: (messages) => {
+          attempts += 1;
+          calls.push(messages);
+          if (attempts === 1) throw { kind: "overflow", message: "context length exceeded" };
+          return "chunked-summary";
+        },
+        commit: async (commit) => {
+          commits.push(commit);
+        },
+      },
+      {
+        summaryMode: "single",
+        singleCallBudgetTokens: 10_000,
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    const outcome = expectCompacted(await worker.start({ reason: "manual" }).done);
+
+    expect(calls).toHaveLength(2);
+    expect(commits).toHaveLength(1);
+    expect(commits[0]!.summaryText).toBe("chunked-summary");
+    expect(outcome.summaryText).toBe("chunked-summary");
+    expect(events.filter((event) => event.type === "retrying")).toEqual([
+      expect.objectContaining({
+        type: "retrying",
+        retry: 0,
+        delayMs: 0,
+        errorClass: "overflow",
+      }),
+    ]);
+    expect(readState().status).toBe("idle");
+  });
+
+  it("does not fall back to chunked for non-overflow summary errors", async () => {
+    const raw = [user("one"), user("two"), user("three"), user("four")];
+    let calls = 0;
+    const events: CompactionWorkerEvent[] = [];
+
+    const worker = makeWorker(
+      raw,
+      {
+        summarize: () => {
+          calls += 1;
+          throw { kind: "terminal", message: "hard failure" };
+        },
+      },
+      {
+        summaryMode: "single",
+        singleCallBudgetTokens: 10_000,
+        onEvent: (event) => events.push(event),
+      },
+    );
+
+    const outcome = await worker.start({ reason: "manual" }).done;
+
+    expect(calls).toBe(1);
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok || outcome.kind !== "failed") throw new Error("expected failure");
+    expect(outcome.errorClass).toBe("terminal");
+    expect(events.filter((event) => event.type === "retrying")).toHaveLength(0);
+    expect(readState().status).toBe("retry_pending");
   });
 
   it("retries a truncated stream once and then leaves the state idle", async () => {

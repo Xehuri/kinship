@@ -13,6 +13,10 @@
  *
  * **P3 水位 notice**：前缀里的 `[context-watermark:...]` 消息在分块前被过滤掉，绝不写进摘要；
  * 调用方的 `coveredCount` 仍按 raw 坐标计算（notice 占原始索引，但不占摘要语义）。
+ *
+ * **摘要尺子（issue #7）**：分块 / 单次预算 / 截断全部使用 `estimateSummaryTokens`（CJK=1、其余 1/2
+ * 字符/token），与 `estimateTokensByChars` 的主请求尺子刻意分离。渲染、估算、截断若各用一把尺，预算
+ * 会再次漂移（813k 预算实际发出 1.31M 的根因之一）。
  */
 
 import type {
@@ -24,39 +28,89 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { HookContext } from "../hook.js";
 import { createUserMessage } from "../types.js";
-import { estimateTokensByChars } from "../plugins/token-estimate.js";
+import {
+  SUMMARY_TRUNCATION_MARK,
+  estimateSummaryText,
+  estimateSummaryTokens,
+  truncateTextToSummaryBudget,
+} from "../plugins/token-estimate.js";
 import { isContextWatermarkMessage } from "./context-watermark.js";
 import type { SummarizeDelta } from "./worker-types.js";
 
-/** 单条消息超分块上限时的截断标记（摘要输入专用，不写回 store）。 */
-const SUMMARY_TRUNCATION_MARK = "\n…（单条消息超摘要分块上限，已截断）";
+export { SUMMARY_TRUNCATION_MARK };
+
+type SummaryBlock = TextContent | ImageContent | ThinkingContent | ToolCall;
+
+/** 单块的估算：把块包成同 role 的消息，复用 estimateSummaryTokens 的块口径。 */
+function estimateBlockForSummary(m: Message, block: SummaryBlock): number {
+  return estimateSummaryTokens([{ ...m, content: [block] } as Message]);
+}
+
+/** 当前块之后所有非 thinking 块的估算和：thinking 截断时先为后续正文预留。 */
+function estimateLaterContent(
+  m: Message,
+  blocks: readonly SummaryBlock[],
+  startIndex: number,
+): number {
+  let total = 0;
+  for (let index = startIndex; index < blocks.length; index += 1) {
+    const block = blocks[index]!;
+    if (block.type === "thinking") continue;
+    total += estimateBlockForSummary(m, block);
+  }
+  return total;
+}
 
 /**
  * 把单条消息裁到 ≤ maxTokens（仅供 summarize 输入使用；返回浅拷贝，绝不改原消息）。
  * 超大 toolResult / 大文档是多 MB 前缀的常见来源，必须能单独塞进一个块，否则分块仍会超限。
  */
 function capMessageForSummary(m: Message, maxTokens: number): Message {
-  if (estimateTokensByChars([m]) <= maxTokens) return m;
-  if (m.role === "user" && typeof m.content === "string") {
-    // 按最保守的 ASCII 比例(4 chars/token)截断；CJK 内容实际更短，宁可少留。
-    const budget = Math.max(1, Math.floor(maxTokens * 4));
-    return { ...m, content: m.content.slice(0, budget) + SUMMARY_TRUNCATION_MARK };
+  if (estimateSummaryTokens([m]) <= maxTokens) return m;
+
+  if (typeof m.content === "string") {
+    return { ...m, content: truncateTextToSummaryBudget(m.content, maxTokens) } as Message;
   }
-  if (typeof m.content === "string") return m;
-  const kept: Array<TextContent | ImageContent | ThinkingContent | ToolCall> = [];
+
+  const kept: SummaryBlock[] = [];
   let remaining = maxTokens;
-  for (const b of m.content) {
-    const est = estimateTokensByChars([{ ...m, content: [b] } as Message]);
+  for (let index = 0; index < m.content.length; index += 1) {
+    const block = m.content[index]!;
+    const est = estimateBlockForSummary(m, block);
     if (est <= remaining) {
-      kept.push(b);
+      kept.push(block);
       remaining -= est;
       continue;
     }
-    if ("text" in b && typeof b.text === "string") {
-      const budget = Math.max(1, Math.floor(remaining * 4));
-      kept.push({ ...b, text: b.text.slice(0, budget) + SUMMARY_TRUNCATION_MARK });
+    if (block.type === "text") {
+      kept.push({ ...block, text: truncateTextToSummaryBudget(block.text, remaining) });
+      remaining = 0;
+      break;
     }
+    if (block.type === "thinking") {
+      // oversized thinking 不能把后面的正文整段挤掉：先给后续非 thinking 块预留预算，
+      // 再把 thinking 截到剩余部分；截断后的 thinking 计入预算，只有真正耗尽才停。
+      const reservedForLater = Math.min(
+        Math.max(0, remaining - 1),
+        estimateLaterContent(m, m.content, index + 1),
+      );
+      const truncatedThinking: ThinkingContent = {
+        type: "thinking",
+        thinking: truncateTextToSummaryBudget(block.thinking, Math.max(1, remaining - reservedForLater)),
+      };
+      kept.push(truncatedThinking);
+      remaining -= estimateSummaryText(truncatedThinking.thinking);
+      if (remaining <= 0) break;
+      continue;
+    }
+    // image / toolCall / 未知块：放不下就停。
     break;
+  }
+  if (kept.length === 0) {
+    return {
+      ...m,
+      content: [{ type: "text", text: "[summary input omitted: over budget]" }],
+    } as Message;
   }
   return { ...m, content: kept } as Message;
 }
@@ -71,7 +125,7 @@ export function chunkMessagesForSummary(msgs: Message[], chunkTokens: number): M
   let curTokens = 0;
   for (const m of msgs) {
     const capped = capMessageForSummary(m, chunkTokens);
-    const t = estimateTokensByChars([capped]);
+    const t = estimateSummaryTokens([capped]);
     if (cur.length > 0 && curTokens + t > chunkTokens) {
       chunks.push(cur);
       cur = [];
@@ -114,7 +168,7 @@ function selectSplitBoundary(messages: readonly Message[]): number | null {
   const prefixTokens: number[] = [];
   let total = 0;
   for (const message of messages) {
-    total += estimateTokensByChars([message]);
+    total += estimateSummaryTokens([message]);
     prefixTokens.push(total);
   }
   const half = total / 2;
@@ -195,20 +249,39 @@ export async function summarizeCompactionPrefix(
     return await input.summarize(messages, input.ctx, onDelta);
   };
 
+  const mergeMessage = (partials: readonly string[]): Message =>
+    capMessageForSummary(
+      createUserMessage((input.buildMergePrompt ?? buildSummaryMergePrompt)(partials)),
+      input.summaryChunkTokens,
+    );
+
   const summarizeChunked = async (messages: Message[]): Promise<string> => {
     const chunks = chunkMessagesForSummary(messages, input.summaryChunkTokens);
     // 单块（含空输入）与旧实现逐字节一致：原样传该块（chunks[0] ?? []），不额外合并。
     if (chunks.length <= 1) {
       return await callSummarize(chunks[0] ?? []);
     }
-    const partials: string[] = [];
+    let partials: string[] = [];
     for (const chunk of chunks) {
       partials.push(await callSummarize(chunk));
     }
+    // 两两归并（奇数时最后一个原样带入下一轮）：每次合并 prompt 只含 2 段摘要，
+    // 避免 N-way merge 在块数多时把合并 prompt 自己撑出预算。
     // 合并失败不降级为拼接：all-or-nothing，异常交给调用方。
-    return await callSummarize([
-      createUserMessage((input.buildMergePrompt ?? buildSummaryMergePrompt)(partials)),
-    ]);
+    while (partials.length > 1) {
+      const next: string[] = [];
+      for (let index = 0; index < partials.length; index += 2) {
+        const left = partials[index]!;
+        const right = partials[index + 1];
+        if (right === undefined) {
+          next.push(left);
+          continue;
+        }
+        next.push(await callSummarize([mergeMessage([left, right])]));
+      }
+      partials = next;
+    }
+    return partials[0]!;
   };
 
   const budget = input.singleCallBudgetTokens;
@@ -224,10 +297,14 @@ export async function summarizeCompactionPrefix(
   }
   assertPositiveInteger(budget, "singleCallBudgetTokens");
 
-  const summarizeSingle = async (messages: Message[]): Promise<string> =>
-    await callSummarize(
-      messages.map((message) => capMessageForSummary(message, budget)),
-    );
+  const summarizeSingle = async (messages: Message[]): Promise<string> => {
+    const capped = messages.map((message) => capMessageForSummary(message, budget));
+    // `single` 是偏好，不是超预算单次调用的许可证：逐条 cap 后总和仍超预算时回退分块。
+    if (estimateSummaryTokens(capped) > budget) {
+      return await summarizeChunked(capped);
+    }
+    return await callSummarize(capped);
+  };
 
   if (mode === "single") {
     return await summarizeSingle(projected);
@@ -244,7 +321,7 @@ export async function summarizeCompactionPrefix(
     messages: Message[],
     depth: number,
   ): Promise<string> => {
-    if (estimateTokensByChars(messages) <= budget) {
+    if (estimateSummaryTokens(messages) <= budget) {
       return await summarizeSingle(messages);
     }
     if (depth >= maxSplitDepth) {
@@ -256,9 +333,7 @@ export async function summarizeCompactionPrefix(
     }
     const left = await summarizeAuto(messages.slice(0, split), depth + 1);
     const right = await summarizeAuto(messages.slice(split), depth + 1);
-    return await callSummarize([
-      createUserMessage((input.buildMergePrompt ?? buildSummaryMergePrompt)([left, right])),
-    ]);
+    return await callSummarize([mergeMessage([left, right])]);
   };
 
   return await summarizeAuto(projected, 0);

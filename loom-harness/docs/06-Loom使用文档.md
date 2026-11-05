@@ -233,14 +233,15 @@ Loom 按单主会话运行。`GET /sessions/main` 恒可用，不受 `sessionLis
 
 - **手动压缩**：`POST /sessions/:sessionID/compact` 先 `loop.hydrate()` 再 `startCompaction("manual")`。重启后 durable 转录已回放，不再对空 `_messages` no-op；受理即 202，压缩事件由 per-session publisher 发 SSE。
 - **快照与投影**：worker 取 raw 快照，按 `keepRecent`/`keepRecentTokens` 保留 recent tail；旧的、`compactableTools` 白名单内 toolResult 投影为 `[microcompact: <tool> output cleared, ~N chars]`（完整工具输出仍在 durable 存储，可按需重取）。投影只改摘要入参，不改进 commit 的 raw 坐标。
-- **单次/递归 auto**：`summaryMode: auto` 下，投影后前缀估算 ≤ 单次预算则恰好一次 `streamText` 摘要调用；超预算则按消息边界递归左右拆分，`summaryMaxSplitDepth` 缺省 2，到达深度的超预算叶子回退到 `summaryChunkTokens` 分块 map-reduce。`single` 强制单次，`chunked` 保持旧分块。
+- **单次/递归 auto**：`summaryMode: auto` 下，投影后前缀估算 ≤ 单次预算则恰好一次 `streamText` 摘要调用；超预算则按消息边界递归左右拆分，`summaryMaxSplitDepth` 缺省 2，到达深度的超预算叶子回退到 `summaryChunkTokens` 分块 map-reduce。`single` 默认强制单次（摘要调用 overflow 时降级 `chunked` 重试一次），`chunked` 保持旧分块。
 - **模板与思考强度**：worker 的 ops 视角用 compact-6 handoff 模板（Primary Request and Intent / Confirmed Decisions and Constraints / Files, Paths, and Resources / Errors and Fixes / Current Work / Next Step，约 1500 词，不罗列全部用户消息），chat 视角用六段聊天延续模板；legacy hook 仍用 9 段模板。`summaryReasoningEffort` 只覆盖摘要调用，不影响主会话。
 - **双视角摘要（2026-10-22）**：worker 路径默认对同一投影前缀跑两趟独立摘要，按 ops、chat 顺序流式输出并带 `perspective` 标签，拼成一条 `summaryText`：`[auto-compacted summary of N earlier messages]\n## OPS STATE\n\n<ops>\n\n## CHAT STATE\n\n<chat>`。两段同轮注入，只有一个 `coveredCount` 与 boundary（`tailIncluded:false`），重放不变，持久化与 API/UI 仍只见一个 `summaryText`；chat 六段为 Relationship and Tone / User Preferences and Standing Instructions / Emotional Threads / Open Personal Loops / People, Places, and Projects in Play / Voice Anchors（模板标签为英文，实际输出随对话主语言本地化），用对话主语言而非任务报告口吻。`compaction.summaryPerspectives` 缺席即 `["ops","chat"]`，`["ops"]` 立即回退单 ops 摘要（与旧单输出字节同形），该键须声明 `fallbackTokens`、非空、不重复且含 `ops`；legacy 路径（无 `fallbackTokens`）仍单份 9 段摘要、无 chat 视角。代价：worker 摘要工作量约翻倍。
 - **瞬时重试**：每次摘要调用受 `requestTimeoutMs` 约束，整次 attempt 共享 `retryCount`。超时、网络、限流与 `Stream ended without finish_reason` 等截断流按 transient 重试；同一 attempt 内复用同一 messages 引用。
 - **boundary 与重放**：成功 commit 写 `tailIncluded: false` 的 durable `compaction_boundary`，`coveredCount` 是 raw 坐标；重放 = summary + 未被覆盖的 tail。legacy boundary 的 summary 内嵌 tail（`tailIncluded: true`）；最后一条 legacy boundary，或下一条是显式 worker boundary 的 transition boundary，保留自己的 tail（transition lookahead）。`coveredCount` 单调推进；历史视图按摘要 sha256 去重。
-- **失败语义**：摘要或 commit 任一失败即 all-or-nothing：不写 boundary、状态落 `retry_pending`、旧 summary 原样保留；下一轮 LLM 前可自动重试。
+- **失败语义**：摘要或 commit 任一失败即 all-or-nothing：不写 boundary、状态落 `retry_pending`、旧 summary 原样保留；下一轮 LLM 前可自动重试（冷却与 fail-open 见「死锁逃生与观测」）。
 - **已知残留**：更早的 B4989 风格非最后 legacy boundary，若下一条没有显式 marker，其 tail 不会被救援；`noop` outcome 没有 SSE 终态帧。
 - **子会话兜底（2026-11-04）**：主会话声明 `compaction.fallbackTokens` 后，task 子会话默认继承 session-level fallback 压缩；阈值取 `min(配置 fallbackTokens, 子会话模型窗口 − min(maxOutput, 4096))`，模型窗口未知时沿用配置值。子会话不注入水位提醒（`watermark.levels` 仅主会话），且仅在子会话具备 durable store 时挂载（commit 需要持久化；Loom serve 的 task 子会话恒有 `childSessionStore`）。手动压缩与 `compact_context` 仍只面向主会话。
+- **死锁逃生与观测（2026-11-05，issue #7）**：摘要输入统一使用摘要专用尺子（CJK=1、其余 1/2 字符/token）做估算与截断，thinking 只渲染语义文本（不 JSON 包装、不回放 signature），分块合并改为两两归并；`summaryMode` 为 `single`/`auto` 时若摘要调用 overflow，worker 自动降级 `chunked` 重试一次。`retry_pending` 在投影仍装得进模型窗口时，冷却 10 分钟内直接放行本次 LLM（fail-open）；冷却后只做一次单次预算重试，仍失败则继续 fail-open，aborted/恢复/基础设施错误不吞。worker 的 started/retrying/succeeded/failed/noop/aborted 事件写入宿主 `loom compaction worker` 日志（delta 不落日志）。
 
 **任务域（副会话/工作流）**
 | 方法 路径 | 作用 |

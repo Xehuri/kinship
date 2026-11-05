@@ -2,14 +2,15 @@ import { describe, it, expect } from "vitest";
 import type { Message } from "@earendil-works/pi-ai";
 import { createTestContext } from "../testing.js";
 import { createUserMessage } from "../types.js";
-import { summarizeCompactionPrefix } from "./summarize-prefix.js";
+import { estimateSummaryTokens } from "../plugins/token-estimate.js";
+import { SUMMARY_TRUNCATION_MARK, summarizeCompactionPrefix } from "./summarize-prefix.js";
 import type { SummarizeDelta } from "./worker-types.js";
 
-const TRUNCATION_SUFFIX = "\n…（单条消息超摘要分块上限，已截断）";
+const TRUNCATION_SUFFIX = SUMMARY_TRUNCATION_MARK;
 
-/** 4 条消息，每条 "i:" + 400 ASCII ≈ 101 token（chunkTokens=150 时一块一条）。 */
+/** 4 条消息，每条 "i:" + 200 ASCII ≈ 101 token（摘要尺子 1/2 字符/token；chunkTokens=150 时一块一条）。 */
 function fourChunkPrefix(): Message[] {
-  return Array.from({ length: 4 }, (_, i) => createUserMessage(`${i}:` + "x".repeat(400)));
+  return Array.from({ length: 4 }, (_, i) => createUserMessage(`${i}:` + "x".repeat(200)));
 }
 
 function textOf(message: Message): string {
@@ -18,9 +19,9 @@ function textOf(message: Message): string {
     : message.content.map((b) => ("text" in b ? b.text : "")).join("");
 }
 
-/** 400 ASCII 字符 = 100 token（estimateTokensByChars 的 1/4 规则）。 */
+/** 200 ASCII 字符 = 100 token（摘要尺子的 1/2 规则）。 */
 function sizedText(char: string): string {
-  return char.repeat(400);
+  return char.repeat(200);
 }
 
 function assistantMessage(text: string): Message {
@@ -57,9 +58,10 @@ describe("summarizeCompactionPrefix", () => {
     expect(seen[0]![1]).toBe(prefix[1]);
   });
 
-  it("多块时逐块 summarize，再用合并 prompt 做最后一次 summarize", async () => {
+  it("多块时逐块 summarize，再两两归并到最终合并", async () => {
     const prefix = fourChunkPrefix();
     const seen: Message[][] = [];
+    const mergePrompts: string[] = [];
     const { ctx } = createTestContext();
 
     const result = await summarizeCompactionPrefix({
@@ -70,22 +72,28 @@ describe("summarizeCompactionPrefix", () => {
         seen.push(messages);
         if (seen.length <= prefix.length) return `S${seen.length}`;
         const prompt = textOf(messages[0]!);
-        expect(prompt).toContain("以下是同一条会话的 4 段分段摘要（按时间顺序）。");
-        expect(prompt).toContain("=== 分段 1 ===\nS1");
-        expect(prompt).toContain("=== 分段 4 ===\nS4");
-        return "MERGED";
+        mergePrompts.push(prompt);
+        return `M${seen.length}`;
       },
     });
 
-    expect(result).toBe("MERGED");
-    expect(seen).toHaveLength(prefix.length + 1);
+    expect(result).toBe("M7");
+    expect(seen).toHaveLength(prefix.length + 3);
     for (let i = 0; i < prefix.length; i++) {
       expect(seen[i]).toHaveLength(1);
       expect(seen[i]![0]).toBe(prefix[i]);
     }
+    expect(mergePrompts).toHaveLength(3);
+    expect(mergePrompts[0]).toContain("2 段分段摘要");
+    expect(mergePrompts[0]).toContain("=== 分段 1 ===\nS1");
+    expect(mergePrompts[0]).toContain("=== 分段 2 ===\nS2");
+    expect(mergePrompts[1]).toContain("=== 分段 1 ===\nS3");
+    expect(mergePrompts[1]).toContain("=== 分段 2 ===\nS4");
+    expect(mergePrompts[2]).toContain("=== 分段 1 ===\nM5");
+    expect(mergePrompts[2]).toContain("=== 分段 2 ===\nM6");
   });
 
-  it("chunked 模式使用自定义合并 prompt，并按块顺序传入 partials", async () => {
+  it("chunked 模式使用自定义合并 prompt，并按块顺序两两归并 partials", async () => {
     const prefix = fourChunkPrefix();
     const seen: Message[][] = [];
     const mergeInputs: string[][] = [];
@@ -103,14 +111,17 @@ describe("summarizeCompactionPrefix", () => {
       summarize: (messages) => {
         seen.push(messages);
         if (seen.length <= prefix.length) return `S${seen.length}`;
-        expect(textOf(messages[0]!)).toBe("CUSTOM-MERGE:S1|S2|S3|S4");
-        return "MERGED";
+        return `M${seen.length}`;
       },
     });
 
-    expect(result).toBe("MERGED");
-    expect(mergeInputs).toEqual([["S1", "S2", "S3", "S4"]]);
-    expect(seen).toHaveLength(prefix.length + 1);
+    expect(result).toBe("M7");
+    expect(mergeInputs).toEqual([
+      ["S1", "S2"],
+      ["S3", "S4"],
+      ["M5", "M6"],
+    ]);
+    expect(seen).toHaveLength(prefix.length + 3);
   });
 
   it("第一块失败时抛错，不调用后续块", async () => {
@@ -191,8 +202,9 @@ describe("summarizeCompactionPrefix", () => {
     const capped = seen[0]![0]!;
     expect(capped).not.toBe(huge);
     const content = textOf(capped);
-    expect(content).toHaveLength(40_000 + TRUNCATION_SUFFIX.length);
     expect(content.endsWith(TRUNCATION_SUFFIX)).toBe(true);
+    expect(content.slice(0, -TRUNCATION_SUFFIX.length)).toMatch(/^y+$/);
+    expect(estimateSummaryTokens([capped])).toBeLessThanOrEqual(10_000);
   });
 
   it("空前缀与旧实现一致：仍调用一次 summarize([])", async () => {
@@ -307,8 +319,8 @@ describe("summarizeCompactionPrefix 单次调用模式", () => {
     const capped = seen[0]![0]!;
     expect(capped).not.toBe(huge);
     const content = textOf(capped);
-    expect(content).toHaveLength(40_000 + TRUNCATION_SUFFIX.length);
     expect(content.endsWith(TRUNCATION_SUFFIX)).toBe(true);
+    expect(estimateSummaryTokens([capped])).toBeLessThanOrEqual(10_000);
   });
 
   it("auto 预算内只调用一次", async () => {
@@ -395,7 +407,7 @@ describe("summarizeCompactionPrefix 单次调用模式", () => {
 
   it("auto 递归拆分到默认深度：4 个叶子 + 3 次合并，chunk 编号全局顺序递增", async () => {
     const prefix = Array.from({ length: 8 }, (_, i) =>
-      createUserMessage(`${i}:` + "x".repeat(400)),
+      createUserMessage(`${i}:` + "x".repeat(200)),
     );
     const seen: Message[][] = [];
     const chunks: Array<number | undefined> = [];
@@ -427,7 +439,7 @@ describe("summarizeCompactionPrefix 单次调用模式", () => {
 
   it("auto 模式使用自定义合并 prompt：左右子树合并与顶层汇编均生效且顺序正确", async () => {
     const prefix = Array.from({ length: 8 }, (_, i) =>
-      createUserMessage(`${i}:` + "x".repeat(400)),
+      createUserMessage(`${i}:` + "x".repeat(200)),
     );
     const seen: Message[][] = [];
     const mergeInputs: string[][] = [];
@@ -515,14 +527,14 @@ describe("summarizeCompactionPrefix 单次调用模式", () => {
         seen.push(messages);
         onDelta?.({ part: "content", delta: "x" });
         if (seen.length <= prefix.length) return `S${seen.length}`;
-        expect(textOf(messages[0]!)).toContain("4 段分段摘要");
-        return "MERGED";
+        expect(textOf(messages[0]!)).toContain("2 段分段摘要");
+        return `M${seen.length}`;
       },
     });
 
-    expect(result).toBe("MERGED");
-    expect(seen).toHaveLength(5);
-    expect(chunks).toEqual([0, 1, 2, 3, 4]);
+    expect(result).toBe("M7");
+    expect(seen).toHaveLength(7);
+    expect(chunks).toEqual([0, 1, 2, 3, 4, 5, 6]);
     for (let i = 0; i < prefix.length; i++) {
       expect(seen[i]).toHaveLength(1);
       expect(seen[i]![0]).toBe(prefix[i]);
@@ -658,13 +670,13 @@ describe("summarizeCompactionPrefix 单次调用模式", () => {
       summarize: (messages) => {
         seen.push(messages);
         if (seen.length <= prefix.length) return `S${seen.length}`;
-        expect(textOf(messages[0]!)).toContain("4 段分段摘要");
-        return "MERGED";
+        expect(textOf(messages[0]!)).toContain("2 段分段摘要");
+        return `M${seen.length}`;
       },
     });
 
-    expect(result).toBe("MERGED");
-    expect(seen).toHaveLength(5);
+    expect(result).toBe("M7");
+    expect(seen).toHaveLength(7);
   });
 
   it("空前缀在 single / auto 模式下仍只调用一次 summarize([])", async () => {
@@ -685,5 +697,187 @@ describe("summarizeCompactionPrefix 单次调用模式", () => {
       expect(result).toBe("EMPTY");
       expect(seen).toEqual([[]]);
     }
+  });
+});
+
+describe("summarizeCompactionPrefix 摘要输入预算（issue #7）", () => {
+  it("CJK 长用户消息按 1 token/字裁到预算，而不是 1/4 尺子的 4 倍", async () => {
+    const budget = 200;
+    const seen: Message[][] = [];
+    const { ctx } = createTestContext();
+
+    await summarizeCompactionPrefix({
+      prefix: [createUserMessage("汉".repeat(2000))],
+      summaryChunkTokens: 150,
+      summaryMode: "single",
+      singleCallBudgetTokens: budget,
+      ctx,
+      summarize: (messages) => {
+        seen.push(messages);
+        return "OK";
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    const capped = seen[0]![0]!;
+    expect(capped.content).not.toBe("汉".repeat(2000));
+    expect(textOf(capped).endsWith(TRUNCATION_SUFFIX)).toBe(true);
+    expect(estimateSummaryTokens([capped])).toBeLessThanOrEqual(budget);
+    expect(textOf(capped).length).toBeLessThan(budget * 4);
+  });
+
+  it("assistant（任意 role）的 string content 也被截断", async () => {
+    const budget = 200;
+    const longAssistant = {
+      role: "assistant",
+      content: "a".repeat(4000),
+      timestamp: 0,
+    } as unknown as Message;
+    const seen: Message[][] = [];
+    const { ctx } = createTestContext();
+
+    await summarizeCompactionPrefix({
+      prefix: [longAssistant],
+      summaryChunkTokens: 150,
+      summaryMode: "single",
+      singleCallBudgetTokens: budget,
+      ctx,
+      summarize: (messages) => {
+        seen.push(messages);
+        return "OK";
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    const capped = seen[0]![0]!;
+    expect(typeof capped.content).toBe("string");
+    expect(textOf(capped).endsWith(TRUNCATION_SUFFIX)).toBe(true);
+    expect(estimateSummaryTokens([capped])).toBeLessThanOrEqual(budget);
+  });
+
+  it("超大 thinking 被截断，后面的 text 块仍被保留", async () => {
+    const budget = 200;
+    const message = {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "t".repeat(100_000), thinkingSignature: "SIG" },
+        { type: "text", text: "KEEP_ME" },
+      ],
+      timestamp: 0,
+    } as unknown as Message;
+    const seen: Message[][] = [];
+    const { ctx } = createTestContext();
+
+    await summarizeCompactionPrefix({
+      prefix: [message],
+      summaryChunkTokens: 150,
+      summaryMode: "single",
+      singleCallBudgetTokens: budget,
+      ctx,
+      summarize: (messages) => {
+        seen.push(messages);
+        return "OK";
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    const capped = seen[0]![0]!;
+    if (typeof capped.content === "string") throw new Error("expected block content");
+    expect(capped.content).toHaveLength(2);
+    const [thinking, text] = capped.content;
+    expect(thinking).toMatchObject({ type: "thinking" });
+    expect(text).toEqual({ type: "text", text: "KEEP_ME" });
+    if (thinking?.type !== "thinking") throw new Error("expected thinking block");
+    expect(thinking.thinking.endsWith(TRUNCATION_SUFFIX)).toBe(true);
+    expect(thinking.thinkingSignature).toBeUndefined();
+    expect(estimateSummaryTokens([capped])).toBeLessThanOrEqual(budget);
+  });
+
+  it("所有块都放不下时回退为非空占位文本", async () => {
+    const budget = 100;
+    const imageOnly = createUserMessage([{ type: "image", data: "x", mimeType: "image/png" }]);
+    const seen: Message[][] = [];
+    const { ctx } = createTestContext();
+
+    await summarizeCompactionPrefix({
+      prefix: [imageOnly],
+      summaryChunkTokens: 150,
+      summaryMode: "single",
+      singleCallBudgetTokens: budget,
+      ctx,
+      summarize: (messages) => {
+        seen.push(messages);
+        return "OK";
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    const capped = seen[0]![0]!;
+    if (typeof capped.content === "string") throw new Error("expected block content");
+    expect(capped.content).toHaveLength(1);
+    expect(capped.content[0]).toEqual({
+      type: "text",
+      text: "[summary input omitted: over budget]",
+    });
+  });
+
+  it("single 模式下多条消息总和超预算时回退 chunked，不发出超预算单次请求", async () => {
+    const budget = 250;
+    const prefix = [
+      createUserMessage("x".repeat(400)),
+      createUserMessage("y".repeat(400)),
+      createUserMessage("z".repeat(400)),
+    ];
+    const seen: Message[][] = [];
+    const { ctx } = createTestContext();
+
+    const result = await summarizeCompactionPrefix({
+      prefix,
+      summaryChunkTokens: 300,
+      summaryMode: "single",
+      singleCallBudgetTokens: budget,
+      ctx,
+      summarize: (messages) => {
+        seen.push(messages);
+        return `S${seen.length}`;
+      },
+    });
+
+    expect(result).toBe("S5");
+    expect(seen).toHaveLength(5);
+    expect(seen.every((messages) => messages.length < prefix.length)).toBe(true);
+    for (const messages of seen) {
+      expect(estimateSummaryTokens(messages)).toBeLessThanOrEqual(300);
+    }
+  });
+
+  it("3 个块产生 3 次叶子调用 + 2 次两两合并（共 5 次），不是 1 次 N-way 合并", async () => {
+    const prefix = [
+      createUserMessage("x".repeat(400)),
+      createUserMessage("y".repeat(400)),
+      createUserMessage("z".repeat(400)),
+    ];
+    const seen: Message[][] = [];
+    const mergePrompts: string[] = [];
+    const { ctx } = createTestContext();
+
+    const result = await summarizeCompactionPrefix({
+      prefix,
+      summaryChunkTokens: 300,
+      ctx,
+      summarize: (messages) => {
+        seen.push(messages);
+        const text = textOf(messages[0]!);
+        if (text.startsWith("以下是同一条会话的")) mergePrompts.push(text);
+        return `S${seen.length}`;
+      },
+    });
+
+    expect(result).toBe("S5");
+    expect(seen).toHaveLength(5);
+    expect(mergePrompts).toHaveLength(2);
+    expect(mergePrompts[0]).toContain("2 段分段摘要");
+    expect(mergePrompts[1]).toContain("2 段分段摘要");
+    expect(mergePrompts.some((prompt) => prompt.includes("3 段分段摘要"))).toBe(false);
   });
 });

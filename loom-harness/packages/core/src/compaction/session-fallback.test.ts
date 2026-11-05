@@ -1,15 +1,17 @@
 /**
  * W57 P2c-2：AgentSession 的 LLM 前置压缩闸门。
  *
- * 覆盖 fallback 阈值、commit 后投影、摘要失败后的 retry_pending 重试、手动 compactNow、
- * 未注入 coordinator 的旧行为，以及崩溃残留的 compacting sidecar 拒绝正常 LLM 调用。
+ * 覆盖 fallback 阈值、commit 后投影、摘要失败后的 retry_pending 重试、retry_pending 的
+ * 冷却/fail-open 逃生路径、手动 compactNow、未注入 coordinator 的旧行为，以及崩溃残留的
+ * compacting sidecar 拒绝正常 LLM 调用。
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Message } from "@earendil-works/pi-ai";
+import type { Api, Message, Model } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { LogLevel } from "../hook.js";
 import { createFakeModel, type FakeModel } from "../testing.js";
 import { createUserMessage } from "../types.js";
 import { AgentSession } from "../session.js";
@@ -23,6 +25,7 @@ import {
 } from "./session-compaction.js";
 
 const SID = "ses_session_fallback";
+const RETRY_PENDING_COOLDOWN_MS = 10 * 60_000;
 
 let root: string;
 let stateStore: CompactionStateStore;
@@ -52,6 +55,7 @@ interface OptionOverrides {
   readonly summaryChunkTokens?: number;
   readonly summaryMode?: SessionCompactionOptions["summaryMode"];
   readonly singleCallBudgetTokens?: number;
+  readonly retryCount?: number;
   readonly projectSummaryInput?: SessionCompactionOptions["projectSummaryInput"];
 }
 
@@ -63,7 +67,7 @@ function sessionCompaction(overrides: OptionOverrides = {}): SessionCompactionOp
     fallbackTokens: overrides.fallbackTokens ?? 1_000_000,
     keepRecent: overrides.keepRecent ?? 1,
     summaryChunkTokens: overrides.summaryChunkTokens ?? 1_000,
-    retryCount: 0,
+    retryCount: overrides.retryCount ?? 0,
     ...(overrides.summaryMode !== undefined ? { summaryMode: overrides.summaryMode } : {}),
     ...(overrides.singleCallBudgetTokens !== undefined
       ? { singleCallBudgetTokens: overrides.singleCallBudgetTokens }
@@ -78,22 +82,38 @@ interface SessionInput {
   readonly messages?: readonly Message[];
   readonly store?: SessionStore;
   readonly compaction?: SessionCompactionOptions;
+  readonly model?: Model<Api>;
+  readonly logSink?: (level: LogLevel, msg: string, fields: Record<string, unknown>) => void;
 }
 
 function makeSession(input: SessionInput = {}): AgentSession {
   return new AgentSession({
     sessionId: SID,
-    model: fake,
+    model: input.model ?? fake,
     tools: [],
     ...(input.messages !== undefined ? { initialMessages: [...input.messages] } : {}),
     ...(input.store !== undefined ? { store: input.store } : {}),
     ...(input.compaction !== undefined ? { compaction: input.compaction } : {}),
+    ...(input.logSink !== undefined ? { logSink: input.logSink } : {}),
   });
 }
 
 function readState(): CompactionState | null {
   const result = stateStore.read(SID);
   return result.kind === "ok" ? result.state : null;
+}
+
+function retryPendingState(updatedAt: number, baseCoveredCount = 0): CompactionState {
+  return {
+    ...idleState(updatedAt),
+    status: "retry_pending",
+    attemptId: "attempt-old",
+    reason: "fallback",
+    attemptsUsed: 1,
+    lastError: "previous attempt failed",
+    baseCoveredCount,
+    updatedAt,
+  };
 }
 
 describe("AgentSession compaction fallback", () => {
@@ -168,6 +188,13 @@ describe("AgentSession compaction fallback", () => {
       lastError: "summarizer down",
     });
 
+    // 冷却期内不会重试；把 updatedAt 推到窗口外，模拟下一轮已过期。
+    const pending = readState();
+    if (pending === null) throw new Error("expected retry_pending state");
+    stateStore.write(SID, {
+      ...pending,
+      updatedAt: Date.now() - RETRY_PENDING_COOLDOWN_MS - 1_000,
+    });
     shouldFail = false;
     const second = await session.run("u2");
 
@@ -300,5 +327,288 @@ describe("AgentSession compaction fallback", () => {
     expect(summary.reason).toBe("done");
     expect(fake.getCalls()).toHaveLength(1);
     expect(session.compactionView).toBeNull();
+  });
+});
+
+describe("AgentSession retry_pending escape", () => {
+  it("retries retry_pending after cooldown and compacts when summarize succeeds", async () => {
+    stateStore.write(
+      SID,
+      retryPendingState(Date.now() - RETRY_PENDING_COOLDOWN_MS - 1_000),
+    );
+    const store = new MemorySessionStore();
+    let summarizeCalls = 0;
+    const session = makeSession({
+      messages: [createUserMessage("u0")],
+      store,
+      compaction: sessionCompaction({
+        fallbackTokens: 1,
+        summarize: () => {
+          summarizeCalls += 1;
+          return "recovered-summary";
+        },
+      }),
+    });
+
+    const summary = await session.run("u1");
+
+    expect(summary.reason).toBe("done");
+    expect(summarizeCalls).toBe(1);
+    expect(readState()?.status).toBe("idle");
+    expect(session.compactionView?.coveredCount).toBe(1);
+    expect(fake.getCalls()).toHaveLength(1);
+    expect(fake.getCalls()[0]!.messages.map(textOf)).toEqual([
+      "[compacted 1]\nrecovered-summary",
+      "u1",
+    ]);
+  });
+
+  it("fails open when a cooldown-expired retry fails but the projected request fits", async () => {
+    stateStore.write(
+      SID,
+      retryPendingState(Date.now() - RETRY_PENDING_COOLDOWN_MS - 1_000),
+    );
+    const store = new MemorySessionStore();
+    const warnings: Array<{ msg: string; fields: Record<string, unknown> }> = [];
+    let summarizeCalls = 0;
+    const session = makeSession({
+      messages: [createUserMessage("u0")],
+      store,
+      logSink: (level, msg, fields) => {
+        if (level === "warn") warnings.push({ msg, fields });
+      },
+      compaction: sessionCompaction({
+        fallbackTokens: 1,
+        summarize: () => {
+          summarizeCalls += 1;
+          throw new Error("summarizer still down");
+        },
+      }),
+    });
+
+    const summary = await session.run("u1");
+
+    expect(summary.reason).toBe("done");
+    expect(summarizeCalls).toBe(1);
+    expect(fake.getCalls()).toHaveLength(1);
+    expect(fake.getCalls()[0]!.messages.map(textOf)).toEqual(["u0", "u1"]);
+    expect(readState()).toMatchObject({
+      status: "retry_pending",
+      baseCoveredCount: 0,
+    });
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        msg: "compaction retry_pending: retry failed, proceeding without compaction",
+      }),
+    ]);
+  });
+
+  it("skips the retry entirely when retry_pending is within the cooldown and fits", async () => {
+    stateStore.write(SID, retryPendingState(Date.now()));
+    const store = new MemorySessionStore();
+    const warnings: Array<{ msg: string; fields: Record<string, unknown> }> = [];
+    let summarizeCalls = 0;
+    const session = makeSession({
+      messages: [createUserMessage("u0")],
+      store,
+      logSink: (level, msg, fields) => {
+        if (level === "warn") warnings.push({ msg, fields });
+      },
+      compaction: sessionCompaction({
+        fallbackTokens: 1,
+        summarize: () => {
+          summarizeCalls += 1;
+          return "unexpected-summary";
+        },
+      }),
+    });
+
+    const summary = await session.run("u1");
+
+    expect(summary.reason).toBe("done");
+    expect(summarizeCalls).toBe(0);
+    expect(fake.getCalls()).toHaveLength(1);
+    expect(fake.getCalls()[0]!.messages.map(textOf)).toEqual(["u0", "u1"]);
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        msg: "compaction retry_pending: cooldown active, proceeding without compaction",
+      }),
+    ]);
+  });
+
+  it("does not fail open when the projected request does not fit", async () => {
+    stateStore.write(
+      SID,
+      retryPendingState(Date.now() - RETRY_PENDING_COOLDOWN_MS - 1_000),
+    );
+    const store = new MemorySessionStore();
+    let summarizeCalls = 0;
+    const session = makeSession({
+      messages: [createUserMessage("x".repeat(1_000_000))],
+      store,
+      compaction: sessionCompaction({
+        fallbackTokens: 1,
+        summarize: () => {
+          summarizeCalls += 1;
+          throw new Error("summarizer still down");
+        },
+      }),
+    });
+
+    const summary = await session.run("u1");
+
+    expect(summary.reason).toBe("error");
+    if (!(summary.error instanceof CompactionFailedError)) {
+      throw new Error(`expected CompactionFailedError, got ${String(summary.error)}`);
+    }
+    expect(summary.error.outcome.kind).toBe("failed");
+    expect(summarizeCalls).toBe(1);
+    expect(fake.getCalls()).toHaveLength(0);
+  });
+
+  it("rethrows aborted outcomes instead of failing open", async () => {
+    stateStore.write(
+      SID,
+      retryPendingState(Date.now() - RETRY_PENDING_COOLDOWN_MS - 1_000),
+    );
+    const store = new MemorySessionStore();
+    let summarizeCalls = 0;
+    const session = makeSession({
+      messages: [createUserMessage("u0")],
+      store,
+      compaction: sessionCompaction({
+        fallbackTokens: 1,
+        summarize: () => {
+          summarizeCalls += 1;
+          throw { kind: "abort", message: "user cancelled" };
+        },
+      }),
+    });
+
+    const summary = await session.run("u1");
+
+    expect(summary.reason).toBe("error");
+    if (!(summary.error instanceof CompactionFailedError)) {
+      throw new Error(`expected CompactionFailedError, got ${String(summary.error)}`);
+    }
+    expect(summary.error.outcome.kind).toBe("aborted");
+    expect(summarizeCalls).toBe(1);
+    expect(fake.getCalls()).toHaveLength(0);
+  });
+
+  it.each([0, Number.NaN])(
+    "does not fail open when the context window is %s",
+    async (contextWindow) => {
+      stateStore.write(
+        SID,
+        retryPendingState(Date.now() - RETRY_PENDING_COOLDOWN_MS - 1_000),
+      );
+      const store = new MemorySessionStore();
+      let summarizeCalls = 0;
+      const session = makeSession({
+        messages: [createUserMessage("u0")],
+        store,
+        model: { ...fake, contextWindow },
+        compaction: sessionCompaction({
+          fallbackTokens: 1,
+          summarize: () => {
+            summarizeCalls += 1;
+            throw new Error("summarizer still down");
+          },
+        }),
+      });
+
+      const summary = await session.run("u1");
+
+      expect(summary.reason).toBe("error");
+      if (!(summary.error instanceof CompactionFailedError)) {
+        throw new Error(`expected CompactionFailedError, got ${String(summary.error)}`);
+      }
+      expect(summary.error.outcome.kind).toBe("failed");
+      expect(summarizeCalls).toBe(1);
+      expect(fake.getCalls()).toHaveLength(0);
+    },
+  );
+
+  it("uses a single summarize attempt even when the configured retryCount is large", async () => {
+    stateStore.write(
+      SID,
+      retryPendingState(Date.now() - RETRY_PENDING_COOLDOWN_MS - 1_000),
+    );
+    const store = new MemorySessionStore();
+    let summarizeCalls = 0;
+    const session = makeSession({
+      messages: [createUserMessage("u0")],
+      store,
+      compaction: sessionCompaction({
+        fallbackTokens: 1,
+        retryCount: 10,
+        summaryMode: "single",
+        singleCallBudgetTokens: 10_000,
+        summarize: () => {
+          summarizeCalls += 1;
+          throw { kind: "transient", message: "still down" };
+        },
+      }),
+    });
+
+    const summary = await session.run("u1");
+
+    expect(summary.reason).toBe("done");
+    expect(summarizeCalls).toBe(1);
+    expect(fake.getCalls()).toHaveLength(1);
+    expect(readState()?.status).toBe("retry_pending");
+  });
+
+  it("does not retry twice within the cooldown and retries once after it expires", async () => {
+    stateStore.write(SID, retryPendingState(Date.now()));
+    const store = new MemorySessionStore();
+    let summarizeCalls = 0;
+    const session = makeSession({
+      messages: [createUserMessage("u0")],
+      store,
+      compaction: sessionCompaction({
+        fallbackTokens: 1,
+        summarize: () => {
+          summarizeCalls += 1;
+          return "recovered-summary";
+        },
+      }),
+    });
+
+    expect((await session.run("u1")).reason).toBe("done");
+    expect((await session.run("u2")).reason).toBe("done");
+    expect(summarizeCalls).toBe(0);
+    expect(fake.getCalls()).toHaveLength(2);
+
+    stateStore.write(
+      SID,
+      retryPendingState(Date.now() - RETRY_PENDING_COOLDOWN_MS - 1_000),
+    );
+    expect((await session.run("u3")).reason).toBe("done");
+    expect(summarizeCalls).toBe(1);
+    expect(readState()?.status).toBe("idle");
+    expect(fake.getCalls()).toHaveLength(3);
+  });
+
+  it("leaves retry_pending state untouched when failing open on cooldown", async () => {
+    const updatedAt = Date.now() - 60_000;
+    stateStore.write(SID, retryPendingState(updatedAt));
+    const store = new MemorySessionStore();
+    const session = makeSession({
+      messages: [createUserMessage("u0")],
+      store,
+      compaction: sessionCompaction({
+        fallbackTokens: 1,
+        summarize: () => "unexpected-summary",
+      }),
+    });
+
+    const summary = await session.run("u1");
+
+    expect(summary.reason).toBe("done");
+    expect(readState()).toEqual(retryPendingState(updatedAt));
+    expect(readState()?.updatedAt).toBe(updatedAt);
+    expect(readState()?.baseCoveredCount).toBe(0);
   });
 });

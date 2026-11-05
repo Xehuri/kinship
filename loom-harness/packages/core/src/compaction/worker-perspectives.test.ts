@@ -375,24 +375,26 @@ describe("CompactionWorker summary perspectives", () => {
       },
       {
         keepRecent: 1,
-        summaryChunkTokens: 60,
+        summaryChunkTokens: 300,
       },
     );
 
     const outcome = expectCompacted(await worker.start({ reason: "manual" }).done);
 
-    expect(opsCalls).toHaveLength(4);
-    expect(chatCalls).toHaveLength(4);
+    expect(opsCalls).toHaveLength(5);
+    expect(chatCalls).toHaveLength(5);
     expect(opsCalls[0]).toHaveLength(1);
     expect(textOf(opsCalls[0]![0]!)).toContain("0:");
     expect(chatCalls[0]).toHaveLength(1);
     expect(textOf(chatCalls[0]![0]!)).toContain("0:");
-    const opsMerge = textOf(opsCalls[3]![0]!);
-    expect(opsMerge).toContain("以下是同一条会话的 3 段分段摘要");
-    expect(opsMerge).toContain("=== 分段 1 ===");
-    expect(textOf(chatCalls[3]![0]!)).toBe(
-      "CHAT_MERGE:chat partial 1|chat partial 2|chat partial 3",
-    );
+    // 3 个 chunk -> 3 次 leaf + 2 次两两合并（第一轮 1|2，第二轮合并结果|3）
+    const opsFirstMerge = textOf(opsCalls[3]![0]!);
+    expect(opsFirstMerge).toContain("以下是同一条会话的 2 段分段摘要");
+    expect(opsFirstMerge).toContain("=== 分段 1 ===");
+    const opsFinalMerge = textOf(opsCalls[4]![0]!);
+    expect(opsFinalMerge).toContain("以下是同一条会话的 2 段分段摘要");
+    expect(textOf(chatCalls[3]![0]!)).toBe("CHAT_MERGE:chat partial 1|chat partial 2");
+    expect(textOf(chatCalls[4]![0]!)).toBe("CHAT_MERGE:chat final summary|chat partial 3");
     expect(commits).toHaveLength(1);
     expect(commits[0]!.summaryText).toBe(
       "## OPS STATE\n\nops final summary\n\n## CHAT CONTINUITY\n\nchat final summary",
