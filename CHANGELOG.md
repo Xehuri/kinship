@@ -18,6 +18,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 修复
 
+- **Stratum query 关系扩散（2026-11-05）**：`stratum query --follow` 增加一跳 card/claim/report 关系扩展；`report` 查询跟随 `report_cards` / `report_relations`。关系以 context 行返回，带 relation 与来源 ID。
 - **因果链关系命令与旧脚本归档（2026-11-05）**：新增 `stratum add relation`（card-to-card，`triggered_by` / `precedes` / `supported_by` 等）；02 负责日链，03/04 负责 claim `derived_from`；旧 `build_relations.py` 归档到 `analysis/legacy-index-archive/`，不再从活动流程调用。
 - **旧索引弃用与一次性导入（2026-11-05）**：02/03/04 默认流程移除旧 `data/index` 编目；旧索引不再写入、不再作为回退。新增 `scripts/import-legacy-index.sh` / `.ps1`，首次迁移通过 `stratum migrate-legacy` 导入一次；文档、prompt 检查和 CI 同步。
 - **Stratum v0.1.1 接入收口（2026-11-05，issue #6）**：同步 v0.1.1 契约；`status --date`、`CMT-` base_commit 与 `lint` 进入 prompt；周报/双周报 3 到 7 条数量门在 ingest 前强制；CI 改为用真实 CLI parser 校验 prompt 命令；PowerShell 安装器补 `--user`、退出码检查、`-DryRun`、`-NoProxy`/`-Proxy` 与初始化确认；`stratum demo` 随包发布。

@@ -58,12 +58,12 @@ Kinship 分为三个位置，不是单一仓库：
 AI 子智能体的批次入库、报告 claim、review 与 query 依赖独立的 **Stratum CLI**，不是本仓库的 Python 包依赖。仓库与版本：
 
 - <https://github.com/Xehuri/stratum>
-- <https://github.com/Xehuri/stratum/releases/tag/v0.1.2>
+- <https://github.com/Xehuri/stratum/releases/tag/v0.1.3>
 
 安装与初始化：
 
 ```bash
-python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.2"
+python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.3"
 stratum init --root "<AI根>" --name personal
 stratum status
 ```
