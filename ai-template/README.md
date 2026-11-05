@@ -11,24 +11,24 @@
 | Loom | 生产推荐，独立进程 | `{AI目录}/.loom/config.yaml`，示例见 `loom-config.example.yaml` |
 | OpenCode | 遗留/可选后端，模板不随附配置，生产用 Loom | 需自行创建 `{AI目录}/opencode.json`；MCP 脚本见 `mcp/ai_mcp.py` |
 
-## Stratum 前置（v0.1.3+）
+## Stratum 前置（v0.1.2+）
 
 AI 子智能体的批次入库、日报/周报 claim、review、query 通过 **Stratum CLI** 完成。Stratum 不是本仓库的 Python 依赖，也不是 git submodule；它是独立仓库和独立 CLI。
 
 - 仓库：<https://github.com/Xehuri/stratum>
-- v0.1.3 Release：<https://github.com/Xehuri/stratum/releases/tag/v0.1.3>
-- 契约源：<https://github.com/Xehuri/stratum/tree/v0.1.3/contracts>
-- 模板本地副本：`contracts/`（从 v0.1.3 同步，AI prompt 使用相对路径 `contracts/claim-schema.md`）
+- v0.1.2 Release：<https://github.com/Xehuri/stratum/releases/tag/v0.1.2>
+- 契约源：<https://github.com/Xehuri/stratum/tree/v0.1.2/contracts>
+- 模板本地副本：`contracts/`（从 v0.1.2 同步，AI prompt 使用相对路径 `contracts/claim-schema.md`）
 - Python：3.11+
 
 安装固定版本：
 
 ```bash
 # Linux / macOS
-python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.3"
+python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.2"
 
 # Windows
-py -m pip install "git+https://github.com/Xehuri/stratum.git@v0.1.3"
+py -m pip install "git+https://github.com/Xehuri/stratum.git@v0.1.2"
 ```
 
 验证并初始化 AI 根：
@@ -196,7 +196,7 @@ python3 analysis/check_coverage.py --help
 
 ## 相关文档
 
-- [Stratum v0.1.3](https://github.com/Xehuri/stratum/releases/tag/v0.1.3) - 独立 CLI 与契约源
+- [Stratum v0.1.2](https://github.com/Xehuri/stratum/releases/tag/v0.1.2) - 独立 CLI 与契约源
 - [AGENTS.md](AGENTS.md) - 主智能体规则与记忆体系
 - [AGENTS-operations.md](AGENTS-operations.md) - Task / coverage / plan 操作规程
 - [系统初始化指南.md](系统初始化指南.md) - 首次启动流程与完整占位符清单

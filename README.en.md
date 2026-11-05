@@ -56,10 +56,10 @@ All kernel models, including ERes2NetV2, are downloaded by the `kernel_models` o
 AI subagents use the independent **Stratum CLI** for batch ingestion, report claims, review, and query. It is not a Python dependency or a git submodule of this repository.
 
 - <https://github.com/Xehuri/stratum>
-- <https://github.com/Xehuri/stratum/releases/tag/v0.1.3>
+- <https://github.com/Xehuri/stratum/releases/tag/v0.1.2>
 
 ```bash
-python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.3"
+python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.2"
 stratum init --root "<AI root>" --name personal
 stratum status
 ```
