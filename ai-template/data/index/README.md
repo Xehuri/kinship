@@ -88,7 +88,7 @@ version: 1
 - `analysis/build_blocks.py` 只写 `blocks.jsonl`，不写卡片。
 - `analysis/build_reports.py` 写 `reports.jsonl`。
 - `analysis/build_report_relations.py` 写 `report_relations.jsonl`。
-- `analysis/build_relations.py` 写 `card_relations.jsonl`，保留人工关系并重建自动关系。
+- `analysis/legacy-index-archive/build_relations.py` 是已归档的旧关系生成器，不再运行；活动关系走 `stratum add relation`。
 - `analysis/card_admin.py` 只写 `cards.jsonl`, `card_concepts.jsonl`, `card_blocks.jsonl`, `card_relations.jsonl`；`add-card` 优先用 `--text` 文本草稿。
 - `analysis/query_catalog.py` 与 `analysis/validate_catalog.py` 只读。
 - `analysis/query_reports.py` 只读查询报告索引。

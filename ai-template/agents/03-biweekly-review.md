@@ -437,6 +437,8 @@ stratum review promote HYP-B-{start_date}-01 --author main --reason "hypothesis 
 
 旧索引已弃用，不再编目观察/发现卡，也不再写 `data/index/*.jsonl`。历史旧索引只在首次迁移时通过 `scripts/import-legacy-index.sh` / `.ps1` 导入 Stratum。
 
+**跨周因果链**：03 负责跨周机制链，使用 claim `derived_from`；不要用旧 `build_relations.py`，也不要新建 card 关系。
+
 ### 步骤 3：系统改进建议
 
 基于分析中发现的数据质量问题、分析瓶颈、系统缺陷，按投入产出比排序列出改进建议。

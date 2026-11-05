@@ -18,6 +18,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 修复
 
+- **因果链关系命令与旧脚本归档（2026-11-05）**：新增 `stratum add relation`（card-to-card，`triggered_by` / `precedes` / `supported_by` 等）；02 负责日链，03/04 负责 claim `derived_from`；旧 `build_relations.py` 归档到 `analysis/legacy-index-archive/`，不再从活动流程调用。
 - **旧索引弃用与一次性导入（2026-11-05）**：02/03/04 默认流程移除旧 `data/index` 编目；旧索引不再写入、不再作为回退。新增 `scripts/import-legacy-index.sh` / `.ps1`，首次迁移通过 `stratum migrate-legacy` 导入一次；文档、prompt 检查和 CI 同步。
 - **Stratum v0.1.1 接入收口（2026-11-05，issue #6）**：同步 v0.1.1 契约；`status --date`、`CMT-` base_commit 与 `lint` 进入 prompt；周报/双周报 3 到 7 条数量门在 ingest 前强制；CI 改为用真实 CLI parser 校验 prompt 命令；PowerShell 安装器补 `--user`、退出码检查、`-DryRun`、`-NoProxy`/`-Proxy` 与初始化确认；`stratum demo` 随包发布。
 - **Loom 压缩配置静默忽略告警（2026-11-04，issue #4）**：`compaction.fallbackTokens` 与 `compaction.maxContextTokens` / `triggerRatio` / `summaryTimeoutMs` 同时声明时，legacy 键不会被 worker 路径读取；boot 新增 `loom compaction legacy keys ignored` WARN 点名被忽略的键与实际生效路径，`loom.example.yaml` 与 Loom 使用文档同步明确两条路径互斥。新增 boot 日志面回归用例。

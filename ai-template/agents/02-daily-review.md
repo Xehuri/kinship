@@ -474,6 +474,21 @@ tags: [记忆, 用户画像, <主题>]        # 人物/事项/属性
 3. 卡片入库后是 draft；转正留到步骤 6a，先转卡再转 claim。
 4. 没有可建卡内容时允许 0 张，但要在 `## 运维` 写原因。
 
+### 步骤5g: 因果链（02 负责）
+
+卡片建好后，只对**有证据支持的明确关系**执行：
+
+```bash
+stratum add relation --from-card C-... --to-card C-... --type triggered_by --claim-type causal
+```
+
+- `triggered_by` / `derived_from`：A 由 B 触发/派生；必须能指出证据，不能只因同刻发生。
+- `precedes`：明确时间先后，只表示顺序，不表示因果。
+- `supported_by`：观察/发现卡由事件卡支撑。
+- `contradicts` / `supersedes`：明确冲突或替代时才写。
+- 禁止自指和重复边；重复执行返回 `unchanged`。没有足够证据就不建关系。
+- 02 负责日内链；03/04 的跨周/周层关系用 claim `derived_from`，不要使用旧 `build_relations.py`。
+
 ### 步骤6: 写复盘报告
 
 将复盘结果写入 `{AI目录}/data/daily/{date}/复盘-{date}.md`。如文件已存在则覆盖。

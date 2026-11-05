@@ -355,6 +355,8 @@ timezone: Asia/Shanghai
 
 旧索引已弃用，不再编目观察/发现卡，也不再写 `data/index/*.jsonl`。历史旧索引只在首次迁移时通过 `scripts/import-legacy-index.sh` / `.ps1` 导入 Stratum。
 
+**周层关系**：04 只写周观测到日 claim 的 `derived_from`；不要用旧 `build_relations.py`，也不要新建 card 关系。
+
 ### 步骤 5：写周报
 
 将分析结果写入 `{AI目录}/data/reports/每周总结-{start}~{end}.md`。

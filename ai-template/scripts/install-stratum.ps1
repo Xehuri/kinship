@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 if (-not $Version) {
-    $Version = if ($env:STRATUM_VERSION) { $env:STRATUM_VERSION } else { "v0.1.1" }
+    $Version = if ($env:STRATUM_VERSION) { $env:STRATUM_VERSION } else { "v0.1.2" }
 }
 if ($Proxy -and $NoProxy) {
     throw "Use either -Proxy or -NoProxy, not both."
