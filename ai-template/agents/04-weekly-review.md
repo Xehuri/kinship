@@ -110,7 +110,7 @@ timezone: Asia/Shanghai
 6. 验证：`stratum query --type claim --claim-type observation --from {start_date} --to {end_date+1} --status active`。
 
 - promotion 前所有 `derived_from` 目标必须是 active。
-- 只转正周观测，不转日层 claim 或双周报 claim。
+- 只转正周观测，不转双周报 claim。例外：周报用 `revise claim` 修正日结论后，04 可以单条 promote 本次生成的那个替换日 claim；旧日 claim 在替换 claim 转正后自动变 `superseded`。
 - 任一步失败按纯文本错误修正后重试；不得直接写 SQLite。
 
 ## 上下文边界（重要）
@@ -355,7 +355,22 @@ timezone: Asia/Shanghai
 
 旧索引已弃用，不再编目观察/发现卡，也不再写 `data/index/*.jsonl`。历史旧索引只在首次迁移时通过 `scripts/import-legacy-index.sh` / `.ps1` 导入 Stratum。
 
-**周层关系**：04 只写周观测到日 claim 的 `derived_from`；不要用旧 `build_relations.py`，也不要新建 card 关系。
+**周层关系与日结论修正（04）**：
+
+报告 ingest 会按 `derived_from` 字段写入周观测到日 claim 的关系。需要补充或修正时使用显式入口：
+
+```bash
+stratum add claim-relation --from-claim OBS-W-{start_date}-01 --to-claim OBS-D-{start_date}-01 --type derived_from
+```
+
+- 源周观测必须是 draft/stale；目标必须是本周内的日 claim，promotion 时目标必须 active。
+- 修改已有 active 日结论时，不要直接改正文：
+  ```bash
+  stratum revise claim --claim-id OBS-D-{start_date}-01 --body "周报核对后的修正结论" --author 04-weekly-review --reason "周报跨日核对后修正日结论"
+  ```
+  该命令生成新的日层 draft claim，并自动写 `supersedes`；随后允许 04 单条 promote 这个替换日 claim，旧日 claim 自动变 `superseded`。
+- 不要用 `revise` 改变 claim 的层级或 claim_id；不要批量修改日结论。
+- 旧 `build_relations.py` 已归档，禁止调用，也不要新建 card 关系。
 
 ### 步骤 5：写周报
 

@@ -578,6 +578,20 @@ stratum query --type claim --from {date} --to {date+1} --status active
 - 先转卡片，再转日层 claim；带 `data_gap` 的 claim 不转正。
 - 只转 card 和日层 claim；不要转周报或双周报。
 
+**claim 关系与结论修正（02）**：
+
+- 日层 claim 不允许 `derived_from`；确有冲突或替换时才写：
+  ```bash
+  stratum add claim-relation --from-claim OBS-D-{date}-02 --to-claim OBS-D-{date}-01 --type contradicts
+  ```
+  源 claim 必须是 draft/stale；`supersedes` 只能指向同层同类型且已 active 的旧 claim。
+- 修改已有 active 日结论时不要直接改正文，执行：
+  ```bash
+  stratum revise claim --claim-id OBS-D-{date}-01 --body "修正后的结论" --author 02-daily-review --reason "当日交叉核对后修正"
+  ```
+  新 claim 保持 draft，随后用 `stratum review promote <新 claim_id>` 转正；旧 claim 在新 claim 转正后自动变 `superseded`。
+- 修改 draft 日 claim 时，`revise` 原地更新，不新建 claim。
+
 ### 步骤6b: 执行日志 + 记忆收尾门（记忆体系收尾）
 
 **复盘报告写完后，做两个记忆系统收尾动作：**

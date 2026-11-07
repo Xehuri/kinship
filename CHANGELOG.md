@@ -6,6 +6,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 新增
 
+- **claim 关系显式写入与修正（2026-11-07）**：新增 `stratum add claim-relation`（`derived_from` / `supersedes` / `contradicts`）与 `stratum revise claim`。02 日用关系写 `contradicts` / `supersedes`，03/04 写 `derived_from`；active claim 通过 `revise` 生成同层 draft 替换并自动写 `supersedes`，promote 后旧 claim 才失效。周报可据此修正日结论。版本仍为 `0.1.2`。
 - **Loom 子会话兜底压缩（2026-11-04）**：主会话声明 `compaction.fallbackTokens` 后，task 子会话默认继承 session-level fallback 压缩，阈值按子会话模型窗口封顶（`min(fallbackTokens, contextWindow - min(maxOutput,4096))`）；子会话不注入水位提醒，手动压缩与 `compact_context` 仍面向主会话。水位提醒、主会话工具压缩/兜底、手动压缩与子会话兜底现在默认同时存在。boot `loom compaction` 日志新增 `subagentFallback` 字段。
 - **v4 引导重构（2026-10-27）**：11 步 `welcome→account→dependencies→kernel→kernel_models→xiaomi→qq→moss→loom→clients→finish`，state v4；Xiaomi/QQ 独立前置步骤，MOSS 仅启用/地址/模型，Loom 仅端口/提供商/密钥并一次启动应用，finish 合并预检与启动校验并显示结束语。详见 [docs/dev/onboarding-v4-2026-10-27.md](docs/dev/onboarding-v4-2026-10-27.md)。
 - **零配置首次启动引导（2026-10-26，历史）**：新增 10 步 onboarding（`welcome`→`account`→`dependencies`→`kernel`→`kernel_models`→`moss`→`loom`→`clients`→`preflight`→`finish`），支持无 `config.yaml`、无内核、无模型、无 MOSS、无 Loom 的最小启动。bootstrap 模式延迟调度器、音频 ingest、Health Cloud、Loom 探针、QQ、P2P 与配置 watcher，仅放行引导/认证/静态资源；`finish` 进程内激活服务面并进入 chat。前端缺失时后台从 release 自愈下载，日志记录来源、进度与校验结果。Loom token 自动发现且不回显，MOSS 外部 vLLM 校验可跳过，预检硬失败阻断、软失败需 `allow_degraded=true`。
