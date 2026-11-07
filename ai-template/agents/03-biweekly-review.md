@@ -439,13 +439,13 @@ stratum review promote HYP-B-{start_date}-01 --author main --reason "hypothesis 
 
 **跨周因果链**：03 负责跨周机制链，使用 claim `derived_from`；不要用旧 `build_relations.py`，也不要新建 card 关系。
 
-报告入库后如需补充或修正关系，使用显式入口：
+报告入库后（`stratum ingest report` 完成后）如需补充或修正关系，使用显式入口：
 
 ```bash
 stratum add claim-relation --from-claim PAT-B-{start_date}-01 --to-claim OBS-W-{start_date}-01 --type derived_from
 ```
 
-- 源 claim 必须是 draft/stale；双周 B 只能派生自周 W；不得跨双周周期。
+- 双周 B 只能派生自周 W；不得跨双周周期。源 B 已 active 时，目标 W 也必须 active；源 draft/stale 时，目标可在 promotion 前仍是 draft。
 - 03 不执行 review/promote；新建的关系随 B claim 保持 draft，等待 main/human 转正。
 - 需要修正周观测时，用 `stratum revise claim --claim-id OBS-W-{start_date}-01 --body "修正后的结论" --author 03-biweekly-review --reason "双周核对后修正"`；生成的新周 claim 仍需 main/human 转正，03 不得自行 promote。
 

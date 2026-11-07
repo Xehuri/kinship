@@ -355,15 +355,15 @@ timezone: Asia/Shanghai
 
 旧索引已弃用，不再编目观察/发现卡，也不再写 `data/index/*.jsonl`。历史旧索引只在首次迁移时通过 `scripts/import-legacy-index.sh` / `.ps1` 导入 Stratum。
 
-**周层关系与日结论修正（04）**：
+**周层关系与日结论修正（04，报告入库后执行）**：
 
-报告 ingest 会按 `derived_from` 字段写入周观测到日 claim 的关系。需要补充或修正时使用显式入口：
+以下操作在步骤 5 的 `stratum ingest report` 完成后执行。报告 ingest 会按 `derived_from` 字段写入周观测到日 claim 的关系。需要补充或修正时使用显式入口：
 
 ```bash
 stratum add claim-relation --from-claim OBS-W-{start_date}-01 --to-claim OBS-D-{start_date}-01 --type derived_from
 ```
 
-- 源周观测必须是 draft/stale；目标必须是本周内的日 claim，promotion 时目标必须 active。
+- 目标必须是本周内的日 claim，promotion 时目标必须 active。源周观测已 active 时，目标也必须 active；源 draft/stale 时，目标可在 promotion 前仍是 draft。
 - 修改已有 active 日结论时，不要直接改正文：
   ```bash
   stratum revise claim --claim-id OBS-D-{start_date}-01 --body "周报核对后的修正结论" --author 04-weekly-review --reason "周报跨日核对后修正日结论"

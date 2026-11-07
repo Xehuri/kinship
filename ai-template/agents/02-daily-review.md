@@ -584,7 +584,7 @@ stratum query --type claim --from {date} --to {date+1} --status active
   ```bash
   stratum add claim-relation --from-claim OBS-D-{date}-02 --to-claim OBS-D-{date}-01 --type contradicts
   ```
-  源 claim 必须是 draft/stale；`supersedes` 只能指向同层同类型且已 active 的旧 claim。
+  `supersedes` 的源 claim 必须是 draft/stale，且只能指向同层同类型且已 active 的旧 claim；`contradicts` 可对 active claim。
 - 修改已有 active 日结论时不要直接改正文，执行：
   ```bash
   stratum revise claim --claim-id OBS-D-{date}-01 --body "修正后的结论" --author 02-daily-review --reason "当日交叉核对后修正"
