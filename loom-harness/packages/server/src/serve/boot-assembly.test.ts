@@ -1523,3 +1523,80 @@ describe("createLoomApp：W49-C 主会话压缩接线（hooksFor 尾部追加）
     }
   });
 });
+
+describe("createLoomApp：B1 memoryDigest 关闭面（零命令零源）", () => {
+  interface LogEntry {
+    readonly level: string;
+    readonly msg: string;
+    readonly fields: Record<string, unknown>;
+  }
+
+  function makeWs(): string {
+    const root = mkdtempSync(join(tmpdir(), "loom-b1-digest-"));
+    const ws = join(root, "ws");
+    mkdirSync(join(ws, "agents"), { recursive: true });
+    writeFileSync(join(ws, "AGENTS.md"), "B1-DIGEST-AGENTS\n");
+    return root;
+  }
+
+  async function bootWs(root: string, logs: LogEntry[], extraServerLines = ""): Promise<LoomApp> {
+    const ws = join(root, "ws");
+    const stateRoot = join(root, "state");
+    const text = FAKE_YAML.replace(
+      "  hostname: 127.0.0.1\n",
+      `  hostname: 127.0.0.1\n${extraServerLines}`,
+    ).replace("WS_ROOT", ws);
+    const store = new HotConfigStore({ sink: createFileAuditSink(join(stateRoot, "config")), env: {} });
+    const applied = store.apply(text, "<test>");
+    if (!applied.ok) throw new Error(`配置 apply 失败：${applied.errors.join(";")}`);
+    return createLoomApp({
+      config: parseLoomConfig(text, "<test>", { env: {} }),
+      store,
+      stateRoot,
+      tokens: ["tok-b1-digest"],
+      version: "test",
+      env: { LOOM_FAKE_MODEL: "1" },
+      log: (level, msg, fields) => {
+        logs.push({ level, msg, fields });
+      },
+    });
+  }
+
+  it("键缺席：digest info {enabled:false, bytes:0}，memory 清单仍仅 AGENTS.md", async () => {
+    const root = makeWs();
+    const logs: LogEntry[] = [];
+    try {
+      const app = await bootWs(root, logs);
+      try {
+        const digest = logs.find((l) => l.msg === "loom main memory digest");
+        expect(digest?.level).toBe("info");
+        expect(digest?.fields["enabled"]).toBe(false);
+        expect(digest?.fields["bytes"]).toBe(0);
+        expect(app.contextManifest.memoryFiles.map((f) => f.relPath)).toEqual(["AGENTS.md"]);
+      } finally {
+        app.model.teardown();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("显式 false：同一关闭形状（不追加虚拟源）", async () => {
+    const root = makeWs();
+    const logs: LogEntry[] = [];
+    try {
+      const app = await bootWs(root, logs, "  memoryDigest: false\n");
+      try {
+        const digest = logs.find((l) => l.msg === "loom main memory digest");
+        expect(digest?.level).toBe("info");
+        expect(digest?.fields["enabled"]).toBe(false);
+        expect(digest?.fields["bytes"]).toBe(0);
+        expect(app.contextManifest.memoryFiles.map((f) => f.relPath)).toEqual(["AGENTS.md"]);
+      } finally {
+        app.model.teardown();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

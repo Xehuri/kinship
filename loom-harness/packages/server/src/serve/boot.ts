@@ -88,6 +88,11 @@ import { PlanScheduler, type ReconcileReason, type ReconcileResult } from "../pl
 import { zonedDateKey } from "../plan/timezone.js";
 import { renderWakeEntry } from "../plan/wake-render.js";
 import { createAssemblyTraceWriter } from "./assembly-trace.js";
+import {
+  appendMemoryDigestSource,
+  buildMemoryDigestSource,
+  MEMORY_DIGEST_SOURCE,
+} from "./memory-digest.js";
 import { resolveMainSession } from "./main-session.js";
 import {
   buildCompactionHooks,
@@ -950,9 +955,16 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   }
   // W34：kind:main 的 memory 声明喂主会话清单（undefined/空 = 兜底，见 side-binding）。
   const declaredMainGlobs = personaDef?.memoryGlobs ?? [];
+  const staticMemorySources = bindings.mainSessionMemorySources(declaredMainGlobs);
+  // B1 wake path：boot 常量摘要作为末尾虚拟源（config 缺席/false = null，零命令零源）。
+  const memoryDigestSource = buildMemoryDigestSource({
+    workspaceRoot: toolWiring.workspaceReal,
+    enabled: options.config.server.memoryDigest === true,
+    log,
+  });
   const mainPlan: AssemblyPlan = {
     systemPrompt: personaBody ?? "你是 loom 主会话。",
-    memorySources: bindings.mainSessionMemorySources(declaredMainGlobs),
+    memorySources: appendMemoryDigestSource(staticMemorySources, memoryDigestSource),
     workflows: [],
   };
   // systemPrompt/memory 重读：session-start 与 compaction 时重读 persona + 注入源；
@@ -964,7 +976,9 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   // 这里只重读同样 6 个路径并复用同一 sourceContract 校验。声明变更/新 glob 命中
   // 不在本重读范围（与 persona memory 声明不重扫的既定边界一致）。
   const sourceContract = options.config.server.sourceContract;
-  const memoryRosterPaths = mainPlan.memorySources.map((source) => source.source);
+  const memoryRosterPaths = mainPlan.memorySources
+    .filter((source) => source.source !== MEMORY_DIGEST_SOURCE)
+    .map((source) => source.source);
   const systemPromptResync = createSystemPromptResync({
     workspaceRoot: toolWiring.workspaceReal,
     plan: mainPlan,
@@ -975,9 +989,10 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
         workspaceRoot: toolWiring.workspaceReal,
         shards: null,
       });
-      return sourceContract === "off"
+      const sources = sourceContract === "off"
         ? resolveMemorySources(reader, memoryRosterPaths, memorySourceContractRelaxed).sources
         : resolveMemorySources(reader, memoryRosterPaths).sources;
+      return appendMemoryDigestSource(sources, memoryDigestSource);
     },
     log,
   });
@@ -990,6 +1005,10 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
       0,
     ),
     source: declaredMainGlobs.length > 0 ? "declared" : "fallback",
+  });
+  log("info", "loom main memory digest", {
+    enabled: options.config.server.memoryDigest === true,
+    bytes: memoryDigestSource === null ? 0 : Buffer.byteLength(memoryDigestSource.content, "utf8"),
   });
   log("info", "loom system prompt resync wired", {
     source: personaDef === undefined ? "fallback" : "declared",
@@ -1185,19 +1204,21 @@ export async function createLoomApp(options: LoomAppOptions): Promise<LoomApp> {
   // 同刻，变更窗口最小化）。stat 失败按 null fail-soft——该件退化为"首见 set"语义。
   // W20：content = 实载全文（内存已在手，零新增 IO）——水位 diff 基线的种子；degrade 件
   // 传 ""（反正不进水位）。
-  const contextSeedFiles: readonly ContextFileSeed[] = mainPlan.memorySources.map((s) => {
-    const st = statForSeed(join(toolWiring.workspaceReal, ...s.source.split("/")));
-    return {
-      relPath: s.source,
-      bootHash:
-        s.degrade === null
-          ? `sha256:${createHash("sha256").update(s.content, "utf8").digest("hex")}`
-          : null,
-      mtimeMs: st?.mtimeMs ?? null,
-      size: st?.size ?? null,
-      content: s.degrade === null ? s.content : "",
-    };
-  });
+  const contextSeedFiles: readonly ContextFileSeed[] = mainPlan.memorySources
+    .filter((s) => s.source !== MEMORY_DIGEST_SOURCE)
+    .map((s) => {
+      const st = statForSeed(join(toolWiring.workspaceReal, ...s.source.split("/")));
+      return {
+        relPath: s.source,
+        bootHash:
+          s.degrade === null
+            ? `sha256:${createHash("sha256").update(s.content, "utf8").digest("hex")}`
+            : null,
+        mtimeMs: st?.mtimeMs ?? null,
+        size: st?.size ?? null,
+        content: s.degrade === null ? s.content : "",
+      };
+    });
 
   // W25 skills catalog 合成嗅探源种子（与 skillsSniff 缝同批接线）：基线 = boot 实载
   // catalog 块文本（仅 name+description 行，正文绝不入）；mtimeMs 槽 = loader 重载代号。

@@ -246,6 +246,44 @@ describe("parseLoomConfig / server 段", () => {
       ).toBe(true);
     }
   });
+
+  // B1 wake path：键缺席 = undefined 不物化（缺省关闭，boot 不跑 stratum），
+  // 显式 true/false 逐值物化供接线直读；非布尔 fail-fast 同 optionalBool 邻居口径。
+  it("memoryDigest 键缺席 = undefined 不物化（严格 toEqual 钉死形状）", () => {
+    const cfg = parseLoomConfig(VALID_YAML, "<t>", { env: ENV_OK });
+    expect(cfg.server).toEqual({ port: 5097, hostname: "127.0.0.1" });
+    expect("memoryDigest" in cfg.server).toBe(false);
+    expect(cfg.server.memoryDigest).toBeUndefined();
+  });
+
+  it("memoryDigest: true/false 逐值透传（物化为布尔，不补缺省）", () => {
+    for (const value of ["true", "false"]) {
+      const yaml = VALID_YAML.replace(
+        "  hostname: 127.0.0.1\n",
+        `  hostname: 127.0.0.1\n  memoryDigest: ${value}\n`,
+      );
+      const cfg = parseLoomConfig(yaml, "<t>", { env: ENV_OK });
+      expect(cfg.server).toEqual({
+        port: 5097,
+        hostname: "127.0.0.1",
+        memoryDigest: value === "true",
+      });
+    }
+  });
+
+  it("memoryDigest 非布尔 → schema 错误（点名 server.memoryDigest，文案与邻居 optionalBool 同构）", () => {
+    for (const bad of ['"yes"', "1", "0", "[]", "{v: true}"]) {
+      const yaml = VALID_YAML.replace(
+        "  hostname: 127.0.0.1\n",
+        `  hostname: 127.0.0.1\n  memoryDigest: ${bad}\n`,
+      );
+      const errs = errorsOf(() => parseLoomConfig(yaml, "<t>", { env: ENV_OK }));
+      expect(
+        errs.some((e) => e.includes("server.memoryDigest") && e.includes("需要布尔值")),
+        `应拒 ${bad}`,
+      ).toBe(true);
+    }
+  });
 });
 
 // 会话列表开关与主会话 id：两者键缺席 = undefined 不物化（消费层按关闭收敛，

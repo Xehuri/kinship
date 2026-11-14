@@ -44,6 +44,18 @@ export interface ServerConfig {
    */
   readonly sourceContract?: "strict" | "off";
   /**
+   * B1 harness wake path：boot 期唤醒记忆摘要开关（loom.yaml `server.memoryDigest`）。
+   * 键缺席 = 不物化（undefined）= 缺省 OFF：boot 不执行 stratum、不追加任何源，
+   * plan 字节与今日逐字节一致。显式 true = boot 期执行一次
+   * `stratum memory digest --days 30 --budget 3000`（cwd = workspace 根，5s 超时），
+   * stdout 作为虚拟 `memory/.digest` 源追加在主会话 memory 清单**末尾**；命令失败/
+   * 空输出/输出 `无` 一律 fail-soft（不追加源 + warn，绝不阻塞或炸 boot）。
+   * 摘要为 boot 常量：systemPromptResync 重读静态源时复用同对象，不重跑命令。
+   * 生效方式（W27 实例化部署模型）：键住 <实例根>/.loom/config.yaml，
+   * 切换 = 改配置 + 重启服务，**无运行期热重载通道**（与 sourceContract 同纪律）。
+   */
+  readonly memoryDigest?: boolean;
+  /**
    * W56 忙时发送抢占开关（loom.yaml `server.interruptOnSend`）。
    * 键缺席 = 不物化（undefined）= 缺省 OFF：busy 发送沿用旧 FIFO 排队 + steer 语义。
    * 显式 true = busy 会话的新消息插队首并 abort 当前轮；当前轮收尾后 #drainQueue 取其
@@ -236,7 +248,7 @@ function boolDefault(v: unknown, field: string, fallback: boolean, errors: strin
   return fallback;
 }
 
-/** server 段：port ≥5097（D32），hostname 必填；W26 convergenceEnforced 可选布尔（缺省=强制在位）；W35 sourceContract 可选枚举串（缺省=strict，见 ServerConfig 注释）。 */
+/** server 段：port ≥5097（D32），hostname 必填；W26 convergenceEnforced 可选布尔（缺省=强制在位）；W35 sourceContract 可选枚举串（缺省=strict，见 ServerConfig 注释）；B1 memoryDigest 可选布尔（缺省=关闭）。 */
 export function checkServer(raw: unknown, errors: string[]): ServerConfig | undefined {
   if (!isRecord(raw)) {
     errors.push("server: 缺失或不是映射");
@@ -254,6 +266,7 @@ export function checkServer(raw: unknown, errors: string[]): ServerConfig | unde
     "server.sourceContract",
     errors,
   );
+  const memoryDigest = optionalBool(raw["memoryDigest"], "server.memoryDigest", errors);
   const interruptOnSend = optionalBool(
     raw["interruptOnSend"],
     "server.interruptOnSend",
@@ -278,6 +291,7 @@ export function checkServer(raw: unknown, errors: string[]): ServerConfig | unde
     hostname,
     ...(convergenceEnforced === undefined ? {} : { convergenceEnforced }),
     ...(sourceContract === undefined ? {} : { sourceContract }),
+    ...(memoryDigest === undefined ? {} : { memoryDigest }),
     ...(interruptOnSend === undefined ? {} : { interruptOnSend }),
     ...(autoWakeEnabled === undefined ? {} : { autoWakeEnabled }),
     ...(sessionList === undefined ? {} : { sessionList }),
