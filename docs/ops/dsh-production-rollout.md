@@ -73,6 +73,7 @@
 | 20:22 | 验证 | 隔离：会话日志（zstd 解压）21 条事件、0 处 `agent-instructions`。DshClient 只读自检：`health_check=online`、`get_main_session` 返回绑定会话、`get_session_status=idle`、模型目录 1 个 provider、上下文窗口 1M（`xehuri-api/deepseek-flash`）|
 | 20:24 | 收尾重启 | `systemctl restart axeuh-health`（新 PID 2209503，启动约 4s）：`[DshHealth] 健康探针已启动` → `/health.dsh=online`；`[Orchestrator] loom -> blocked (disabled)`，Loom 子进程消失、`/health.loom=offline`；重启后 DshClient 只读自检仍 online/bound/idle/1M |
 | 20:29 | 修 W30 | 发现 `kinship-data/ai/data/cache/web_backend.json` 仍是 10 月遗留的 `loom`：Web 对话管线（`routers/session.py`、`model_config.py` 走 `acquire_web_client()`）按它选 Loom，而 SSE 按全局 `ai_backend` 选 dsh → 前端表现为"没绑定"、发送报 5100。备份 `web_backend.json.bak-kinship-20261115-202919` 后原子写 `dsh`；`get_web_backend()=dsh`、`acquire_web_client()=DshClient`、旧 id `ses_6320…` 的历史请求被归一到绑定会话 |
+| 20:36 | 修会话面 | 仅改 W30 状态文件还不够：`/session/list` 没有 dsh 腿、且把带 `loom:main-task` 绑定的旧会话标 `backend:"loom"`，前端于是把 `backend=loom` 显式塞进发送请求 → 直调已停用的 Loom（日志 `[LOOM-CLIENT] session=ses_6320…` + 5100）。代码修复（W52）：`/session/list` 增 dsh 聚合腿（bridge 绑定会话）、`current_session` 取该 id、dsh 模式下本地条目一律归 dsh、全局 dsh 时忽略显式 loom/opencode、Loom 腿不探活；4 条新测试先红后绿（stash 实现验证），相关 105 条全绿；重启后端（PID 2218881）后实测 `current_session=session-2f8b68aa…`、`partial=[]`、dsh 行首位 |
 
 ## 4. B 段：重启 dsh（已完成 20:15）
 
@@ -173,6 +174,12 @@ cat <AI_ROOT>/data/cache/web_backend.json     # 期望 {"backend": "dsh", ...}
   但状态文件本身接受 `dsh`）；没有凭据时可直接原子写状态文件（reader 每次现读，无需重启）。
 - 反向注意：前端若还有 opencode/loom 切换按钮，点一下就又把 Web 管线切走；切回 dsh 需要
   同样的写入。
+- **会话面（W52，2026-11-15 20:36 起）**：`/session/list` 现在有 dsh 聚合腿——`current_session`
+  取 bridge 绑定会话，`sessions` 首位是该会话（`backend:"dsh"`），本地历史条目在 dsh 模式下
+  一律归 dsh；前端对 `dsh` 标签不发送显式 backend，于是落回 Web 通道。
+  另外全局 `ai_backend=dsh` 时，后端会忽略请求里的显式 `backend: "loom"|"opencode"`
+  （日志 `[Session] 全局后端为 dsh，忽略显式通道请求`），并对 Loom 腿不探活、不计 partial。
+  因此不再需要前端清缓存或删旧会话。
 - `usersessions.json` 里旧的 `ses_…` 主会话 id 不用清理：`DshClient` 一律把调用方传入的
   session id 归一到 bridge 绑定会话（历史/发送/状态同语义）。
 

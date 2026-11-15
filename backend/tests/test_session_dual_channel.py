@@ -131,7 +131,7 @@ class _ChanStub:
         return self._fail_env(self._status_detail or "HTTP 404: session not found")
 
 
-def _patch_channels(monkeypatch, *, oc=None, loom=None, web=None, glob=None):
+def _patch_channels(monkeypatch, *, oc=None, loom=None, web=None, glob=None, dsh=None):
     """四条缝分桩：两通道直调原语 + web 通道缝 + ai_client_factory 全局缝，
     供"谁被调用"判别（显式腿必须只碰对应直调桩）。"""
     from routers import session as session_router
@@ -149,6 +149,8 @@ def _patch_channels(monkeypatch, *, oc=None, loom=None, web=None, glob=None):
         monkeypatch.setattr(session_router, "acquire_web_client", _factory(web))
     if glob is not None:
         monkeypatch.setattr(session_router, "acquire_opencode_client", _factory(glob))
+    if dsh is not None:
+        monkeypatch.setattr(session_router, "acquire_dsh_client_direct", _factory(dsh))
 
 
 def _set_web(backend: str):
@@ -156,6 +158,17 @@ def _set_web(backend: str):
     import services.web_backend_selector as wbs
 
     wbs.set_web_backend(backend)
+
+
+def _patch_global_backend(monkeypatch, backend: str, *, opencode_enabled: bool = False) -> None:
+    """钉全局 ai_backend（W52 dsh 接管判据的唯一读点）。"""
+    from routers import session as session_router
+
+    class _Cfg:
+        AI_BACKEND = backend
+        OPENCODE_ENABLED = opencode_enabled
+
+    monkeypatch.setattr(session_router, "get_config", lambda: _Cfg(), raising=False)
 
 
 def _patch_opencode_enabled(monkeypatch, enabled: bool) -> None:
@@ -1018,3 +1031,100 @@ class TestMessagesCursorPassthrough:
         assert resp.status_code == 200
         # 译后空页(上游异常回空但带游标)才截断, 防前端空转死循环
         assert resp.json()["next_cursor"] is None
+
+
+# ============================================================
+# W52：dsh 接管（生产 ai_backend=dsh）后的 Web 会话面
+# ============================================================
+
+
+DSH_BOUND = {
+    "session_id": "session-dsh-bound",
+    "sessionID": "session-dsh-bound",
+    "title": "kinship主会话",
+    "bound_at": 1_794_745_073_485,
+    "preset": "kinship",
+    "status": "idle",
+}
+
+
+class TestDshTakeover:
+    """全局/Web 通道都是 dsh 时：新会话面必须只认 bridge 绑定会话。"""
+
+    def test_local_entry_backend_marks_every_local_row_as_dsh(
+        self, monkeypatch
+    ):
+        from routers import session as R
+
+        _patch_global_backend(monkeypatch, "dsh")
+        # 历史 loom 绑定仍在，但 dsh 模式下不能把旧会话再标成 loom
+        assert R._local_entry_backend(
+            "ses_old", {"loom:main-task": "ses_old"}, "dsh") == "dsh"
+        assert R._local_entry_backend(
+            "ses_old", {"opencode:main-task": "ses_old"}, "opencode") == "opencode"
+        assert R._local_entry_backend(
+            "ses_old", {"loom:main-task": "ses_old"}, "opencode") == "loom"
+
+    def test_explicit_loom_backend_is_ignored_under_dsh(
+        self, client, auth_headers, tmp_manager, monkeypatch
+    ):
+        # 前端带着旧会话的 backend=loom 标签发消息：必须落回 Web 通道（dsh），
+        # 绝不能直调已停用的 Loom（生产现象：发送报 5100 连接失败）。
+        _patch_global_backend(monkeypatch, "dsh")
+        _set_web("dsh")
+        oc, loom = _ChanStub("oc"), _ChanStub("loom")
+        web, dsh = _ChanStub("web"), _ChanStub("dsh")
+        _patch_channels(monkeypatch, oc=oc, loom=loom, web=web, dsh=dsh)
+
+        resp = client.post("/api/screen/session/message",
+                           json={"message": "查", "session_id": "ses_old",
+                                 "backend": "loom"}, headers=auth_headers)
+
+        assert resp.status_code == 200
+        assert web.calls == [{"m": "send_message", "session_id": "ses_old",
+                              "message": "查", "agent": "main-task"}]
+        assert loom.calls == [] and oc.calls == []
+        assert dsh.calls == []
+
+    def test_list_reports_bound_dsh_session_as_current(
+        self, client, auth_headers, tmp_manager, monkeypatch
+    ):
+        _patch_global_backend(monkeypatch, "dsh")
+        _set_web("dsh")
+        tmp_manager.set_agent_session("loom:main-task", "ses_old")
+        tmp_manager.set_current_session("ses_old", title="loom测试")
+
+        oc, loom = _ChanStub("oc"), _ChanStub("loom")
+        dsh = _ChanStub("dsh", sessions_items=[DSH_BOUND])
+        web = _ChanStub("web")
+        _patch_channels(monkeypatch, oc=oc, loom=loom, web=web, dsh=dsh)
+
+        resp = client.get("/api/screen/session/list", headers=auth_headers)
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["partial"] == []
+        assert payload["current_session"] == "session-dsh-bound"
+        bound = _entry(payload, "session-dsh-bound")
+        assert bound["backend"] == "dsh"
+        # 仅本地历史条目也归 dsh（不再标 loom 把前端引回已停用通道）
+        assert _entry(payload, "ses_old")["backend"] == "dsh"
+        # Loom 腿在 dsh 模式下不探活
+        assert loom.calls == []
+        assert [c["m"] for c in dsh.calls] == ["list_sessions"]
+
+    def test_list_marks_partial_when_dsh_bridge_fails(
+        self, client, auth_headers, tmp_manager, monkeypatch
+    ):
+        _patch_global_backend(monkeypatch, "dsh")
+        _set_web("dsh")
+        dsh = _ChanStub("dsh", list_raises=True)
+        _patch_channels(monkeypatch, dsh=dsh)
+
+        resp = client.get("/api/screen/session/list", headers=auth_headers)
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert "dsh" in payload["partial"]
+        # 绑定腿故障时回落到本地 current_session，绝不 500
+        assert payload["current_session"] == tmp_manager.get_session_id()

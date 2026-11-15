@@ -38,6 +38,7 @@ from services.web_backend_selector import (
 # 不经 acquire_web_client 通道缝（热切换值≠显式请求值）。
 from services.opencode_client import acquire_opencode_client as acquire_opencode_client_direct
 from services.loom_client import acquire_loom_client as acquire_loom_client_direct
+from services.dsh_client import acquire_dsh_client as acquire_dsh_client_direct
 from services.loom_main_session import (
     invalidate_loom_main_cache,
     resolve_loom_main_session,
@@ -90,14 +91,39 @@ def _validate_explicit_backend(value: Optional[str]) -> Optional[str]:
     )
 
 
+def _global_backend() -> str:
+    """全局 ai_backend 快照（缺省按空串；测试可只补需要的属性）。"""
+    return str(getattr(get_config(), "AI_BACKEND", "") or "").strip().lower()
+
+
+def _resolve_explicit_backend(requested: Optional[str]) -> Optional[str]:
+    """W52：全局后端为 dsh 时忽略显式通道请求。
+
+    dsh 只有 bridge 单会话，loom/opencode 在 dsh 模式下已不提供服务（编排器
+    会把 Loom 判 blocked）。前端可能仍带着旧会话的 backend 标签发请求，继续
+    按显式值直调只会拿到 5100 连接失败——忽略它、落回 Web 通道才是正确语义。
+    """
+    if requested is None:
+        return None
+    if _global_backend() == "dsh":
+        logger.warning(
+            "[Session] 全局后端为 dsh，忽略显式通道请求: %s", requested
+        )
+        return None
+    return requested
+
+
 async def _acquire_client_by_backend(backend: str):
-    """W44 显式通道客户端：直调两通道原语（backend 须已过校验）。
+    """W44/W52 显式通道客户端：直调对应通道原语（backend 须已过校验）。
 
     与 _validate_explicit_backend 头注同理——全局缝/通道缝在环境值≠请求值时
-    会静默给出错误引擎，显式腿唯一合法入口是这两个直调别名。
+    会静默给出错误引擎，显式腿唯一合法入口是这些直调别名。dsh 分支只服务
+    /session/list 的 dsh 聚合腿，不接受前端显式指定（选项表不含 dsh）。
     """
     if backend == "loom":
         return await acquire_loom_client_direct()
+    if backend == "dsh":
+        return await acquire_dsh_client_direct()
     return await acquire_opencode_client_direct()
 
 
@@ -184,7 +210,8 @@ async def switch_session(request: SessionSwitchRequest):
     - 命名键写 web_agent_key("main-task", 有效通道)——修"写错命名键"（此前恒随
       全局热切换值漂移，engine 直建/未注册会话的 UI 点选曾被此盲区阻断）。
     """
-    requested_backend = _validate_explicit_backend(request.backend)
+    requested_backend = _resolve_explicit_backend(
+        _validate_explicit_backend(request.backend))
     backend = requested_backend or get_web_backend()
 
     manager = get_session_manager()
@@ -303,7 +330,8 @@ async def send_session_message(request: MessageSendRequest, raw_request: Request
     解析优先级/新建兜底/TTS 设备通道/发送/响应全部逐字节现语义。
     """
     # 非法 backend 先行 400（校验零副作用，失败不碰任何客户端/绑定）
-    requested_backend = _validate_explicit_backend(request.backend)
+    requested_backend = _resolve_explicit_backend(
+        _validate_explicit_backend(request.backend))
 
     if requested_backend:
         # 显式腿：直调对应通道原语，绑定命名/投递同用有效通道=请求值
@@ -434,6 +462,21 @@ def _opencode_leg_active(current_backend: str) -> bool:
     return bool(get_config().OPENCODE_ENABLED) or current_backend == "opencode"
 
 
+def _loom_leg_active(current_backend: str) -> bool:
+    """Loom 聚合腿是否参与本次列表。
+
+    W44 原语义是双通道恒探活；唯一例外是 dsh 接管（全局与当前 Web 通道都是
+    dsh）：Loom 已被编排器判 blocked 停用，继续探活只会每轮刷 5100 连接失败，
+    且会把 partial 永久污染。此时该腿回空信封、不请求、不计 partial。
+    """
+    return not (_global_backend() == "dsh" and current_backend == "dsh")
+
+
+async def _empty_leg() -> Dict[str, Any]:
+    """停用腿的成功空信封（不探活、不计 partial）。"""
+    return {"ok": True, "data": {"sessions": []}, "error": None}
+
+
 async def _list_channel_sessions(backend: str, active: bool = True,
                                  session_id: Optional[str] = None) -> Dict[str, Any]:
     """单腿客户端获取+列表拉取（异常原样上抛，由 gather return_exceptions 收编）。
@@ -450,12 +493,15 @@ async def _list_channel_sessions(backend: str, active: bool = True,
     return await client.list_sessions()
 
 
-async def _list_loom_sessions(manager) -> Dict[str, Any]:
+async def _list_loom_sessions(manager, active: bool = True) -> Dict[str, Any]:
     """Loom 列表腿：先解析权威主会话，再按该 id 取单行（绝不返回远端全量列表）。
 
+    active=False（全局/Web 通道都不是 loom）直接回空信封，不解析、不探活。
     解析失败（无主会话/引擎不可用）抛异常，由 gather 收编进 partial——该腿的
     数据不全必须让调用方看见，但绝不 500。
     """
+    if not active:
+        return await _empty_leg()
     client = await _acquire_client_by_backend("loom")
     resolution = await resolve_loom_main_session(
         client, manager, allow_create=False
@@ -463,6 +509,15 @@ async def _list_loom_sessions(manager) -> Dict[str, Any]:
     if not resolution.ok:
         raise RuntimeError(resolution.error or "Loom 主会话不可用")
     return await _list_channel_sessions("loom", session_id=resolution.session_id)
+
+
+async def _list_dsh_sessions() -> Dict[str, Any]:
+    """dsh 聚合腿：bridge 单会话列表（返回绑定会话单行或空）。
+
+    仅在当前 Web 通道为 dsh 时参与聚合；失败由 gather 收编进 partial。
+    """
+    client = await _acquire_client_by_backend("dsh")
+    return await client.list_sessions()
 
 
 def _leg_sessions(res: Any, name: str, partial: List[str]) -> List[Dict[str, Any]]:
@@ -539,6 +594,25 @@ def _norm_loom_entry(s: Dict[str, Any],
     }
 
 
+def _norm_dsh_entry(s: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """dsh 归一项 → 与其它腿同形的 {session_id,title,date,updated,backend}。
+
+    dsh 行只有绑定会话（title/bound_at/preset）；时间取 bound_at（epoch ms）。
+    """
+    sid = s.get("session_id") or s.get("sessionID") or s.get("id")
+    if not sid:
+        return None
+    bound_at = s.get("bound_at") if s.get("bound_at") is not None else s.get("createdAt")
+    updated = int(bound_at) if isinstance(bound_at, (int, float)) else 0
+    return {
+        "session_id": sid,
+        "title": s.get("title") or "主会话",
+        "date": _ms_to_date(bound_at),
+        "updated": updated,
+        "backend": "dsh",
+    }
+
+
 def _norm_local_entry(h: Dict[str, Any], backend: str) -> Optional[Dict[str, Any]]:
     """仅本地 session_history 条目 → 归一枚举（history 时间为 float 秒 → ms）。"""
     sid = h.get("session_id")
@@ -557,9 +631,15 @@ def _norm_local_entry(h: Dict[str, Any], backend: str) -> Optional[Dict[str, Any
 
 def _local_entry_backend(sid: str, bindings: Dict[str, str],
                          current_backend: str) -> str:
-    """仅本地条目的通道归属：扫绑定值==sid 的键——loom: 前缀→loom；
-    opencode: 前缀或裸键→opencode（裸键属语音/任务站，恒为 opencode 主链）；
-    查无→当前 Web 通道。两趟扫描保证 loom: 命中优先于同 sid 的其他键形。"""
+    """仅本地条目的通道归属：dsh 模式下历史条目一律归 dsh（W52）。
+
+    dsh 只有 bridge 单会话，历史 loom/opencode 绑定只是迁移残留；若继续按
+    loom: 前缀标记，前端会带着 backend=loom 发消息并直调已停用的 Loom。
+    其它模式维持原语义：扫绑定值==sid 的键——loom: 前缀→loom；opencode:
+    前缀或裸键→opencode；查无→当前 Web 通道。两趟扫描保证 loom: 命中优先。
+    """
+    if current_backend == "dsh":
+        return "dsh"
     for key, val in bindings.items():
         if val == sid and key.startswith("loom:"):
             return "loom"
@@ -571,7 +651,7 @@ def _local_entry_backend(sid: str, bindings: Dict[str, str],
 
 @router.get("/session/list")
 async def list_sessions():
-    """列出所有会话（W44 双源聚合，键并集=旧三键+新三键）。
+    """列出所有会话（W44 双源聚合，W52 增 dsh 单会话腿，键并集=旧三键+新三键）。
 
     - local_sessions / opencode_sessions / current_session：旧三键名形不动；
       opencode_sessions 从此恒为 opencode 原始腿（W30 曾在 loom 通道下混装
@@ -581,7 +661,10 @@ async def list_sessions():
       统一归一为 {session_id,title,date,updated,backend}；sid 去重远端元数据优先；
       updated 降序。
     - loom_sessions：loom 腿原始结果（T5 起恒为权威主会话单行或空，绝不远端全量）。
-    - partial：本次失败的通道名（固定序 opencode→loom）；单腿故障 partial 降级，
+    - W52：当前 Web 通道为 dsh 时多一条 dsh 腿（bridge 绑定会话单行，backend="dsh"），
+      `current_session` 取该腿 id，本地历史条目一律归 dsh；loom/opencode 腿按全局
+      ai_backend 是否启用决定是否探活（dsh 模式下不再请求 5100）。
+    - partial：本次失败的通道名（固定序 opencode→loom→dsh）；单腿故障 partial 降级，
       恒 200 绝不 500。opencode 停用（enabled=false 且当前 Web 通道非 opencode）
       时该腿恒空、不探活、不计入 partial——停用不是故障。
     """
@@ -596,14 +679,18 @@ async def list_sessions():
     # 双腿并发直调通道原语（显式腿不经 web 通道缝）；return_exceptions 兜住
     # 通道宕机/端口探测失败等异常，统一进 partial 降级。opencode 停用时零请求。
     # Loom 腿经权威主会话解析后按 id 取单行（0/1 行），绝不拉远端列表。
-    oc_res, loom_res = await asyncio.gather(
+    dsh_active = current_backend == "dsh"
+    oc_res, loom_res, dsh_res = await asyncio.gather(
         _list_channel_sessions("opencode", active=_opencode_leg_active(current_backend)),
-        _list_loom_sessions(manager),
+        _list_loom_sessions(manager, active=_loom_leg_active(current_backend)),
+        _list_dsh_sessions() if dsh_active else _empty_leg(),
         return_exceptions=True,
     )
     partial: List[str] = []
     oc_items = _leg_sessions(oc_res, "opencode", partial)
     loom_items = _leg_sessions(loom_res, "loom", partial)
+    dsh_items = _leg_sessions(dsh_res, "dsh", partial) if dsh_active else []
+    dsh_entries = [e for e in (_norm_dsh_entry(item) for item in dsh_items) if e]
 
     # 如果本地会话为空，从 OpenCode 会话中取最近 10 个展示
     display_sessions = local_sessions
@@ -618,6 +705,8 @@ async def list_sessions():
     hist_by_sid = {h.get("session_id"): h for h in local_sessions
                    if isinstance(h, dict) and h.get("session_id")}
     merged: Dict[str, Dict[str, Any]] = {}
+    for entry in dsh_entries:
+        merged.setdefault(entry["session_id"], entry)
     for s in oc_items:
         entry = _norm_opencode_entry(s)
         if entry:
@@ -636,10 +725,15 @@ async def list_sessions():
 
     sessions = sorted(merged.values(), key=lambda e: e["updated"], reverse=True)
 
+    # dsh 模式：bridge 绑定会话就是"当前会话"，老本地绑定不再代表有效通道。
+    current_session_id = manager.get_session_id()
+    if dsh_entries:
+        current_session_id = dsh_entries[0]["session_id"]
+
     return {
         "local_sessions": display_sessions,
         "opencode_sessions": oc_items,
-        "current_session": manager.get_session_id(),
+        "current_session": current_session_id,
         "sessions": sessions,
         "loom_sessions": loom_items,
         "partial": partial,
@@ -836,7 +930,8 @@ async def get_session_messages(
         before: 翻页游标，获取比该游标更早的一页（来自上一页的 next_cursor）
         backend: W44 可选显式通道（opencode|loom）；缺省走现 Web 通道
     """
-    requested_backend = _validate_explicit_backend(backend)
+    requested_backend = _resolve_explicit_backend(
+        _validate_explicit_backend(backend))
     if requested_backend:
         client = await _acquire_client_by_backend(requested_backend)
     else:
@@ -892,7 +987,8 @@ async def get_session_children(session_id: str, backend: Optional[str] = None):
 
     backend: W44 可选显式通道（opencode|loom）；缺省走现 Web 通道
     """
-    requested_backend = _validate_explicit_backend(backend)
+    requested_backend = _resolve_explicit_backend(
+        _validate_explicit_backend(backend))
     if requested_backend:
         client = await _acquire_client_by_backend(requested_backend)
     else:
@@ -912,7 +1008,8 @@ async def summarize_session(session_id: str, request: SummarizeSessionRequest):
     通过 OpenCode 的 /session/{session_id}/summarize API 对会话进行智能压缩，
     减少 token 占用。压缩完成后 OpenCode 会推送 session.compacted SSE 事件。
     """
-    requested_backend = _validate_explicit_backend(request.backend)
+    requested_backend = _resolve_explicit_backend(
+        _validate_explicit_backend(request.backend))
     if requested_backend:
         client = await _acquire_client_by_backend(requested_backend)
     else:
