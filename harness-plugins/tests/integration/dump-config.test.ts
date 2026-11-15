@@ -49,6 +49,11 @@ describe('kinship preset in a real dsh Web composition', () => {
     expect(preset).toContain('complete: false')
   })
 
+  it('inserts the browser panel row beside the bridge', () => {
+    const ui = topLevelBlock(dump, 'kinship-ui')
+    expect(ui).toContain('name: kinship-ui')
+  })
+
   it('mounts the requested tools and omits memory/context-watch/QQ rows', () => {
     const preset = topLevelBlock(dump, 'preset-kinship')
     for (const id of [

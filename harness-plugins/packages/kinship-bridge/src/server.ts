@@ -214,6 +214,9 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
   }
 
   const { host, binding, logger } = options
+  // Revolved from the panel without reopening the listener; every request
+  // reads the current value, so a rotated token takes effect immediately.
+  let token = options.token
   const openSse = new Set<ServerResponse>()
   /** Bound Session id per open SSE response; live frames are routed by it. */
   const sseSessions = new Map<ServerResponse, string>()
@@ -281,7 +284,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
     request: IncomingMessage,
     response: ServerResponse,
   ): Promise<void> => {
-    if (!tokenMatches(request.headers.authorization, options.token)) {
+    if (!tokenMatches(request.headers.authorization, token)) {
       response.setHeader('www-authenticate', 'Bearer')
       sendJson(response, 401, { error: 'unauthorized' })
       return
@@ -561,6 +564,10 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
 
   return {
     port: () => boundPort,
+    setToken: (next: string) => {
+      if (next.trim() === '') throw new Error('kinship-bridge: bearer token must not be empty')
+      token = next
+    },
     close: () => {
       if (closing !== undefined) return closing
       closing = new Promise<void>((resolve, reject) => {

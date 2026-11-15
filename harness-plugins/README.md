@@ -1,6 +1,6 @@
 # harness-plugins
 
-Kinship 的 dsh 侧集成。三个独立插件包加一个 preset patch，全部是普通 Cordis
+Kinship 的 dsh 侧集成。四个独立插件包加一个 preset patch，全部是普通 Cordis
 插件，不改 dsh 主循环，不写 `backend/`、`frontend/`、`kinship-data/` 或生产
 `dsh-home`。
 
@@ -14,10 +14,12 @@ Kinship 的 dsh 侧集成。三个独立插件包加一个 preset patch，全部
 ```
 harness-plugins/
   package.json              # workspace + dsh.bundle.patch
-  cordis.patch.yml          # host 行: kinship-bridge
+  cordis.patch.yml          # host 行: kinship-bridge + kinship-ui
   presets/kinship.patch.yml # agent preset: kinship, order 5
+  locale/, icon.svg, docs/  # bundle 在 dsh 插件页的标题、描述、图标与详情文档
   packages/
-    kinship-bridge/         # 本机 HTTP API + 单 Session 绑定
+    kinship-bridge/         # 本机 HTTP API + 单 Session 绑定 + 面板 JSON API
+    kinship-ui/             # Web 侧栏 Kinship 面板（浏览器模块 + 无 host 行为）
     kinship-plan/           # daily plan JSON/md/ledger + CAS
     kinship-task-compat/    # task / todowrite / MCP aliases
   tests/
@@ -38,7 +40,7 @@ export PATH=/mnt/d/tools/node-v24.22.3-linux-x64/bin:$PATH
 cd harness-plugins
 npm install
 npm run link:dsh   # 把安装机的 @deepseek-ai/* 链到本 workspace node_modules
-npm run verify     # typecheck + build + 48 tests
+npm run verify     # typecheck + build + 78 tests
 ```
 
 `link:dsh` 默认读取
@@ -46,7 +48,7 @@ npm run verify     # typecheck + build + 48 tests
 可用 `DSH_PACKAGES_DIR` 覆盖。它只写本 workspace 的 `node_modules`，不碰任何
 DSH_HOME。
 
-集成测试会创建临时 `DSH_HOME`，复制三个包和 bundle patch，运行
+集成测试会创建临时 `DSH_HOME`，复制四个包和 bundle patch，运行
 `dsh --profile kinship-test --dump-config`；测试结束删除临时目录。生产
 `dsh-home`、systemd、正在运行的 dsh 都不会被访问。
 
@@ -213,6 +215,39 @@ data: {"seq":12.001,"payload":{"type":"kinship/assistant-stream",
 `GET /v1/session/compaction` 从 durable 日志推导最近一次压缩（`compaction/summary`
 的 `shadowedSeqs` 数量与摘要文本、紧随其后的替换 `user/message` 作为锚点），
 无压缩时 `status:"none"`。
+
+## kinship-ui（Web 面板）
+
+`kinship-ui` 是 dsh Web 左侧栏里的 **Kinship** 面板：桥接状态、Bearer token、桥接
+配置、可绑定会话，以及要写进 Kinship 侧 `config.yaml` 的片段都在这一页。
+
+它只负责 UI：Host 半边是空插件（只为让 Client 模块图有一个独立行），所有数据来自
+`kinship-bridge` 挂在 dsh Connection 认证通道上的 `/api/kinship/ui/*`。之所以和
+bridge 分成两行，是因为保存配置会重载 bridge 行，而面板必须活过这次重载。
+
+| 方法 | 路径 | 请求 | 成功响应 |
+|---|---|---|---|
+| GET | `/api/kinship/ui/state` | - | `{ok, bridge, binding, session, token, config, editable, sessions}` |
+| POST | `/api/kinship/ui/config` | `{config:{...}}`（可只带改动字段） | `{ok, config, restarted:true}` |
+| POST | `/api/kinship/ui/token` | `{action:"reveal"\|"rotate"}` | `{ok, token, token_info}` |
+| POST | `/api/kinship/ui/bind` | `{sessionId}` | `{ok, binding}` |
+
+这些路由属于 dsh Connection 的 exact Fetch 通道：浏览器已由 dsh 完成 Host/Origin
+校验与登录态校验，非 owner principal 直接 403，未登录 401。它们**不接受** bridge 的
+Bearer token，Kinship 后端也不调用它们。
+
+行为：
+
+- 保存配置走 `configEditor.edit()`，写入当前 profile 的插件配置并立刻重载 bridge 行；
+  面板本身不消失（独立行），重载后自动刷新状态。
+- 写入是**完整配置覆盖**：bundle patch 里由环境变量驱动的字段会被固定为保存时的值。
+  这是 dsh 配置档案的正常语义，页面上有说明。
+- `token.action="reveal"` 才把 token 值返回给页面；`rotate` 生成新 32 字节 hex 写回
+  同一文件（0600）并立即对运行中的 bridge 生效。环境变量来源的 token 不能轮换，会
+  返回 409 `token_env_managed`。
+- `bind` 等价于 `POST /v1/session/bind`，只接受 live 的 root `kinship` 会话。
+- 没有 `configEditor` 的部署（如纯 CLI 组合）页面只读，保存返回 409
+  `config_read_only`；没有 Connection 的部署不会注册这些路由，页面显示"桥接未响应"。
 
 ## kinship-plan
 

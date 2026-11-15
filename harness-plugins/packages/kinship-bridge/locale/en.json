@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Kinship bridge",
+    "description": "Loopback HTTP bridge that exposes one Kinship dsh Session to the Kinship backend.",
+    "detail": "docs/DETAIL.md"
+  }
+}

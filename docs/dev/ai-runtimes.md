@@ -45,6 +45,7 @@ dsh 是另一条可选路径，面向已经运行 dsh、并且愿意安装 Kinsh
 - `kinship-bridge`：loopback HTTP 与 SSE，只服务一个绑定的 Kinship 会话；同时转发实时助手流（`kinship/assistant-stream`），并提供手动压缩、模型目录、上下文窗口四个可选端点。
 - `kinship-plan`：提供 plan 工具和每日计划。
 - `kinship-task-compat`：提供与 Loom 工具名兼容的任务工具。
+- `kinship-ui`：dsh Web 左侧栏的 **Kinship** 面板。桥接状态、token 显示/轮换、桥接配置（地址、端口、绑定策略、请求体上限等）、可绑定会话和接入片段都在这一页完成，等价于在 dsh 自己的 UI 里完成接入配置，不需要手改 profile 配置。
 - Kinship preset：把 persona、工具面、压缩和计划装配成一个 dsh preset。
 
 后端侧由 `backend/services/dsh_event_bridge.py` 把 dsh 原生事件（含实时流帧）翻译成前端已认得的 SSE 词表，并在 `/health` 里暴露 dsh 探针（bridge 连通性与绑定状态），因此 dsh 模式下网页对话同样有实时流式渲染。
@@ -94,7 +95,8 @@ dsh 或其他 harness 的接入不是点一个开关。至少需要：
 - 准备 AI 根、计划根和 preset 需要的环境变量。
 - 在 harness 里创建一个 root 会话，让它运行 Kinship preset 并完成绑定。
 - 配置后端的 `ai_backend: dsh`、`dsh.url` 和 Bearer token（配置文件声明，或在设置页的
-  AI 后端字段选择 dsh；没有运行时切换按钮），然后按配置加载规则让后端生效。
+  AI 后端字段选择 dsh；没有运行时切换按钮），然后按配置加载规则让后端生效。dsh 里的
+  Kinship 面板会显示这三项的确切取值，可直接复制。
 - 自己检查 bridge 日志、SSE 事件、会话状态和子会话目录。
 
 出问题时，Kinship 只对适配契约内的行为负责，不替用户维护 harness 本身。如果你只想稳定使用 Kinship，选 Loom。如果你已经有自己的 harness，接入值得做，但请把它当成一次集成工作。

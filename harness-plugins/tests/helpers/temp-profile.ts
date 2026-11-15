@@ -35,6 +35,15 @@ function copyPackage(nodeModules: string, name: string, source: string): void {
   cpSync(join(source, 'dist'), join(target, 'dist'), { recursive: true })
 }
 
+/** Copy a package that ships plain files instead of a compiled `dist`. */
+function copyPlainPackage(nodeModules: string, name: string, source: string, entries: readonly string[]): void {
+  const target = join(nodeModules, name)
+  mkdirSync(target, { recursive: true })
+  for (const entry of entries) {
+    cpSync(join(source, entry), join(target, entry), { recursive: true })
+  }
+}
+
 export function installTempProfile(): TempProfile {
   const home = mkdtempSync(join(tmpdir(), 'kinship-dsh-home-'))
   const aiRoot = join(home, 'ai')
@@ -71,6 +80,7 @@ export function installTempProfile(): TempProfile {
   copyPackage(nodeModules, 'kinship-bridge', join(REPO_ROOT, 'packages/kinship-bridge'))
   copyPackage(nodeModules, 'kinship-plan', join(REPO_ROOT, 'packages/kinship-plan'))
   copyPackage(nodeModules, 'kinship-task-compat', join(REPO_ROOT, 'packages/kinship-task-compat'))
+  copyPlainPackage(nodeModules, 'kinship-ui', join(REPO_ROOT, 'packages/kinship-ui'), ['package.json', 'index.js', 'client.js'])
 
   const bundle = join(nodeModules, 'kinship-harness-plugins')
   mkdirSync(join(bundle, 'presets'), { recursive: true })

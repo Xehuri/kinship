@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Kinship 桥接",
+    "description": "把单个 Kinship dsh 会话以回环 HTTP 方式暴露给 Kinship 后端的桥接插件。",
+    "detail": "docs/DETAIL.md"
+  }
+}

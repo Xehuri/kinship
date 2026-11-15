@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Kinship for DeepSeek Harness",
+    "description": "Runs Kinship as a dsh Session: the `kinship` preset, the loopback bridge to the Kinship backend, Loom tool aliases, the daily plan, and the Kinship sidebar panel.",
+    "detail": "docs/DETAIL.md"
+  }
+}

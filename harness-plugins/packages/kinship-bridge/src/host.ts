@@ -17,6 +17,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SubagentDescendantListEntry } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-token-meter'
+import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { subagentsUnavailable } from './errors.js'
 import type {
@@ -28,6 +29,7 @@ import type {
   ChildRow,
   CompactionSnapshot,
   ModelProviderRow,
+  SessionCatalogRow,
   SessionContextRow,
   SessionInfo,
 } from './types.js'
@@ -185,6 +187,28 @@ class CordisBridgeHost implements BridgeHost {
 
   listSessions(): readonly SessionInfo[] {
     return this.ctx.agents.list().map(agent => infoOf(this.ctx, agent))
+  }
+
+  /**
+   * Live Sessions plus the copy the dsh panel shows.
+   *
+   * The title is folded state owned by the session-title service, so a profile
+   * without that service reports `null` instead of failing the whole catalog.
+   */
+  catalog(): readonly SessionCatalogRow[] {
+    const titles = this.ctx.get('sessionTitle')
+    return this.ctx.agents.list().map((agent) => {
+      const info = infoOf(this.ctx, agent)
+      let title: string | null = null
+      if (titles !== undefined) {
+        try {
+          title = titles.get(agent.session)?.title ?? null
+        } catch {
+          title = null
+        }
+      }
+      return { ...info, title, cwd: agent.session.header.cwd ?? null }
+    })
   }
 
   getSession(id: string): BridgeSession | undefined {

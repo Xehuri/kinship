@@ -148,6 +148,23 @@ token 读取顺序：`dsh.token` > `dsh.token_file` > 环境变量 `DSH_TOKEN`�
 
 切换 `ai_backend` 或修改 `dsh` 连接参数后，按 [system-config-hot-reload.md](../ops/system-config-hot-reload.md) 确认生效方式；客户端是单例，必要时重启后端。
 
+### 5.1 适配器自己的配置界面（可选）
+
+适配器可以在**它自己的 harness 的 UI** 里提供配置页，用来查看绑定状态、显示或轮换
+Bearer token、修改监听端口与绑定策略。这不是契约要求，Kinship 后端也不会调用它；
+实现时遵守三条边界：
+
+- 走 harness 自己的已认证通道，不要为 UI 再开一个带 token 的 HTTP 端口。dsh 的
+  `kinship-ui` 面板走 dsh Connection 的 owner-only Fetch 通道（`/api/kinship/ui/*`），
+  未登录 401、非 owner 403，且不接受 bridge 的 Bearer token。
+- 写配置用 harness 的配置编辑器（dsh 是 `ctx.configEditor.edit()`），不要自行改写
+  profile patch 文件；写入是完整配置覆盖，环境变量驱动的字段会被固定成保存时的值。
+- 环境变量提供的凭据属于部署方，轮换请求应当明确拒绝而不是假装成功（dsh 返回
+  409 `token_env_managed`）。
+
+契约仍然只约束第 2 到 5 节的 loopback 会话接口：没有配置界面的适配器同样合规，
+本节只是把"界面该放哪、凭据怎么处理"写清楚，避免在 loopback 端口上再暴露一套写接口。
+
 ## 6. 会话映射要求
 
 后端对运行时只暴露一组固定能力。适配层需要把单会话语义映射到自己的 API：

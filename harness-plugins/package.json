@@ -2,14 +2,21 @@
   "name": "kinship-harness-plugins",
   "version": "0.1.0",
   "private": true,
-  "description": "Kinship integration for DeepSeek Harness: bridge, plan tool, Loom/opencode compatibility tools, and the kinship agent preset patch.",
+  "description": "Kinship integration for DeepSeek Harness: bridge, plan tool, Loom/opencode compatibility tools, the Kinship Web panel, and the kinship agent preset patch.",
   "type": "module",
   "workspaces": [
     "packages/*"
   ],
+  "exports": {
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
   "files": [
     "cordis.patch.yml",
     "presets/*.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg",
     "README.md"
   ],
   "dsh": {
@@ -36,7 +43,8 @@
   "dependencies": {
     "kinship-bridge": "0.1.0",
     "kinship-plan": "0.1.0",
-    "kinship-task-compat": "0.1.0"
+    "kinship-task-compat": "0.1.0",
+    "kinship-ui": "0.1.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

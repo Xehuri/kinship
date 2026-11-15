@@ -3,6 +3,10 @@
 # The bridge is one loopback HTTP endpoint over the live dsh agent registry.
 # It binds at most one root Session whose preset is `kinship`; the preset itself
 # is declared in presets/kinship.patch.yml.
+#
+# The UI row carries only a browser module: the Kinship page in the Web sidebar.
+# It is a separate row on purpose, because saving bridge configuration reloads
+# the bridge row and the panel must outlive that reload.
 - insert:
     - id: kinship-bridge
       name: 'kinship-bridge'
@@ -15,3 +19,5 @@
         sessionId: !!js process.env.KINSHIP_BRIDGE_SESSION_ID ?? ''
         rebindOnMissing: !!js process.env.KINSHIP_BRIDGE_REBIND_ON_MISSING === '1'
         bodyLimitBytes: 65536
+    - id: kinship-ui
+      name: 'kinship-ui'

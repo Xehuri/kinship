@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Kinship for DeepSeek Harness",
+    "description": "把 Kinship 作为 dsh 会话运行：`kinship` 预设、到 Kinship 后端的回环桥接、Loom 工具别名、每日计划，以及侧栏 Kinship 面板。",
+    "detail": "docs/DETAIL.md"
+  }
+}

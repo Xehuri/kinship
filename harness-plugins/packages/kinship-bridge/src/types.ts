@@ -26,6 +26,17 @@ export interface SessionInfo {
   readonly status: AgentStatus
 }
 
+/**
+ * One live Kinship Session with the presentation fields the dsh panel shows.
+ *
+ * `SessionInfo` is the durable bridge contract and carries no copy, so the
+ * panel projection adds the folded title and the creation cwd separately.
+ */
+export interface SessionCatalogRow extends SessionInfo {
+  readonly title: string | null
+  readonly cwd: string | null
+}
+
 /** One committed Session event in a JSON-safe projection. */
 export interface BridgeEvent {
   readonly seq: number
@@ -122,6 +133,11 @@ export interface CompactionSnapshot {
 /** The only host surface the HTTP server needs. */
 export interface BridgeHost {
   listSessions(): readonly SessionInfo[]
+  /**
+   * Live Sessions with their folded title and cwd, for the dsh panel.
+   * Absent when the harness exposes no title service.
+   */
+  catalog?(): readonly SessionCatalogRow[]
   getSession(id: string): BridgeSession | undefined
   /** Subscribe to committed Session events; returns an unsubscribe function. */
   subscribe(listener: (sessionId: string, event: BridgeEvent) => void): () => void
@@ -186,6 +202,11 @@ export interface BridgeServerOptions {
 export interface BridgeServerHandle {
   /** Bound port (resolved when `port: 0` was requested). */
   port(): number
+  /**
+   * Replace the accepted bearer token without reopening the listener.
+   * Open connections keep running; the next request must present the new token.
+   */
+  setToken(token: string): void
   /** Stop accepting requests and settle after open connections close. */
   close(): Promise<void>
 }
