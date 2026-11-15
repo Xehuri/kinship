@@ -342,14 +342,20 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
 
 ### 8.6 W59（2026-11-16）：覆盖层写回 + `compact_context` + QQ 入站修复
 
-这一段只动 dsh 侧的插件包与数据侧脚本，**后端配置与 `ai_backend` 不变、后端不重启**。
+这一段动 dsh 侧的插件包与数据侧脚本，另有一处后端改动（ScriptRunner 的
+per-script 触发频率覆盖，见第 2 步）；后端配置与 `ai_backend` 不变。
 
-1. 构建与同步：`cd harness-plugins && npm run verify`（typecheck + build + 313 个用例
+1. 构建与同步：`cd harness-plugins && npm run verify`（typecheck + build + 316 个用例
    / 28 个文件）→ `DSH_HOME=<dsh-home> bash harness-plugins/scripts/sync-profile.sh web`
    （现在拷六个包，新增 `kinship-compact`）。
 2. 重启 dsh：`sudo systemctl restart axeuh-dsh`。`/etc/axeuh-dsh/env` 不用改；
    `presets/kinship.patch.yml` 的 compaction 组里新行 `compact-context` 随 profile
    patch 生效，`--dump-config` 的 preset 展开里能看到它。
+   `backend/services/script_runner.py` 的 per-script `trigger_rate_per_min` 是后端
+   进程内代码，需要**再重启一次后端**（`sudo systemctl restart axeuh-health`）才生效；
+   2026-11-16 00:52 已重启，QQ 中继的两连发探针验证通过（两条都出现在
+   `触发任务: target=main-task`，无速率限制告警）。之后中继脚本（数据侧）改动只走
+   5 秒热加载，不再需要重启后端。
 3. 验证 A（计划写回）：在绑定会话里对母版条目执行 `plan done` 与 `plan note`。
    `plan done` / `plan note` 在当日 v1 账缺失或 closed 时可省略 `expected_version`；
    若当日有未关闭的 v1 账，先 `plan_read` 拿它的当前版本再传（缺参数或版本不匹配
@@ -376,9 +382,11 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
    venv），不再 exec 已不存在的 `/opt/kinship/.venv-health/bin/python`。判据：中继
    热加载日志出现 `投递通道: 脚本 trigger_task`；后端日志出现
    `触发任务: target=main-task`；主会话收到 `【脚本任务】QQ私聊转发` 消息；模型回复
-   经 `qq send` 发出。
+   经 `qq send` 发出。已实测：中继热加载后探针脚本触发成功；随后同一分钟内两次
+   trigger 均被接受（旧代码的 1 次/分钟限制已解除）。
 6. 提交：`5ed8ec8`（overlay 写回 + 唤醒尾行恢复）、`88f6460`（`compact_context`）、
-   `c9e88ff`（`qq` wrapper），以及 ScriptRunner 的 per-script 触发频率覆盖。
+   `f925741`（`plan done` 可省版本）、`c9e88ff`（`qq` wrapper）、`699f763`（W59 文档）、
+   `4ce84e5`（QQ 中继改 trigger_task + per-script 触发频率）。
    中继脚本属于数据侧，不入公开仓。
 7. 回滚：从 `presets/kinship.patch.yml` 去掉 `compact-context` 行并重新
    `sync-profile.sh web` + 重启 dsh，即回到"只有自动压缩与 `/compact`"；覆盖层只是
