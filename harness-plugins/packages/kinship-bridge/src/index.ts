@@ -73,6 +73,12 @@ export interface KinshipBridgeService {
   port(): number
   status(): BindingSnapshot
   close(): Promise<void>
+  /**
+   * Deliver one plain-text user message into the bound Kinship Session,
+   * resuming that Session first when it is not live. Used by sibling plugins
+   * that must wake the agent (for example the plan scheduler).
+   */
+  deliver(text: string): Promise<{ readonly sessionId: string; readonly messageId: string }>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -258,6 +264,32 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     port: () => server.port(),
     status: () => binding.snapshot(),
     close: () => server.close(),
+    /**
+     * Wake the bound Session with one plain-text message.
+     *
+     * A sibling plugin runs inside the same harness process but owns no HTTP
+     * client, so it needs the send path `POST /v1/session/messages` uses. The
+     * Session is resolved through `ensureBoundSession` first, which resumes a
+     * Session a harness restart left live-less instead of answering 409.
+     *
+     * @param text - message text; surrounding whitespace is trimmed.
+     * @returns the bound Session id and the created message id.
+     * @throws {BridgeError} `422 invalid_message` for whitespace-only text, or
+     * the 409 `ensureBoundSession` raises when the Session cannot be resolved.
+     */
+    deliver: async (text: string) => {
+      const trimmed = text.trim()
+      if (trimmed === '') {
+        throw new BridgeError(422, 'invalid_message', 'Delivered text must be a non-empty string.')
+      }
+      const bound = await ensureBoundSession(binding, host)
+      const messageId = bound.session.send(
+        trimmed,
+        { kind: 'bridge', source: 'plan-scheduler' },
+        'next-turn',
+      )
+      return { sessionId: bound.session.info().id, messageId }
+    },
   }), 'kinship-bridge service')
 
   const offCreated = ctx.on('agent/created', () => {
