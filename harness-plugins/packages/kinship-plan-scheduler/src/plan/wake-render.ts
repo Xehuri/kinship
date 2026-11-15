@@ -93,12 +93,14 @@ function planItemId(entry: WakeEntry): string {
   return entry.id;
 }
 
-// dsh 适配：唤醒条目来自母版，v1 当日账里没有这些 id，plan done 会报 item-not-found。
+// dsh 适配：唤醒条目来自母版，v1 当日账里没有这些 id；plan done 会 item-not-found，
+// plan note 在 v1 账 closed / 版本对不上时同样走不通（2026-11-15 生产实测），所以
+// 不指派任何回写工具：完成事实由执行结果本身承担，需要留痕就在回复里说明。
 function planDoneHint(entry: WakeEntry, _date: string): string {
   if (entry.action === "plan.build" || entry.action === "plan.review") {
     return "完成后只写当日计划，不需要 plan done。";
   }
-  return "完成后用 plan note 记一行结论（母版条目不在当日 v1 账里，plan done 不适用）。";
+  return "完成后无需回写计划（母版条目不在当日 v1 账里）；如需留痕，在回复里说明。";
 }
 
 function coverageInstruction(entry: WakeEntry, date: string): string | null {

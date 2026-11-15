@@ -4,7 +4,7 @@
  *
  * Ported from loom-harness/packages/server/src/plan/wake-render.test.ts (kinship@c945667).
  * 适配：不再依赖 @axeuh/loom-core 的 formatWakeAt（本包内为私有函数），
- * 时间戳断言改为形状匹配；plan done 提示按 dsh 文案断言并标注 `// dsh adaptation`。
+ * 时间戳断言改为形状匹配；done 提示按 dsh 文案断言（不指派回写工具）并标注 `// dsh adaptation`。
  */
 
 import { readFileSync } from "node:fs";
@@ -83,10 +83,11 @@ describe("plan wake line", () => {
     expect(line).toContain("条目：cov-08");
     expect(line).not.toContain("条目：plan:2026-10-28:cov-08");
     expect(line).toContain("目标日 2026-10-28）。");
-    // dsh adaptation: the coverage instruction must not tell the model to run
-    // plan done on a master id the v1 plan tools cannot see.
+    // dsh adaptation: no write-back tool is named, because no dsh plan tool can
+    // reach a master id (plan done -> item-not-found; plan note -> closed/conflict).
     expect(line).not.toContain("完成后 plan done");
-    expect(line).toContain("完成后用 plan note 记一行结论");
+    expect(line).not.toContain("plan note");
+    expect(line).toContain("完成后无需回写计划（母版条目不在当日 v1 账里）");
   });
 
   it("falls back to the entry instruction and omits an empty instruction line", () => {
@@ -141,7 +142,8 @@ describe("plan wake line", () => {
   });
 
   // dsh adaptation: Loom 对 slots（catchup 合并条目）逐条列 plan done；
-  // dsh 统一走 plan note 提示，条目行仍按 entry_id 缺省回落到 entry.id。
+  // dsh 不指派任何回写工具（v1 账 closed/版本冲突时 plan done 与 plan note 都走不通），
+  // 条目行仍按 entry_id 缺省回落到 entry.id。
   it("renders the coalesced catchup slots payload with the dsh hint", () => {
     const line = formatPlanWakeLine({
       entry: entry({
@@ -169,8 +171,9 @@ describe("plan wake line", () => {
     expect(line).toContain("补做 2026-10-28 的迟到覆盖：");
     expect(line).toContain("条目：plan:2026-10-28:catchup:0100");
     expect(line).not.toContain("分别执行 plan done");
+    expect(line).not.toContain("plan note");
     expect(line).toContain(
-      "完成后用 plan note 记一行结论（母版条目不在当日 v1 账里，plan done 不适用）。",
+      "完成后无需回写计划（母版条目不在当日 v1 账里）；如需留痕，在回复里说明。",
     );
     expect(line.endsWith("不发用户通知，除非条目要求。")).toBe(true);
   });
