@@ -90,7 +90,7 @@ sudo systemctl restart axeuh-dsh
 验证：
 
 ```bash
-journalctl -u axeuh-dsh -n 80 --no-pager        # 无 error；有 kinship-bridge listening 日志
+journalctl -u axeuh-dsh -n 80 --no-pager        # 无 error（插件的 ctx.logger 不进 journal，属正常）
 ss -lnt | grep 18765                            # bridge 已监听
 ls -l <dsh-home>/kinship/bridge-token           # 令牌文件已生成（0600）
 TOKEN=$(cat <dsh-home>/kinship/bridge-token)
@@ -244,12 +244,16 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
 ### 8.2 验证
 
 ```bash
-journalctl -u axeuh-dsh -n 300 --no-pager | grep 'kinship-plan-scheduler: engine ready'
-# 期望：kinship-plan-scheduler: engine ready (planRoot=/…/kinship-data/ai/data, mode=live)
-journalctl -u axeuh-dsh -n 300 --no-pager | grep 'kinship-plan-scheduler: panel API registered'
+# 1) profile 组合里已有该行（重启前就能验）
+dsh --profile web --dump-config | grep -c 'id: kinship-plan-scheduler'   # => 1
+# 2) 引擎在跑：绑定会话后队列文件出现，内容是 schema 2 的 pending/delivered
 ls -l <dsh-home>/kinship/state/session/wake-queue/
-# 绑定会话后出现 {sessionId}.json 与 .instance.json；未绑定时目录可能还不存在
+python3 -c "import json,glob; [print(p, 'pending', len(json.load(open(p))['entries']), 'delivered', len(json.load(open(p))['delivered'])) for p in glob.glob('<dsh-home>/kinship/state/session/wake-queue/*.json')]"
 ```
+
+判据是**面板与队列文件**，不是 journal：这个 dsh 构建不把插件的 `ctx.logger` 写进
+stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），所以看不到
+`kinship-plan-scheduler: engine ready` 属于正常现象，不代表引擎没起来。
 
 - 面板：左侧栏 **Kinship** → 页面底部「计划排班」卡片，应显示 mode=live、
   planRoot=`…/kinship-data/ai/data`、stateDir=`<dsh-home>/kinship/state`、时区、
@@ -258,6 +262,9 @@ ls -l <dsh-home>/kinship/state/session/wake-queue/
 - 隔离环境的同款断言脚本在 kinship-test：`scripts/ui/plan-panel.mjs`（见该仓
   README），它证明路由可读、写盘版本递增、禁用条目从 `next` 消失、且 2 分钟后的
   唤醒真的进了绑定会话。
+- 回滚演练（2026-11-15 在隔离栈实测）：`KINSHIP_PLAN_MODE=off` 起 dsh 后，
+  `GET /api/kinship/ui/plan` 仍 200 且 `scheduler.mode=off`，四个写/对账路由一律
+  409 `scheduler_disabled`，不产生队列文件。
 - 出问题时先看 `journalctl -u axeuh-dsh | grep 'kinship-plan-scheduler'`：`engine
   disabled: planRoot …` 表示根没解析，`reconcile deferred, no bound session` 表示
   bridge 还没有绑定会话。

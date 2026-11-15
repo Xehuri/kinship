@@ -73,9 +73,13 @@ dsh 现在也有计划排班。`kinship-plan-scheduler` 是 Host 级插件，读
 验证与关闭：
 
 ```bash
-journalctl -u axeuh-dsh | grep 'kinship-plan-scheduler: engine ready'   # 引擎已挂载（日志含 planRoot 与 mode）
-ls <DSH_HOME>/kinship/state/session/wake-queue/                          # 绑定后有 {sessionId}.json 队列文件
+dsh --profile web --dump-config | grep -c 'id: kinship-plan-scheduler'   # 1 = 组合里已加载该行
+ls <DSH_HOME>/kinship/state/session/wake-queue/                          # 绑定会话后出现 {sessionId}.json（schema 2 的 pending/delivered）
 ```
+
+判定引擎是否在跑，看队列文件与 Kinship 面板的「计划排班」卡片（mode / 下次唤醒 / 主排班表），
+**不要用 journal**：这个 dsh 构建不把插件的 `ctx.logger` 写进 stdout/journal（journal 里只有
+`dsh web:` 一行）。
 
 关闭或观察：`/etc/axeuh-dsh/env` 里 `KINSHIP_PLAN_MODE=off`（完全不跑）或 `shadow`（只对账、只写影子文件、不投递），改完重启 dsh；这一步不写任何计划文件。部署与回滚步骤见 [../ops/dsh-production-rollout.md](../ops/dsh-production-rollout.md) 的「计划调度器上线」。
 
