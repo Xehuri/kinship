@@ -6,7 +6,9 @@
 > 目标实例：systemd `axeuh-dsh`，profile `web`，`DSH_HOME=/mnt/d/Users/Axeuh/Desktop/Axeuh-server/dsh-home`，
 > UI `127.0.0.1:3080`，公网 `https://dsh.xehuri.top/`（IPv4 443）与 `https://dsh.xehuri.top:8443/`（IPv6 直连）。
 >
-> 状态（2026-11-15）：A 段已完成并验证；B–E 待执行。Loom 仍是当前 `ai_backend`，随时可回退。
+> 状态（2026-11-15 20:20）：A–D 已完成并验证，生产 `ai_backend` 已是 `dsh`；E 为回滚预案。
+> 两个待收尾项：`/health` 的 `dsh` 探针要等一次后端重启才会出现；Loom 仍是运行中（编排器只在启动时判定 gate），
+> 事实见第 3.1 节与第 9 节。
 
 ## 1. 结论先行
 
@@ -60,7 +62,18 @@
    预期：`kinship-bridge`（config 为 `!!js process.env.*`）、`kinship-ui`、`preset-kinship`
    （persona 已展开）都在；根 `agent-instructions` 行带 `disabled: true`。
 
-## 4. B 段：重启 dsh（待执行）
+## 3.1 实际执行记录（2026-11-15）
+
+| 时间 | 阶段 | 结果 |
+|---|---|---|
+| 20:08 | 停测试栈 | `kinship-test` 的 backend/dsh 停止，8775/3099/18766 释放 |
+| 20:10 | A | 备份（`bak-kinship-20261115-201011`）；`npm run verify` 83 tests；`scripts/sync-profile.sh` 安装四包 + bundle；`/etc/axeuh-dsh/env` 加 5 个 `KINSHIP_*`；profile `bundles += kinship-harness-plugins`；`--dump-config` exit 0 且三行齐全、persona 已展开 |
+| 20:15 | B | `axeuh-dsh` 重启（新 PID，20:15:08）；`127.0.0.1:18765` 监听；`dsh-home/kinship/bridge-token` 生成（0600）|
+| 20:17 | C | 绑定 `session-2f8b68aa-5dec-4509-bf87-39f36d743303`（preset kinship），cwd=`kinship-data/ai`；`/v1/health` `status:"bound"` |
+| 20:20 | D | 改 `kinship-data/config.yaml`（`ai_backend: dsh` + `dsh` 段，备份 `config.yaml.bak-kinship-switch-20261115-202012`）；ConfigStore 轮询约 1 秒内热应用，`/health` 变 `ai_backend=dsh`，后端进程未重启（uptime 不变） |
+| 20:22 | 验证 | 隔离：会话日志（zstd 解压）21 条事件、0 处 `agent-instructions`。DshClient 只读自检：`health_check=online`、`get_main_session` 返回绑定会话、`get_session_status=idle`、模型目录 1 个 provider、上下文窗口 1M（`xehuri-api/deepseek-flash`）|
+
+## 4. B 段：重启 dsh（已完成 20:15）
 
 > 这一步会中断 dsh UI 及其宿主的所有会话，**包括发起操作的对话**。重启后会话是耐久的，
 > 重新打开对应会话即可继续。
@@ -98,7 +111,7 @@ UI 检查：左侧栏出现 **Kinship**；设置里的预设列表出现 **Kinsh
 若要修改 Kinship 会话的指令，只改 `ai/agents/main.md`（或 preset 的 persona 行）；改
 `dsh-home/AGENTS.md` 不会影响它。
 
-## 6. C 段：建立并绑定会话（待执行）
+## 6. C 段：建立并绑定会话（已完成 20:17）
 
 1. 打开 dsh UI（`https://dsh.xehuri.top:8443/` 或 `:3080` 本机）。
 2. 新建/复用工作区，路径 `kinship-data/ai`（标题建议 `kinship`）。
@@ -110,7 +123,7 @@ UI 检查：左侧栏出现 **Kinship**；设置里的预设列表出现 **Kinsh
 运行规则：**dsh 每次重启后，先在 UI 里打开一次该会话**（让它变 live），bridge 才能继续服务；
 否则面板显示「绑定会话已丢失」，后端 `/health` 的 `dsh` 会 degraded。
 
-## 7. D 段：切换生产后端（待执行，热切换）
+## 7. D 段：切换生产后端（已完成 20:20，热切换）
 
 先 dry-run（需要现有管理员 Bearer 或密码，按当前 auth 配置）：
 
@@ -147,6 +160,15 @@ PUT /api/system/config
   环境变量可保留（只对 bundle 有意义）。
 
 ## 9. 已知限制与注意
+
+- **`/health` 的 dsh 探针**只在后端启动时按 `ai_backend` 启动；热切换后 `dsh` 字段为 `null`
+  （`apply_ai` 不管理探针生命周期）。重启一次后端（或等下一次自然重启/重启机器）即恢复
+  `dsh.status=online`。AI 路径本身不受影响。
+- **Loom 编排 gate**只在服务启动时判定：热切到 dsh 后 Loom 进程仍在运行（对回滚是好事），
+  同时旧 Loom 客户端的后台循环会继续每分钟打印会话绑定日志。后端重启后编排器才会把它
+  判 blocked 并停用。
+- **热回滚到 loom** 现在可用（Loom 仍在跑）；若后端已在 dsh 模式下重启过，Loom 已停，
+  热回滚后需要用现有 Loom 启动端点或再重启一次后端让编排器拉起。
 
 - **冷会话**：bridge 只认 live agent；dsh 重启后需要打开一次 Kinship 会话（见第 6 节）。
 - **令牌来源**：当前用插件生成的文件，可在面板显示/轮换；若改成环境变量来源，面板会拒绝轮换
