@@ -82,7 +82,11 @@ describe("plan wake line", () => {
     });
     expect(line).toContain("条目：cov-08");
     expect(line).not.toContain("条目：plan:2026-10-28:cov-08");
-    expect(line).toContain("目标日 2026-10-28");
+    expect(line).toContain("目标日 2026-10-28）。");
+    // dsh adaptation: the coverage instruction must not tell the model to run
+    // plan done on a master id the v1 plan tools cannot see.
+    expect(line).not.toContain("完成后 plan done");
+    expect(line).toContain("完成后用 plan note 记一行结论");
   });
 
   it("falls back to the entry instruction and omits an empty instruction line", () => {

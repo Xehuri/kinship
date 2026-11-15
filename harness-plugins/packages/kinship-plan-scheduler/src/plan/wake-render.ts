@@ -112,7 +112,9 @@ function coverageInstruction(entry: WakeEntry, date: string): string | null {
       : typeof rawTarget === "string" && rawTarget !== "today"
         ? rawTarget
         : date;
-  return `按 data-check 流程执行 ${entry.title}（窗口 ${window}，目标日 ${target}），完成后 plan done。`;
+  // dsh 适配：不再要求 coverage 完成后跑 plan done（母版条目不在当日 v1 账里，
+  // 该指令会和下一行的 plan note 提示互相矛盾），留痕口径统一由 planDoneHint 给。
+  return `按 data-check 流程执行 ${entry.title}（窗口 ${window}，目标日 ${target}）。`;
 }
 
 /**
