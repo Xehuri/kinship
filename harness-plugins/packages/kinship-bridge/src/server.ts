@@ -14,6 +14,8 @@ import { timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { BridgeError } from './errors.js'
 import { lastTurnAt, projectMessages } from './messages.js'
+import { PathsValidationError, parsePushedPaths } from './paths.js'
+import type { PushedPaths } from './paths.js'
 import { ensureBoundSession } from './rehydrate.js'
 import type {
   BridgeEvent,
@@ -105,6 +107,28 @@ async function readJsonObject(
     throw new BridgeError(422, 'invalid_body', 'Request body must be a JSON object.')
   }
   return parsed
+}
+
+/**
+ * Read and validate one pushed paths document.
+ *
+ * Malformed JSON keeps the shared 400 `invalid_json`. A body that is not a JSON
+ * object is reported by the shared reader as 422 `invalid_body`, but for this
+ * route it is the same client mistake as any other bad field, so it is
+ * re-reported as the contract's 400 `bad_request`.
+ */
+async function readPathsPush(
+  request: IncomingMessage,
+  limit: number,
+): Promise<PushedPaths> {
+  try {
+    return parsePushedPaths(await readJsonObject(request, limit))
+  } catch (error) {
+    if (error instanceof BridgeError && error.code === 'invalid_body') {
+      throw new PathsValidationError(error.message)
+    }
+    throw error
+  }
 }
 
 function tokenMatches(header: string | undefined, token: string): boolean {
@@ -510,6 +534,34 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
         target,
         session_id: bound.id,
       })
+      return
+    }
+
+    if (path === '/v1/kinship/paths') {
+      if (request.method === 'GET') {
+        const stored = options.paths?.() ?? null
+        if (stored === null) {
+          sendJson(response, 404, { error: 'not_found' })
+          return
+        }
+        sendJson(response, 200, stored)
+        return
+      }
+      if (request.method === 'POST') {
+        const savePaths = options.savePaths
+        if (savePaths === undefined) {
+          throw new BridgeError(
+            503,
+            'paths_store_unavailable',
+            'This bridge composition has no durable kinship paths store.',
+          )
+        }
+        const stored = savePaths(await readPathsPush(request, options.bodyLimitBytes))
+        sendJson(response, 200, { ok: true, ...stored })
+        return
+      }
+      response.setHeader('allow', 'GET, POST')
+      sendJson(response, 405, { error: 'method_not_allowed' })
       return
     }
 

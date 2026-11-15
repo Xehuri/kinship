@@ -21,6 +21,10 @@ Bridge 契约（插件侧 127.0.0.1:18765；Bearer 取 config dsh.token > dsh.to
     GET  /v1/session/compaction  {session_id,status:"none"|"active",covered_count,
                                   summary_text,anchor_message_id,anchor_timestamp_ms}
     GET  /v1/session/events      SSE `data: {seq,payload:{type,properties}}`
+    POST /v1/kinship/paths       数据路径推送 {schema,ai_root,data_dir,plan_root,
+                                 plan_master,source,generated_at} -> 200 {ok,schema,
+                                 ...,stored_at}（计划排班器定位数据根用；仅 dsh
+                                 运维面，不参与三通道同构信封）
     POST /v1/inbox               （letter 投递，本客户端不实现，见下）
 
 单会话架构映射决策：
@@ -262,6 +266,21 @@ class DshClient:
         except Exception as e:
             return self._ok({"status": "offline", "mode": "online",
                              "detail": redact_text(str(e))})
+
+    async def push_kinship_paths(
+        self, payload: Dict[str, Any]
+    ) -> Tuple[int, Any, Dict[str, str]]:
+        """POST /v1/kinship/paths -> (status, 解析后 body, headers)。
+
+        把 Kinship 数据根（AI_ROOT/DATA_DIR/plan master）推给 dsh 计划调度器；
+        载荷构造归 services.dsh_paths.build_paths_payload，本方法只做传输，
+        不做校验/重试/降级——调用方（dsh_paths.push_paths）统一把非 200 与
+        传输异常收成 ok=False。10s 短超时：bridge 是本机 loopback，慢即不可用，
+        不必占满 dsh.timeout_seconds 的 30s。
+        """
+        return await self._request(
+            "POST", "/v1/kinship/paths", json_body=payload, timeout=10,
+        )
 
     async def create_session(self, title: Optional[str] = None,
                              directory: Optional[str] = None) -> Dict[str, Any]:

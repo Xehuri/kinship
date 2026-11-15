@@ -107,7 +107,8 @@ describe('plan scheduler config', () => {
       stateDir: '',
       mode: 'live',
       timezone: 'Asia/Shanghai',
-      anchors: ['05:00', '07:30'],
+      // Empty means "derive the anchors from the master plan".
+      anchors: [],
       watchdogMs: 60_000,
       horizonHours: 48,
       catchupMaxAgeHours: 8,

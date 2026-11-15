@@ -5,6 +5,8 @@
  * @module kinship-bridge/types
  */
 
+import type { PushedPaths, StoredPaths } from './paths.js'
+
 /** How the bridge chooses its single bound Session. */
 export type BindingPolicy = 'first' | 'manual'
 
@@ -218,6 +220,16 @@ export interface BridgeServerOptions {
   readonly dshVersion: string
   readonly bodyLimitBytes: number
   readonly logger?: BridgeLogger
+  /**
+   * Last accepted paths document, or null before the first push.
+   *
+   * Optional because the transport is also constructed by compositions (and
+   * transport tests) that mount no durable paths store; the routes then answer
+   * 404 on GET and 503 on POST instead of pretending to persist anything.
+   */
+  readonly paths?: () => StoredPaths | null
+  /** Persist one validated push and return the durable record. */
+  readonly savePaths?: (input: PushedPaths) => StoredPaths
 }
 
 /** Running bridge server handle. */

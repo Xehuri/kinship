@@ -72,6 +72,10 @@ window.__ModuleLoader__.load({
       sat: 6,
       saturday: 6,
     }
+    /** Plan-root candidates the scheduler reports, in its own precedence order. */
+    const ROOT_SOURCE_IDS = ['pushed', 'config', 'env', 'default']
+    /** Anchor origins the scheduler reports; an unknown value renders as default. */
+    const ANCHOR_SOURCE_IDS = ['config', 'master', 'default']
 
     const zh = {
       panel: 'Kinship',
@@ -154,6 +158,17 @@ window.__ModuleLoader__.load({
       'plan.timezone': '时区',
       'plan.anchors': '对账锚点',
       'plan.anchors.empty': '未配置',
+      'plan.source.pushed': '来源：kinship 后端推送（{stamp}）',
+      'plan.source.config': '来源：插件配置',
+      'plan.source.env': '来源：env',
+      'plan.source.default': '来源：默认（等待 kinship 后端推送）',
+      'plan.source.unresolved': '未解析',
+      'plan.source.pushedProblem': '路径推送有问题：{problem}',
+      'plan.anchorsSource.config': '来自配置',
+      'plan.anchorsSource.master': '来自母版',
+      'plan.anchorsSource.default': '默认',
+      'plan.timezoneSource.master': '来自母版',
+      'plan.timezoneSource.config': '来自配置',
       'plan.problem': '计划根目录不可用',
       'plan.degraded': '调度器已降级',
       'plan.lastError': '最近错误',
@@ -308,6 +323,17 @@ window.__ModuleLoader__.load({
       'plan.timezone': 'Timezone',
       'plan.anchors': 'Reconcile anchors',
       'plan.anchors.empty': 'None configured',
+      'plan.source.pushed': 'Source: kinship backend push ({stamp})',
+      'plan.source.config': 'Source: plugin config',
+      'plan.source.env': 'Source: env',
+      'plan.source.default': 'Source: default (waiting for the kinship backend push)',
+      'plan.source.unresolved': 'Unresolved',
+      'plan.source.pushedProblem': 'Path push problem: {problem}',
+      'plan.anchorsSource.config': 'From config',
+      'plan.anchorsSource.master': 'From master',
+      'plan.anchorsSource.default': 'Default',
+      'plan.timezoneSource.master': 'From master',
+      'plan.timezoneSource.config': 'From config',
       'plan.problem': 'Plan root is unusable',
       'plan.degraded': 'Scheduler is degraded',
       'plan.lastError': 'Last error',
@@ -540,6 +566,47 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Provenance sentence under the plan-root row: which candidate resolved it
+     * and, for a backend push, when the last sync happened.
+     */
+    function planRootSourceText(scheduler, t) {
+      switch (scheduler.planRootSource) {
+        case 'pushed':
+          return t('plan.source.pushed', { stamp: formatStamp(scheduler.pathsPushedAt) })
+        case 'config':
+          return t('plan.source.config')
+        case 'env':
+          return t('plan.source.env')
+        case 'default':
+          return t('plan.source.default')
+        default:
+          return t('plan.source.unresolved')
+      }
+    }
+
+    /** Provenance sentence next to the anchors: config override, master, default. */
+    function anchorsSourceText(scheduler, t) {
+      switch (scheduler.anchorsSource) {
+        case 'config':
+          return t('plan.anchorsSource.config')
+        case 'master':
+          return t('plan.anchorsSource.master')
+        default:
+          return t('plan.anchorsSource.default')
+      }
+    }
+
+    /**
+     * Provenance sentence next to the timezone: the master owns it once one
+     * exists, so an absent master means the plugin row's zone is in effect.
+     */
+    function timezoneSourceText(plan, t) {
+      const master = plan === null ? null : plan.master
+      const fromMaster = isRecord(master) && typeof master.timezone === 'string' && master.timezone !== ''
+      return fromMaster ? t('plan.timezoneSource.master') : t('plan.timezoneSource.config')
+    }
+
+    /**
      * Coerce one route answer into the panel's plan view. The plan routes
      * answer with the GET shape (ops/seed) or `{ok, queued, snapshot}` where
      * the snapshot rides nested (reconcile), so both forms unwrap here.
@@ -560,6 +627,15 @@ window.__ModuleLoader__.load({
           stateDir: typeof scheduler.stateDir === 'string' ? scheduler.stateDir : '',
           timezone: typeof scheduler.timezone === 'string' ? scheduler.timezone : '',
           anchors,
+          planRootSource: ROOT_SOURCE_IDS.includes(scheduler.planRootSource)
+            ? scheduler.planRootSource
+            : null,
+          pathsPushedAt: typeof scheduler.pathsPushedAt === 'number' ? scheduler.pathsPushedAt : null,
+          pathsSource: typeof scheduler.pathsSource === 'string' ? scheduler.pathsSource : null,
+          pathsProblem: typeof scheduler.pathsProblem === 'string' ? scheduler.pathsProblem : null,
+          anchorsSource: ANCHOR_SOURCE_IDS.includes(scheduler.anchorsSource)
+            ? scheduler.anchorsSource
+            : 'default',
           degraded: scheduler.degraded === true,
           lastError: typeof scheduler.lastError === 'string' ? scheduler.lastError : null,
           problem: typeof scheduler.problem === 'string' ? scheduler.problem : null,
@@ -928,15 +1004,25 @@ window.__ModuleLoader__.load({
       const statusRows = h('div', { className: 'kui-rows' },
         h(Row, { label: t('plan.mode') }, h('span', { className: modeTone }, modeLabel)),
         h(Row, { label: t('plan.planRoot') },
-          h('span', { className: 'kui-mono' }, scheduler.planRoot === null ? t('plan.planRoot.unset') : scheduler.planRoot)),
+          h('div', null,
+            h('div', { className: 'kui-mono' }, scheduler.planRoot === null ? t('plan.planRoot.unset') : scheduler.planRoot),
+            h('div', { className: 'kui-hint' }, planRootSourceText(scheduler, t)),
+            scheduler.pathsProblem === null
+              ? null
+              : h('div', { className: 'kui-hint' }, t('plan.source.pushedProblem', { problem: scheduler.pathsProblem })))),
         h(Row, { label: t('plan.stateDir') },
           h('span', { className: 'kui-mono' }, scheduler.stateDir === '' ? '—' : scheduler.stateDir)),
-        h(Row, { label: t('plan.timezone') }, h('span', null, scheduler.timezone === '' ? '—' : scheduler.timezone)),
+        h(Row, { label: t('plan.timezone') },
+          h('div', null,
+            h('div', null, scheduler.timezone === '' ? '—' : scheduler.timezone),
+            h('div', { className: 'kui-hint' }, timezoneSourceText(plan, t)))),
         h(Row, { label: t('plan.anchors') },
-          h('div', { className: 'kui-chips' },
-            scheduler.anchors.length === 0
-              ? h('span', { className: 'kui-hint' }, t('plan.anchors.empty'))
-              : scheduler.anchors.map(clock => h('span', { key: clock, className: 'kui-chip' }, clock)))),
+          h('div', null,
+            h('div', { className: 'kui-chips' },
+              scheduler.anchors.length === 0
+                ? h('span', { className: 'kui-hint' }, t('plan.anchors.empty'))
+                : scheduler.anchors.map(clock => h('span', { key: clock, className: 'kui-chip' }, clock))),
+            h('div', { className: 'kui-hint' }, anchorsSourceText(scheduler, t)))),
         h(Row, { label: t('plan.next') }, h('span', null, nextWakeText(plan, t))))
 
       const healthTitle = scheduler.degraded ? t('plan.degraded') : t('plan.lastError')

@@ -29,6 +29,8 @@ import z from '@deepseek-ai/schemastery'
 import { BindingStore, defaultBindingPath } from './binding.js'
 import { BridgeError } from './errors.js'
 import { createCordisHost } from './host.js'
+import { PathsStore, defaultPathsPath } from './paths.js'
+import type { PushedPaths, StoredPaths } from './paths.js'
 import { ensureBoundSession } from './rehydrate.js'
 import { startBridgeServer } from './server.js'
 import { installUiRoutes, UiError } from './ui.js'
@@ -74,6 +76,14 @@ export interface KinshipBridgeService {
   status(): BindingSnapshot
   close(): Promise<void>
   /**
+   * Last paths pushed by the Kinship backend, or null before the first push.
+   *
+   * The document is durable (`$DSH_HOME/kinship/paths.json`), so a sibling
+   * plugin reads the same layout after a harness restart without depending on
+   * the environment variables the backend used to own.
+   */
+  paths(): PushedPaths | null
+  /**
    * Deliver one plain-text user message into the bound Kinship Session,
    * resuming that Session first when it is not live. Used by sibling plugins
    * that must wake the agent (for example the plan scheduler).
@@ -84,6 +94,14 @@ export interface KinshipBridgeService {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     kinshipBridge: KinshipBridgeService
+  }
+  interface Events {
+    /**
+     * The accepted paths document changed: emitted after every accepted push
+     * and once at startup when a persisted document was replayed. Sibling
+     * plugins react instead of polling the route.
+     */
+    'kinship/paths'(paths: PushedPaths | null): void
   }
 }
 
@@ -245,6 +263,55 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   reconcile()
 
+  /**
+   * Durable paths document pushed by the Kinship backend. The backend owns the
+   * deployment layout, so replaying the last push keeps every path-derived
+   * feature on the same roots after a harness restart.
+   */
+  const paths = new PathsStore({ path: defaultPathsPath(), logger: ctx.logger })
+  const replayedPaths = paths.load()
+  if (replayedPaths !== null) {
+    ctx.logger.info(
+      'kinship-bridge: replayed kinship paths from %s (stored_at=%s)',
+      paths.path(),
+      String(replayedPaths.stored_at),
+    )
+  }
+
+  /**
+   * Publish the current paths document to sibling plugins.
+   *
+   * A listener must never fail a push that already reached the durable store,
+   * so a throwing listener is logged instead of reaching the HTTP caller.
+   */
+  const emitPaths = (value: StoredPaths | null): void => {
+    try {
+      ctx.emit('kinship/paths', value)
+    } catch (error) {
+      ctx.logger.warn(
+        'kinship-bridge: kinship/paths listener failed: %s',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
+
+  /**
+   * Persist one accepted push, then announce it.
+   *
+   * The order matters: after the event, a sibling may read the paths back from
+   * the service, so memory and disk are already updated.
+   */
+  const savePaths = (input: PushedPaths): StoredPaths => {
+    const stored = paths.save(input)
+    ctx.logger.info(
+      'kinship-bridge: stored kinship paths from %s (ai_root=%s)',
+      stored.source,
+      stored.ai_root,
+    )
+    emitPaths(stored)
+    return stored
+  }
+
   let tokenState = resolveToken(ctx, config)
   const dshVersion = resolveDshVersion()
   const server: BridgeServerHandle = await startBridgeServer({
@@ -257,6 +324,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     dshVersion,
     bodyLimitBytes: config.bodyLimitBytes,
     logger: ctx.logger,
+    paths: () => paths.current(),
+    savePaths,
   })
 
   ctx.effect(() => () => server.close(), 'kinship-bridge server')
@@ -264,6 +333,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     port: () => server.port(),
     status: () => binding.snapshot(),
     close: () => server.close(),
+    paths: () => paths.current(),
     /**
      * Wake the bound Session with one plain-text message.
      *
@@ -291,6 +361,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       return { sessionId: bound.session.info().id, messageId }
     },
   }), 'kinship-bridge service')
+
+  // Announce the replayed document once the service can answer for it, so a
+  // sibling reacting to the event reads the same paths back without a second
+  // source of truth. Siblings mounted later read `paths()` instead.
+  if (replayedPaths !== null) emitPaths(paths.current())
 
   const offCreated = ctx.on('agent/created', () => {
     reconcile()

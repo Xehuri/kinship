@@ -592,10 +592,16 @@ async def apply_ai_surface(change: ConfigChange) -> None:
 
     与 apply_ai 分成两个应用器：客户端/hub 重建在既有测试里被逐条锁定，派生面
     另列可独立测；两者由同一个 ConfigChange 驱动，不存在第二处判据。
+    生效后端为 dsh 时额外把数据路径推给 bridge 计划调度器（排班器定位数据根）。
     """
     if not _touched(change, "ai_backend"):
         return
-    await sync_ai_surface(_effective_ai_backend(change))
+    backend = _effective_ai_backend(change)
+    await sync_ai_surface(backend)
+    if backend == "dsh":
+        from services.dsh_paths import schedule_push
+
+        schedule_push("ai_surface")
 
 
 # ── 音频 / TTS / 归档 / 陌生人 ─────────────────────────────
@@ -731,6 +737,11 @@ async def apply_data_paths(change: ConfigChange) -> None:
                 str(item) for item in result.get("warnings") or ()
             )
             raise RuntimeError(f"脚本目录重绑失败: {warnings or result}")
+
+    # 新路径已全部生效：推给 dsh 计划调度器（排班器按 plan_root 定位 master）
+    from services.dsh_paths import schedule_push
+
+    schedule_push("data_paths")
 
 
 # ── 外部集成（健康云 / QQ / P2P）──────────────────────────

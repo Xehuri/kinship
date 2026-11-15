@@ -7,6 +7,11 @@
  * occurrence per enabled entry with the ported timezone helpers, and projects
  * the wake queue through `peek()` without triggering restore or delivery.
  *
+ * Root provenance travels with the projection: which candidate resolved the
+ * plan root, when the Kinship backend last pushed paths, where the anchors came
+ * from, and the effective timezone. The plugin's live state is read through
+ * accessors so a pushed-path restart is visible without rebuilding the builder.
+ *
  * @module kinship-plan-scheduler/snapshot
  */
 
@@ -14,6 +19,8 @@ import { MasterPlanNotFoundError } from './plan/master-plan.js'
 import type { MasterEntry, MasterPlanDocument } from './plan/master-plan.js'
 import { nextOccurrence, zonedNow } from './plan/timezone.js'
 import type { WakeQueue, WakeQueueDelivered, WakeQueueEntry, WakeQueueSnapshot } from './wake/queue.js'
+import type { AnchorsSource } from './plan-profile.js'
+import type { PlanRootSource } from './config.js'
 
 /** One master entry as the panel renders it. */
 export interface PlanScheduleRow {
@@ -34,8 +41,19 @@ export interface PlanSnapshotScheduler {
   readonly mode: 'live' | 'shadow' | 'off'
   readonly planRoot: string | null
   readonly stateDir: string
+  /** Effective scheduler timezone: the master's when one exists. */
   readonly timezone: string
   readonly anchors: readonly string[]
+  /** Which candidate resolved the plan root, or null while none did. */
+  readonly planRootSource: PlanRootSource | null
+  /** Epoch milliseconds of the last accepted backend push, or null. */
+  readonly pathsPushedAt: number | null
+  /** `source` field of the accepted push document, or null. */
+  readonly pathsSource: string | null
+  /** Why the pushed document was refused, or null. */
+  readonly pathsProblem: string | null
+  /** Where the anchors in this projection came from. */
+  readonly anchorsSource: AnchorsSource
   readonly degraded: boolean
   readonly lastError: string | null
   /** Root-resolution failure, distinct from a runtime error. */
@@ -91,6 +109,30 @@ export function createPlanStatus(): PlanStatus {
   return { degraded: false, lastError: null }
 }
 
+/** Live root/provenance state the projection reads on every call. */
+export interface PlanSnapshotState {
+  /** Resolved plan root, or null while the engine must stay off. */
+  readonly planRoot: string | null
+  /** Absolute scheduler-state root. */
+  readonly stateDir: string
+  /** Root-resolution failure the panel explains, if any. */
+  readonly problem: string | null
+  /** Which candidate resolved the plan root, or null. */
+  readonly planRootSource: PlanRootSource | null
+  /** Epoch milliseconds of the last accepted push, or null. */
+  readonly pathsPushedAt: number | null
+  /** `source` of the accepted push document, or null. */
+  readonly pathsSource: string | null
+  /** Why the pushed document was refused, or null. */
+  readonly pathsProblem: string | null
+  /** Anchors the running engine uses (or the derived defaults while it is off). */
+  readonly anchors: readonly string[]
+  /** Where those anchors came from. */
+  readonly anchorsSource: AnchorsSource
+  /** Timezone the running engine uses (or the derived default while it is off). */
+  readonly timezone: string
+}
+
 /** Wake-queue view the snapshot needs; `QueueRegistry` satisfies it. */
 export interface PlanSnapshotQueueSource {
   sessionId(): string | null
@@ -100,18 +142,13 @@ export interface PlanSnapshotQueueSource {
 /** Wiring for the snapshot builder. */
 export interface PlanSnapshotDeps {
   readonly mode: 'live' | 'shadow' | 'off'
-  readonly planRoot: string | null
-  readonly stateDir: string
-  /** Root-resolution failure from `resolveRoots`, if any. */
-  readonly problem: string | null
-  /** Fallback timezone used while no master document exists. */
-  readonly timezone: string
-  readonly anchors: readonly string[]
+  /** Live root, anchor and provenance state. */
+  readonly state: () => PlanSnapshotState
   readonly status: PlanStatus
-  /** Master reader, or null while the engine is disabled. */
-  readonly master: (() => Promise<MasterPlanDocument>) | null
-  /** Wake-queue source, or null while the engine is disabled. */
-  readonly queue: PlanSnapshotQueueSource | null
+  /** Master reader; resolves null while the engine is off. */
+  readonly master: () => Promise<MasterPlanDocument | null>
+  /** Wake-queue source, or null while the engine is off. */
+  readonly queue: () => PlanSnapshotQueueSource | null
   /** Best-effort warning sink for projection reads that fail. */
   readonly warn?: (message: string) => void
 }
@@ -190,9 +227,9 @@ async function readMaster(deps: PlanSnapshotDeps): Promise<{
   master: MasterPlanDocument | null
   present: boolean
 }> {
-  if (deps.master === null) return { master: null, present: false }
   try {
-    return { master: await deps.master(), present: true }
+    const master = await deps.master()
+    return master === null ? { master: null, present: false } : { master, present: true }
   } catch (error) {
     if (error instanceof MasterPlanNotFoundError) return { master: null, present: false }
     deps.warn?.(`master plan is unreadable: ${messageOf(error)}`)
@@ -201,7 +238,7 @@ async function readMaster(deps: PlanSnapshotDeps): Promise<{
 }
 
 async function readQueue(deps: PlanSnapshotDeps, warn: (message: string) => void): Promise<WakeQueueSnapshot> {
-  const queue = deps.queue?.peek()
+  const queue = deps.queue()?.peek()
   if (queue === undefined) return { entries: [], delivered: [] }
   try {
     return await queue.snapshot()
@@ -224,8 +261,9 @@ export function createSnapshotBuilder(deps: PlanSnapshotDeps): PlanSnapshotBuild
   return {
     async snapshot(): Promise<PlanSnapshot> {
       const now = Date.now()
+      const state = deps.state()
       const { master, present } = await readMaster(deps)
-      const timezone = master?.timezone ?? deps.timezone
+      const timezone = master?.timezone ?? state.timezone
       const rows = master === null ? [] : master.entries.map(entry => rowOf(entry, timezone, now))
 
       let next: PlanSnapshot['next'] = null
@@ -244,13 +282,18 @@ export function createSnapshotBuilder(deps: PlanSnapshotDeps): PlanSnapshotBuild
         ok: true,
         scheduler: {
           mode: deps.mode,
-          planRoot: deps.planRoot,
-          stateDir: deps.stateDir,
+          planRoot: state.planRoot,
+          stateDir: state.stateDir,
           timezone,
-          anchors: [...deps.anchors],
+          anchors: [...state.anchors],
+          planRootSource: state.planRootSource,
+          pathsPushedAt: state.pathsPushedAt,
+          pathsSource: state.pathsSource,
+          pathsProblem: state.pathsProblem,
+          anchorsSource: state.anchorsSource,
           degraded: deps.status.degraded,
           lastError: deps.status.lastError,
-          problem: deps.problem,
+          problem: state.problem,
           masterPresent: present,
         },
         master:
@@ -263,7 +306,7 @@ export function createSnapshotBuilder(deps: PlanSnapshotDeps): PlanSnapshotBuild
                 entries: rows,
               },
         queue: {
-          sessionId: deps.queue?.sessionId() ?? null,
+          sessionId: deps.queue()?.sessionId() ?? null,
           pending,
           delivered,
         },

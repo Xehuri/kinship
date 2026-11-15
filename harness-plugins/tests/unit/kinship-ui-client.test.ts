@@ -454,9 +454,17 @@ function scheduleResponse(options: {
   readonly pending?: readonly Record<string, unknown>[]
   readonly delivered?: readonly Record<string, unknown>[]
   readonly master?: boolean
+  readonly provenance?: {
+    readonly planRootSource?: string
+    readonly pathsPushedAt?: number | null
+    readonly pathsSource?: string | null
+    readonly pathsProblem?: string | null
+    readonly anchorsSource?: string
+  }
 }): StubAnswer {
   const pending = options.pending ?? []
   const delivered = options.delivered ?? []
+  const provenance = options.provenance ?? {}
   return {
     status: 200,
     body: {
@@ -467,6 +475,11 @@ function scheduleResponse(options: {
         stateDir: '/home/kinship/.dsh/kinship/state',
         timezone: 'Asia/Shanghai',
         anchors: ['05:00', '07:30'],
+        planRootSource: provenance.planRootSource ?? 'pushed',
+        pathsPushedAt: provenance.pathsPushedAt === undefined ? 1_794_759_000_100 : provenance.pathsPushedAt,
+        pathsSource: provenance.pathsSource === undefined ? 'kinship-backend' : provenance.pathsSource,
+        pathsProblem: provenance.pathsProblem ?? null,
+        anchorsSource: provenance.anchorsSource ?? 'master',
         degraded: false,
         lastError: null,
         problem: null,
@@ -537,14 +550,19 @@ function onceEntry(): Record<string, unknown> {
   }
 }
 
-function mainPanel(harness: Harness): { component: Component, t: (key: string) => string } {
+function mainPanel(harness: Harness): { component: Component, t: (key: string, params?: Record<string, string>) => string } {
   const page = harness.slots.find(entry => entry.options['name'] === 'main')
   if (page === undefined) throw new Error('main panel is not registered')
   const dictionary = harness.locales[0]?.dictionaries['zh']
   if (dictionary === undefined) throw new Error('zh dictionary is not registered')
   return {
     component: page.component,
-    t: (key: string) => dictionary[key] ?? key,
+    // Same `{name}` substitution the browser LocaleRuntime performs.
+    t: (key: string, params?: Record<string, string>) => {
+      const template = dictionary[key] ?? key
+      if (params === undefined) return template
+      return template.replace(/\{(\w+)\}/g, (match, name: string) => params[name] ?? match)
+    },
   }
 }
 
@@ -691,5 +709,99 @@ describe('kinship-ui plan schedule card', () => {
     } finally {
       environment.restore()
     }
+  })
+
+  it('shows where the plan root, the anchors and the timezone came from', async () => {
+    const runtime = createRuntime()
+    const page = mainPanel(activate(runtime.React))
+    const environment = stubEnvironment(call => call.url.endsWith('/api/kinship/ui/plan')
+      ? scheduleResponse({ version: 5, entries: [dailyEntry()] })
+      : stateAnswer())
+    try {
+      const text = walkText(await runtime.render(page.component, { t: page.t }))
+      expect(text).toContain('/srv/kinship/ai/data')
+      expect(text).toContain('来源：kinship 后端推送')
+      expect(text).toContain('来自母版')
+    } finally {
+      environment.restore()
+    }
+  })
+
+  it('waits for the backend push when the plugin row supplies the root', async () => {
+    const runtime = createRuntime()
+    const page = mainPanel(activate(runtime.React))
+    const environment = stubEnvironment(call => call.url.endsWith('/api/kinship/ui/plan')
+      ? scheduleResponse({
+        version: 0,
+        entries: [],
+        master: false,
+        provenance: {
+          planRootSource: 'default',
+          anchorsSource: 'default',
+          pathsPushedAt: null,
+          pathsSource: null,
+        },
+      })
+      : stateAnswer())
+    try {
+      const text = walkText(await runtime.render(page.component, { t: page.t }))
+      expect(text).toContain('来源：默认（等待 kinship 后端推送）')
+      expect(text).toContain('默认')
+      // No master: the plugin row's timezone is the effective one.
+      expect(text).toContain('来自配置')
+    } finally {
+      environment.restore()
+    }
+  })
+
+  it('renders a refused path push under the plan root', async () => {
+    const runtime = createRuntime()
+    const page = mainPanel(activate(runtime.React))
+    const environment = stubEnvironment(call => call.url.endsWith('/api/kinship/ui/plan')
+      ? scheduleResponse({
+        version: 5,
+        entries: [dailyEntry()],
+        provenance: { pathsProblem: 'plan_root 必须是绝对路径（收到 relative/plan）。' },
+      })
+      : stateAnswer())
+    try {
+      const text = walkText(await runtime.render(page.component, { t: page.t }))
+      expect(text).toContain('路径推送有问题')
+      expect(text).toContain('relative/plan')
+    } finally {
+      environment.restore()
+    }
+  })
+})
+
+describe('kinship-ui provenance locale keys', () => {
+  it('registers every plan.source/plan.anchorsSource key in zh and en', () => {
+    const { locales } = activate()
+    const dictionaries = locales[0]!.dictionaries
+    const zh = dictionaries['zh']!
+    const en = dictionaries['en']!
+    const keys = [
+      'plan.source.pushed',
+      'plan.source.config',
+      'plan.source.env',
+      'plan.source.default',
+      'plan.source.unresolved',
+      'plan.source.pushedProblem',
+      'plan.anchorsSource.config',
+      'plan.anchorsSource.master',
+      'plan.anchorsSource.default',
+      'plan.timezoneSource.master',
+      'plan.timezoneSource.config',
+    ]
+    for (const key of keys) {
+      expect(zh, `zh ${key}`).toHaveProperty([key])
+      expect(en, `en ${key}`).toHaveProperty([key])
+    }
+    // The two parametric templates must keep their placeholder, otherwise the
+    // rendered sentence loses the sync time or the problem text.
+    expect(zh['plan.source.pushed']).toContain('{stamp}')
+    expect(en['plan.source.pushed']).toContain('{stamp}')
+    expect(zh['plan.source.pushedProblem']).toContain('{problem}')
+    expect(en['plan.source.pushedProblem']).toContain('{problem}')
   })
 })

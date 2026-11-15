@@ -581,6 +581,16 @@ async def _start_service_plane(
     except Exception as e:
         logger.warning(f"[WebBackend] 旧状态文件归档失败（忽略）: {e}")
         _subsystem(report, "web_backend_state", "failed", str(e))
+
+    # 服务/应用器已就绪：把 AI_ROOT/DATA_DIR/plan master 推给 dsh 计划调度器
+    # （bridge POST /v1/kinship/paths，fire-and-forget）。无条件推送——非 dsh
+    # 通道时 bridge 不在也只剩一条 warning，热切 ai_backend=dsh 后即可用。
+    try:
+        from services.dsh_paths import schedule_push
+
+        schedule_push("boot")
+    except Exception as e:
+        logger.warning(f"[DshPaths] 启动推送调度失败（不影响启动）: {e}")
     return report
 
 
