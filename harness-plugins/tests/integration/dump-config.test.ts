@@ -54,6 +54,15 @@ describe('kinship preset in a real dsh Web composition', () => {
     expect(ui).toContain('name: kinship-ui')
   })
 
+  it('inserts the plan scheduler row and keeps its env-driven knobs', () => {
+    const scheduler = topLevelBlock(dump, 'kinship-plan-scheduler')
+    expect(scheduler).toContain('name: kinship-plan-scheduler')
+    expect(scheduler).toContain('planRoot: !!js')
+    expect(scheduler).toContain("mode: !!js process.env.KINSHIP_PLAN_MODE ?? 'live'")
+    expect(scheduler).toContain('anchors: !!js')
+    expect(scheduler).toContain('watchdogMs: !!js')
+  })
+
   it('mounts the requested tools and omits memory/context-watch/QQ rows', () => {
     const preset = topLevelBlock(dump, 'preset-kinship')
     for (const id of [

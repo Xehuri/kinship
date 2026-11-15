@@ -21,3 +21,15 @@
         bodyLimitBytes: 65536
     - id: kinship-ui
       name: 'kinship-ui'
+    - id: kinship-plan-scheduler
+      name: 'kinship-plan-scheduler'
+      config:
+        planRoot: !!js process.env.KINSHIP_PLAN_ROOT ?? ''
+        stateDir: !!js process.env.KINSHIP_PLAN_STATE_DIR ?? ''
+        mode: !!js process.env.KINSHIP_PLAN_MODE ?? 'live'
+        timezone: !!js process.env.KINSHIP_PLAN_TIMEZONE ?? 'Asia/Shanghai'
+        anchors: !!js (process.env.KINSHIP_PLAN_ANCHORS ?? '05:00,07:30').split(',').filter(Boolean)
+        watchdogMs: !!js Number(process.env.KINSHIP_PLAN_WATCHDOG_MS ?? 60000)
+        horizonHours: !!js Number(process.env.KINSHIP_PLAN_HORIZON_HOURS ?? 48)
+        catchupMaxAgeHours: !!js Number(process.env.KINSHIP_PLAN_CATCHUP_MAX_AGE_HOURS ?? 8)
+        debtAfterHours: !!js Number(process.env.KINSHIP_PLAN_DEBT_AFTER_HOURS ?? 24)

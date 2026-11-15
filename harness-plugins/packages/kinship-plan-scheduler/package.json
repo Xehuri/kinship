@@ -1,0 +1,30 @@
+{
+  "name": "kinship-plan-scheduler",
+  "version": "0.1.0",
+  "description": "Loom's plan wake scheduler ported to dsh: master plan + daily overlay + v1 legacy fallback, a persistent wake queue, anchors/watchdog reconciliation, and the Kinship panel's plan routes.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
+  "engines": {
+    "dsh": ">=0.2.2-rc.1 <0.2.3"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.19.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-agent": ">=0.2.2-rc.1 <0.2.3",
+    "@deepseek-ai/dsh-client-connection": ">=0.2.2-rc.1 <0.2.3"
+  }
+}

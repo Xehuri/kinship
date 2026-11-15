@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copy the built Kinship plugin packages into a dsh profile's node_modules.
 #
-# The four packages ship as local workspace packages (the bundle's dependencies
+# The five packages ship as local workspace packages (the bundle's dependencies
 # are workspace versions, not registry versions), so `dsh plugin add` cannot
 # install them from this checkout. This script is the supported update path for
 # a profile that already selects `kinship-harness-plugins` in its
@@ -33,7 +33,7 @@ if [ ! -d "$PROFILE" ]; then
   echo "[sync] no such profile: $PROFILE" >&2
   exit 1
 fi
-for pkg in kinship-bridge kinship-plan kinship-task-compat; do
+for pkg in kinship-bridge kinship-plan kinship-task-compat kinship-plan-scheduler; do
   if [ ! -f "$REPO/packages/$pkg/dist/index.js" ]; then
     echo "[sync] missing $REPO/packages/$pkg/dist/index.js; run: npm run build" >&2
     exit 1
@@ -61,6 +61,7 @@ copy_pkg kinship-bridge dist package.json locale docs icon.svg
 copy_pkg kinship-ui package.json index.js client.js locale docs icon.svg
 copy_pkg kinship-plan dist package.json
 copy_pkg kinship-task-compat dist package.json
+copy_pkg kinship-plan-scheduler dist package.json
 
 BUNDLE="$MODULES/kinship-harness-plugins"
 mkdir -p "$BUNDLE/presets"
