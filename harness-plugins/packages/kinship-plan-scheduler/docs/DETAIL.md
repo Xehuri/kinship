@@ -411,9 +411,11 @@ kept out of the plan root so switching runtimes does not mix state formats.
   day-overlay write tool (the overlay store is already mounted, but no tool
   exposes it), which would let the model write `update` ops against master ids.
 - Coverage entries without an explicit `instruction` get the ported generated
-  line, which still ends with `完成后 plan done。`, while the trailing hint line
-  says to use `plan note`. Cosmetically inconsistent text, no behavioural
-  effect.
+  line, which ends after the task/window sentence; the trailing hint line owns
+  the write-back guidance (`plan note`, never `plan done` on a master id). The
+  earlier port kept Loom's `完成后 plan done。` in that line and produced two
+  contradictory orders in one wake; fixed 2026-11-15 after the real-surface
+  end-to-end run caught it.
 - All master edits go through the panel routes. The Kinship model's own plan
   tools keep writing the v1 day file, which the scheduler then reads as legacy.
 - `mode: "shadow"` never mounts a queue, so the panel's queue section is empty
