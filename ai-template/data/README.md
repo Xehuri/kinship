@@ -89,7 +89,7 @@ tags: [指南, 配置]
 | `sensor_coverage.py {date}` | 单日传感器数据覆盖度分析 |
 | `all_coords.py <日期> [日期...]` | 汇总多日全部唯一 GPS 坐标及出现次数 |
 | `geocode_tool.py <lat,lng> [..]` / `--batch <file.json>` | GPS 逆地理编码（百度地图；并发限 2 请求/秒，超出会触发 API 告警） |
-| `query_chatlog.py` | 按时间段查询 AI 与用户的对话日志（后端 `/api/screen/session/chatlog`） |
+| `query_chatlog.py` | 按时间段查询 AI 与用户的对话日志（后端 `/api/screen/session/chatlog`；缺省跟随 `ai_backend`，`--backend loom` 读 Loom 离线日志、`--backend dsh` 查 bridge 绑定会话） |
 | `query_session_stats.py <session_id> [--json]` | 查询会话统计：请求数 / token / 花费估算 / 工具调用类型数量 |
 | `listen_audio.py` | 音频内容理解（供 agent 审计任意音频；基于 MiMo 多模态，复用项目安全链路） |
 | `audio_mimo_analyzer.py {date} --time HH:MM 或 --hours A~B [--json] [--output]` | MiMo 音频理解：`--time` 精确单段(60s WAV)，`--hours` 合并时段。音频经后端专用端点暴露给分析服务拉取，分析后自动清理。输出说话人/主题/时间线 Markdown |

@@ -3,11 +3,17 @@
 """
 按时间段查询 AI 与用户的对话日志。
 
-数据链路: 本脚本 → 后端 /api/screen/session/chatlog → 后端转发 OpenCode。
+数据链路: 本脚本 → 后端 /api/screen/session/chatlog → 按后端选路：
+  - dsh：bridge 绑定的 Kinship 会话（单会话，需 bridge 在线）
+  - loom：Loom 追加式会话日志（{AI目录}/.loom/session/loom-main.jsonl，离线可查）
+  - opencode：OpenCode 全局会话（需引擎在线）
+缺省跟随 config.yaml 的 ai_backend；用 --backend 可在不切配置的情况下查另一路。
+
 AI 复盘/数据检查可用它了解"某时段用户主动问了什么、AI 回了什么、调了哪些工具"。
 
 用法:
     python {AI目录}/analysis/query_chatlog.py --start "2026-01-01 14:00" --end "2026-01-01 18:00"
+    python {AI目录}/analysis/query_chatlog.py --start "2026-01-01 10:00" --end "2026-01-01 12:00" --backend loom
     python {AI目录}/analysis/query_chatlog.py --start "2026-01-01 00:00" --end "2026-01-01 23:59" --session_id ses_xxx
     python {AI目录}/analysis/query_chatlog.py --start ... --end ... --format json
     python {AI目录}/analysis/query_chatlog.py --start ... --end ... --include-children
@@ -24,8 +30,9 @@ AI 复盘/数据检查可用它了解"某时段用户主动问了什么、AI 回
 参数:
   --start 起始时间 YYYY-MM-DD HH:MM 或 ISO8601，UTC+8（查询时必填）
   --end   结束时间（查询时必填）
-  --session_id  目标会话ID，缺省=当前 main-task 主会话
-  --include-children  是否含子会话
+  --session_id  目标会话ID，缺省=当前主会话（dsh=bridge 绑定会话；loom=主会话离线日志）
+  --backend opencode|loom|dsh  可选显式通道，缺省跟随 config.yaml 的 ai_backend
+  --include-children  是否含子会话（dsh 与 loom 离线日志不支持，响应会标注）
   --format text|json  默认 text
   --no-archive  不写入临时存档
   --no-cache    不写入会话ID缓存
@@ -233,7 +240,10 @@ def main():
     parser = argparse.ArgumentParser(description="按时间段查询 AI 与用户的对话日志")
     parser.add_argument("--start", help="起始时间 YYYY-MM-DD HH:MM 或 ISO8601 (UTC+8)；--list-sessions 时可省")
     parser.add_argument("--end", help="结束时间；--list-sessions 时可省")
-    parser.add_argument("--session_id", default=None, help="目标会话ID，缺省=main-task 主会话")
+    parser.add_argument("--session_id", default=None, help="目标会话ID，缺省=当前主会话")
+    parser.add_argument("--backend", default=None,
+                        choices=["opencode", "loom", "dsh"],
+                        help="可选显式通道；缺省跟随 config.yaml 的 ai_backend")
     parser.add_argument("--include-children", action="store_true", help="是否含子会话")
     parser.add_argument("--format", default="text", choices=["text", "json"], help="输出格式")
     parser.add_argument("--no-archive", action="store_true", help="不写入临时存档")
@@ -268,6 +278,8 @@ def main():
         params["session_id"] = args.session_id
     if args.include_children:
         params["include_children"] = "true"
+    if args.backend:
+        params["backend"] = args.backend
 
     status, body = _query_chatlog(port, token, params)
     if status is None:
@@ -292,7 +304,7 @@ def main():
     if not args.no_cache:
         resolved_sid = args.session_id or _extract_sid(args.format, body)
         if _update_cache(resolved_sid, args.session_id is None, args.note, args.start, args.end):
-            hint = "" if args.session_id else "（缺省解析=当前main-task，已记入变更史）"
+            hint = "" if args.session_id else "（缺省解析=当前主会话，已记入变更史）"
             print(f"[已缓存会话ID] {resolved_sid}{hint}", file=sys.stderr)
 
     # 临时存档（脚本数据内容，追加写）

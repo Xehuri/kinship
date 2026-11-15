@@ -10,6 +10,10 @@ Scopes (layer order):
 
 `--scope all` covers event, observation, report, memory and chat; evidence is
 opt-in because it is the rawest layer and usually duplicates card evidence.
+
+The chat scope follows config.yaml's `ai_backend`; pass `--backend
+opencode|loom|dsh` to read another engine explicitly (the loom leg reads Loom's
+offline session log, so it works even when the Loom process is stopped).
 """
 
 from __future__ import annotations
@@ -607,6 +611,9 @@ def _chat_hits(args: argparse.Namespace) -> list[Hit]:
     params = {"start": start, "end": end, "format": "json"}
     if args.include_children:
         params["include_children"] = "true"
+    backend = getattr(args, "backend", None)
+    if backend:
+        params["backend"] = backend
     status, body = module._query_chatlog(port, token, params)
     if status is None:
         raise DataUnavailable(f"chat backend unavailable: {body}")
@@ -869,6 +876,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--block-source", default=None, help="batch,legacy | review | all")
     parser.add_argument("--include-children", action="store_true")
     parser.add_argument("--backend-port", type=int, default=None)
+    parser.add_argument(
+        "--backend", default=None, choices=("opencode", "loom", "dsh"),
+        help="chat scope: explicit engine (default follows config.yaml ai_backend)",
+    )
     parser.add_argument("--as-of", default=None, help="YYYY-MM-DD anchor for chat windows")
     parser.add_argument("--allow-full-scan", action="store_true")
     parser.add_argument("--format", choices=("table", "json"), default="table")

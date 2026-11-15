@@ -243,7 +243,7 @@ timezone: Asia/Shanghai
 
 > **说明**：用户主动与 AI 的对话不再写入感知/日志文件，统一通过 query_chatlog 查询。输出用户消息/AI 正文/工具名时间线。**本步骤每轮必跑，不设"按需跳过"**：跳过或误过滤会漏掉当天商定的关键设计，导致报告与记忆双双零命中。
 >
-> **跨会话**：缺省（不带 `--session_id`）只查当前 main-task 绑定；查换主会话之前的日期须先 `--list-sessions` 取旧会话 ID 分段查，缺省查 0 条不得下"无交互"结论。判据见 `[[规则-01-data-check]]`「chatlog 会话回溯」。
+> **跨会话**：缺省（不带 `--session_id`）查**当前主会话**（dsh 后端=bridge 绑定会话）。复盘更早日期（Loom 时代旧账）用 `--backend loom` 直接读 Loom 离线日志，不必切配置；opencode 旧会话须先 `--list-sessions` 取旧会话 ID 分段查。缺省查 0 条不得下"无交互"结论。判据见 `[[规则-01-data-check]]`「chatlog 会话回溯」。
 
 ---
 

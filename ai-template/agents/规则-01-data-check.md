@@ -206,7 +206,7 @@ python {AI目录}/analysis/query_chatlog.py --start "{date} {start}" --end "{dat
 - **跑完必须打核对行**：`chatlog 总条数 N / 用户实质发言 M 条`。实质发言＝用户行中排除上述三类系统前缀与空行。M=0 而时段有明显活动（屏幕/语音/通知）时，标 `[对话未取到]` 并写明原因（会话 id 错/通路故障/确实无对话）。
 - 用户消息是明确意图来源，可作时间锚点（待办完成性、身份确认）；AI 自述不作事实，只作线索。
 
-**回溯旧会话**：显式传 `--session_id ses_xxx`；命中过的会话 ID 缓存在 `{AI目录}/memory/self/chatlog_sessions.json`（`--list-sessions` 查看）。后端不删会话数据，缺省只解析当前 main-task。**"查不到/无数据"必须区分"确认不存在"与"查询通路故障"**：工具报错只能证伪通路、不能证实销毁，后者标 `[通路存疑]` 待复核。分页上限约 1 万条。
+**回溯旧会话**：缺省解析**当前主会话**（dsh 后端=bridge 绑定会话；loom 后端=主会话离线日志）。显式传 `--session_id ses_xxx` 可指旧会话；命中过的会话 ID 缓存在 `{AI目录}/memory/self/chatlog_sessions.json`（`--list-sessions` 查看）。**查 Loom 时代的旧账用 `--backend loom`**：直接离线读 Loom 追加日志，不必切 `ai_backend`、也不要求 Loom 进程在线；opencode 旧会话仍靠旧 ID 分段查。后端不删会话数据。**"查不到/无数据"必须区分"确认不存在"与"查询通路故障"**：工具报错只能证伪通路、不能证实销毁，后者标 `[通路存疑]` 待复核。上限：dsh/opencode 约 1 万条（50 页 × 200），loom 离线 4000 条（超出标 `truncated`）；后端不支持 `--include-children` 时响应会带 `children_unsupported`，不是"没有子会话"。
 
 #### 余额（balance）
 
