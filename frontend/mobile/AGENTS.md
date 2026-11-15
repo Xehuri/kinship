@@ -84,7 +84,7 @@ npm run qa:shots:check -- <dir> 24
 ## 注意事项
 
 - `npm run build` 后产物在 `dist/`，后端自动从 `frontend/mobile/dist/` 提供静态文件服务
-- 生产部署：`npm run build:atomic` 构建到 `dist-<时间戳>`，`npm run verify:dist` 校验后备份旧 `dist/` 并原子替换。仅前端变更无需重启后端，后端代码/路由变更仍需重启。2026-10-25 20:06 生产产物 `assets/index-ClJhwC_O.js` / `assets/index-MFa6qXpn.css`（设置路由 `SettingsView-BnO4yrGQ.js` / `SettingsView-Bx6sYfGe.css`），旧产物备份 `dist-backup-20261025-200603`，详见 [../../docs/frontend-settings-redesign-2026-10-25.md](../../docs/frontend-settings-redesign-2026-10-25.md)
+- 生产部署：`npm run build:atomic` 构建到 `dist-<时间戳>`，`npm run verify:dist` 校验后备份旧 `dist/` 并原子替换。仅前端变更无需重启后端，后端代码/路由变更仍需重启。2026-11-15 17:44 生产产物 `assets/index-BuOPVKKc.js` / `assets/index-CDruPafZ.css`（dsh 通道声明与 onboarding 文案；`verify-dist` PASS，1 JS + 1 CSS 引用全在），旧产物备份 `dist-backup-20261115-174416`；历史 2026-10-25 20:06 产物 `assets/index-ClJhwC_O.js` / `assets/index-MFa6qXpn.css`（设置路由 `SettingsView-BnO4yrGQ.js` / `SettingsView-Bx6sYfGe.css`），备份 `dist-backup-20261025-200603`，详见 [../../docs/frontend-settings-redesign-2026-10-25.md](../../docs/frontend-settings-redesign-2026-10-25.md)
 - Android WebView 访问 URL: `https://<host>:<port>/mobile/`
 - 每次修改前端代码后必须 `npm run build`，否则 App 加载的是旧构建产物
 - 原始单文件 SPA (4198 行) 保留在 `index.original.html` 作为备份
