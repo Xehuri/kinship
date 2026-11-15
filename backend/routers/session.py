@@ -1176,6 +1176,10 @@ def _msg_to_turn(msg: Dict[str, Any], fallback_sid: str) -> Optional[Dict[str, A
     content = "".join(text_parts)
     if role == "user":
         content = _extract_user_text(content)
+        # dsh 把运行期的 <system-reminder> 以 user 角色注入上下文；它不是用户发言，
+        # 混进时间线会让 AI 复盘把注入内容当成用户说的（W55 实机观察）。
+        if content.lstrip().startswith("<system-reminder>"):
+            return None
         # 纯系统注入的用户消息（清洗后为空）跳过
         if not content:
             return None

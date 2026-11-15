@@ -835,6 +835,27 @@ class TestChatlogContract:
         assert text.status_code == 200
         assert "include_children 不支持" in text.text
 
+    def test_msg_to_turn_skips_system_reminder(self):
+        """dsh 的 <system-reminder> 以 user 角色注入，chatlog 不能当成用户发言。"""
+        from routers.session import _msg_to_turn
+
+        reminder = {
+            "info": {"id": "m_reminder", "role": "user",
+                     "time": {"created": 1_720_000_000_000}},
+            "parts": [{"type": "text",
+                       "text": "<system-reminder>\nCurrent working directory: x\n"
+                               "</system-reminder>"}],
+        }
+        assert _msg_to_turn(reminder, "s") is None
+
+        real_user = {
+            "info": {"id": "m_user", "role": "user",
+                     "time": {"created": 1_720_000_000_000}},
+            "parts": [{"type": "text", "text": "你好"}],
+        }
+        turn = _msg_to_turn(real_user, "s")
+        assert turn is not None and turn["content"] == "你好"
+
     def test_chatlog_bad_time_400_envelope(self, client, auth_headers, tmp_manager):
         resp = client.get("/api/screen/session/chatlog",
                           params={"start": "nonsense", "end": "2024-07-05"},
