@@ -369,13 +369,17 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
    `GET /v1/session/compaction` 变 `status: "active"`、`covered_count=50`、
    摘要文本非空（隔离栈实测）。
 5. 验证 C（QQ 入站，同一时间修复）：私聊中继 `ai/data/tasks/qq_private_relay.py`
-   改为投递到 `config.yaml` 当前选中的运行时（dsh 走 bridge
-   `POST /v1/session/messages`，loom 走 `:5100 /sessions/{id}/messages`），不再固定
-   发 Loom；仓库根 `qq` wrapper 改用 `QQ_CLI_PYTHON`（缺省用已安装 venv），不再 exec
-   已不存在的 `/opt/kinship/.venv-health/bin/python`。判据：中继热加载日志出现
-   `投递目标: dsh`，积压提醒与下一条消息进入绑定会话，模型回复经 `qq send` 发出。
+   改为走**脚本正规通道** `context.trigger_task`（后端 ScriptRunner 按 `ai_backend`
+   路由到主会话，中继不再自己打 dsh bridge / Loom HTTP）；中继 frontmatter 加
+   `trigger_rate_per_min: 20`，`backend/services/script_runner.py` 支持 per-script
+   覆盖（默认仍 1 次/分钟）。仓库根 `qq` wrapper 改用 `QQ_CLI_PYTHON`（缺省用已安装
+   venv），不再 exec 已不存在的 `/opt/kinship/.venv-health/bin/python`。判据：中继
+   热加载日志出现 `投递通道: 脚本 trigger_task`；后端日志出现
+   `触发任务: target=main-task`；主会话收到 `【脚本任务】QQ私聊转发` 消息；模型回复
+   经 `qq send` 发出。
 6. 提交：`5ed8ec8`（overlay 写回 + 唤醒尾行恢复）、`88f6460`（`compact_context`）、
-   `c9e88ff`（`qq` wrapper）。中继脚本属于数据侧，不入公开仓。
+   `c9e88ff`（`qq` wrapper），以及 ScriptRunner 的 per-script 触发频率覆盖。
+   中继脚本属于数据侧，不入公开仓。
 7. 回滚：从 `presets/kinship.patch.yml` 去掉 `compact-context` 行并重新
    `sync-profile.sh web` + 重启 dsh，即回到"只有自动压缩与 `/compact`"；覆盖层只是
    note/done 的回退目的地，v1 真源不动，回滚也不会改已写出的 overlay 文件。

@@ -191,11 +191,19 @@ def _get_script_info(source: str) -> Dict[str, Any]:
             "prompt": str,         # 默认提示词
             "model": str,          # 覆盖默认模型（空则用全局默认）
             "provider": str,       # 覆盖默认提供商（空则用全局默认）
+            "trigger_rate_per_min": int,  # trigger_task 每分钟上限（默认 1）
             "has_frontmatter": bool,
         }
     """
     fm = _parse_frontmatter(source)
     has_fm = bool(fm)
+    raw_rate = fm.get("trigger_rate_per_min", 1)
+    try:
+        rate = int(raw_rate)
+    except (TypeError, ValueError):
+        rate = 1
+    if rate < 1:
+        rate = 1
     return {
         "name": fm.get("name", ""),
         "enabled": fm.get("enabled", True) if has_fm else False,
@@ -203,6 +211,7 @@ def _get_script_info(source: str) -> Dict[str, Any]:
         "prompt": fm.get("prompt", ""),
         "model": fm.get("model", ""),
         "provider": fm.get("provider", ""),
+        "trigger_rate_per_min": rate,
         "has_frontmatter": has_fm,
     }
 
@@ -429,6 +438,7 @@ class ScriptRunner:
         script_info = _get_script_info(source)
         script_model = script_info.get("model", "")
         script_provider = script_info.get("provider", "")
+        script_trigger_rate = script_info.get("trigger_rate_per_min", 1)
 
         # --- 2. AST 安全检查 ---
         if check_security is not None:
@@ -491,6 +501,7 @@ class ScriptRunner:
                 "log_dir": self._get_log_dir(name),
                 "model": script_model,
                 "provider": script_provider,
+                "trigger_rate_per_min": script_trigger_rate,
             }
 
         # --- 5. 启动 stdout 读取线程 ---
@@ -858,16 +869,22 @@ class ScriptRunner:
         msg_type = msg.get("type")
 
         if msg_type == "trigger_task":
-            # 速率限制检查
+            # 速率限制检查：默认全局 1 次/分钟；脚本可在 frontmatter 用
+            # trigger_rate_per_min 覆盖（例如 QQ 私聊中继需要更高频率）。
             now = time.time()
             with self._lock:
+                limit = self._rate_limit_max
+                if name in self._processes:
+                    raw_limit = self._processes[name].get("trigger_rate_per_min")
+                    if isinstance(raw_limit, int) and raw_limit > 0:
+                        limit = raw_limit
                 timestamps = self._rate_limits.setdefault(name, [])
                 # 清理过期记录
                 timestamps[:] = [t for t in timestamps if now - t < self._rate_limit_window]
-                if len(timestamps) >= self._rate_limit_max:
+                if len(timestamps) >= limit:
                     logger.warning(
                         "[脚本:%s] trigger_task 速率限制触发 (每分钟最多 %d 次)",
-                        name, self._rate_limit_max
+                        name, limit
                     )
                     return  # 静默丢弃，不报错
                 timestamps.append(now)

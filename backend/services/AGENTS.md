@@ -87,7 +87,7 @@
 
 | 服务 | 文件 | 职责 |
 |------|------|------|
-| ScriptRunner | `script_runner.py` | 脚本进程管理器(启动/监控/心跳/自动重启) + 热加载(FileWatcher) + stdout桥接(JSON 行消息分发，AI 调用经 `ai_client_factory` 双通道，V6 起取代原 gateway 注入)；日志根/审计根=config.TASK_LOGS_DIR（V14 收编原相对硬编码）；常驻脚本语义保留不并入调度器（V13 裁定） |
+| ScriptRunner | `script_runner.py` | 脚本进程管理器(启动/监控/心跳/自动重启) + 热加载(FileWatcher) + stdout桥接(JSON 行消息分发，AI 调用经 `ai_client_factory` 多通道，V6 起取代原 gateway 注入)；日志根/审计根=config.TASK_LOGS_DIR（V14 收编原相对硬编码）；常驻脚本语义保留不并入调度器（V13 裁定）；`trigger_task` 默认全局限 1 次/分钟，脚本可在 frontmatter 用 `trigger_rate_per_min` 覆盖（QQ 私聊中继=20） |
 | ScriptSandbox | `script_sandbox.py` | AST 安全审查 + 子进程沙箱(Job Object 256MB) |
 | Context | `scripts/context.py` | 脚本与调度器间 stdout JSON 行管道通信接口 |
 
