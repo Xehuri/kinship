@@ -377,6 +377,59 @@ describe('overlay write-back fallback', () => {
     ])
   })
 
+  it('marks a master entry done without a version when the v1 plan is absent', async () => {
+    const root = tempRoot()
+    writeMaster(root)
+    const store = planStore(root)
+    const overlay = overlaySupport(root)
+
+    const done = await handlePlanDone(
+      store,
+      { date: DATE, id: 'fixed-breakfast' },
+      overlay,
+    )
+    expect(done).toMatchObject({ ok: true, source: 'overlay', version: 2 })
+    const doc = readJson(overlayPath(root))
+    expect(doc['base_version']).toBe(3)
+    expect(doc['ops']).toEqual([
+      { op: 'update', id: 'fixed-breakfast', patch: { status: 'done', done_at: DONE_AT } },
+    ])
+    expect(ledgerRows(root).some(row => row['event'] === 'done')).toBe(true)
+  })
+
+  it('asks for the version on plan done while the open v1 plan exists', async () => {
+    const root = tempRoot()
+    writeMaster(root)
+    writeV1(root)
+    const store = planStore(root)
+    const overlay = overlaySupport(root)
+
+    await expect(handlePlanDone(
+      store,
+      { date: DATE, id: 'fixed-breakfast' },
+      overlay,
+    )).rejects.toThrow(/is required for plan done while plan-2026-11-15\.json exists/)
+    expect(existsSync(overlayPath(root))).toBe(false)
+  })
+
+  it('falls back to the overlay for plan done without a version when v1 is closed', async () => {
+    const root = tempRoot()
+    writeMaster(root)
+    writeV1(root, { status: 'closed', version: 4 })
+    const store = planStore(root)
+    const overlay = overlaySupport(root)
+
+    const done = await handlePlanDone(
+      store,
+      { date: DATE, id: 'fixed-breakfast' },
+      overlay,
+    )
+    expect(done).toMatchObject({ ok: true, source: 'overlay', version: 2 })
+    expect(readJson(overlayPath(root))['ops']).toEqual([
+      { op: 'update', id: 'fixed-breakfast', patch: { status: 'done', done_at: DONE_AT } },
+    ])
+  })
+
   it('reports that the master plan is required when none exists', async () => {
     const root = tempRoot()
     const store = planStore(root)

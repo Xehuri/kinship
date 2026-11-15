@@ -80,7 +80,8 @@ export interface PlanNoteArgs {
 
 export interface PlanDoneArgs {
   readonly date?: string
-  readonly expected_version: number
+  /** v1 CAS version; omitted only when plan-{date}.json is missing or closed (overlay write-back). */
+  readonly expected_version?: number
   readonly id: string
   readonly status?: 'done' | 'skipped' | 'blocked' | 'carried'
   readonly note?: string
@@ -338,6 +339,9 @@ export async function handlePlanDone(
   overlay?: OverlayPlanSupport,
 ): Promise<PlanDoneView> {
   const status = parseDoneStatus(args.status)
+  if (args.expected_version === undefined) {
+    return doneWithoutVersion(store, args, status, overlay)
+  }
   try {
     const result = await store.done({
       ...(args.date === undefined ? {} : { date: args.date }),
@@ -361,7 +365,7 @@ export async function handlePlanDone(
       // `expected_version: 0` means "no v1 plan expected"; it says nothing about
       // the overlay, which CAS-es on the version it just read. Any real v1
       // version is still forwarded so a stale caller stays a conflict.
-      ...(args.expected_version >= 1 ? { expectedVersion: args.expected_version } : {}),
+      ...((args.expected_version ?? 0) >= 1 ? { expectedVersion: args.expected_version } : {}),
     })
   }
 }
@@ -372,6 +376,39 @@ function isDoneFallbackError(
   return error instanceof PlanItemNotFoundError
     || error instanceof PlanNotFoundError
     || error instanceof PlanClosedError
+}
+
+/**
+ * A done without a v1 version can only go to the overlay: an open v1 truth file
+ * still needs its CAS version, so the model must read it first. A missing or
+ * closed v1 file (the normal case for a master-entry wake) goes straight to the
+ * day overlay, which CAS-es on the version it reads.
+ */
+async function doneWithoutVersion(
+  store: PlanToolStore,
+  args: PlanDoneArgs,
+  status: 'done' | 'skipped' | 'blocked' | 'carried',
+  overlay: OverlayPlanSupport | undefined,
+): Promise<PlanDoneView> {
+  if (overlay === undefined) {
+    throw new PlanValidationError(
+      'expected_version',
+      'is required for plan done; call plan_read for the current version',
+    )
+  }
+  const current = await store.read(args.date)
+  if (current.found && current.status !== 'closed') {
+    throw new PlanValidationError(
+      'expected_version',
+      `is required for plan done while plan-${current.date}.json exists; call plan_read for the current version`,
+    )
+  }
+  return doneOverlayView(store, overlay, {
+    date: current.date,
+    id: args.id,
+    status,
+    ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
+  })
 }
 
 async function doneOverlayView(
@@ -715,10 +752,10 @@ export function createPlanToolDefinitions(
     }),
     defineTool({
       name: 'plan_done',
-      description: 'Set one plan item status, defaulting to done. Requires the current v1 version; when plan-{date}.json is missing, closed, or lacks the id, the status goes to the day overlay instead. Records done_at for done and appends optional evidence/note.',
+      description: 'Set one plan item status, defaulting to done. An open v1 plan requires its current version; when plan-{date}.json is missing, closed, or lacks the id, the status goes to the day overlay instead (expected_version may be omitted then, including for master-entry wakes). Records done_at for done and appends optional evidence/note.',
       parameters: {
         date: { type: 'string', description: 'YYYY-MM-DD; omitted uses the configured time zone today.' },
-        expected_version: { type: 'integer', required: true, description: 'Current v1 plan version (CAS).' },
+        expected_version: { type: 'integer', description: 'Current v1 plan version (CAS). Omit only when plan-{date}.json is missing or closed and the status goes to the day overlay.' },
         id: { type: 'string', required: true, description: 'Plan item id.' },
         status: { type: 'string', enum: ['done', 'skipped', 'blocked', 'carried'], description: 'New item status; defaults to done.' },
         note: { type: 'string', description: 'Optional note appended to the item note.' },
