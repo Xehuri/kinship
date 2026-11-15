@@ -109,11 +109,14 @@ export interface SessionContextRow {
 
 /** Durable compaction snapshot derived from the Session event log. */
 export interface CompactionSnapshot {
+  /** `active` means a compaction boundary exists in the history (W51A contract). */
   readonly status: 'none' | 'active'
   readonly covered_count: number
   readonly summary_text: string
   readonly anchor_message_id: string | null
   readonly anchor_timestamp_ms: number | null
+  /** True while a compaction transaction is still open. */
+  readonly running?: boolean
 }
 
 /** The only host surface the HTTP server needs. */

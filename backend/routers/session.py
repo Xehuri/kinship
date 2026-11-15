@@ -749,6 +749,51 @@ async def _maybe_splice_opencode_compaction(
         return messages
 
 
+async def _maybe_annotate_dsh_compaction(
+    session_id: str, client: Any, messages: List[Dict[str, Any]]
+) -> bool:
+    """dsh：把压缩 checkpoint 消息就地标成压缩轮，返回是否命中。
+
+    dsh 的压缩边界由一条替换用的 ``user/message``（checkpoint，含摘要正文）表达，
+    它不是 Loom 的"额外分隔线条目"，所以不打标就会以用户气泡出现。快照
+    ``anchorMessageId`` 精确指向该消息时，把它标成 ``info.summary/mode`` 且首个
+    part 改成 ``compaction``（前端 ``isCompactionMessage`` 认这两条），渲染成
+    "上下文已压缩"分隔线 + 摘要抽屉。fail-open：任何异常返回 False，由调用方
+    退回原分隔线注入。
+    """
+    try:
+        get_compaction = getattr(client, "get_session_compaction", None)
+        if get_compaction is None:
+            return False
+        snapshot = await get_compaction(session_id)
+        if not isinstance(snapshot, dict) or snapshot.get("status") != "active":
+            return False
+        if int(snapshot.get("coveredCount") or 0) <= 0:
+            return False
+        anchor = snapshot.get("anchorMessageId")
+        if not anchor:
+            return False
+        summary_text = str(snapshot.get("summaryText") or "")
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            info = message.get("info")
+            if not isinstance(info, dict) or info.get("id") != anchor:
+                continue
+            info["summary"] = True
+            info["mode"] = "compaction"
+            parts = message.get("parts")
+            if isinstance(parts, list) and parts and isinstance(parts[0], dict):
+                parts[0]["type"] = "compaction"
+                parts[0]["summaryText"] = summary_text
+            return True
+        return False
+    except Exception as e:
+        logger.debug(f"[W58] dsh 压缩 checkpoint 标注失败（忽略，走原分隔线）: "
+                     f"session={session_id} err={e}")
+        return False
+
+
 async def _maybe_splice_compaction(
     session_id: str, client: Any, messages: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
@@ -819,7 +864,11 @@ async def get_session_messages(
     # 不改存储、不触 opencode；置于游标块之后：分隔线永不复活空页游标（W50 语义优先）。
     effective_backend = requested_backend or get_web_backend()
     if messages:
-        if effective_backend in ("loom", "dsh"):
+        if effective_backend == "dsh":
+            annotated = await _maybe_annotate_dsh_compaction(session_id, client, messages)
+            if not annotated:
+                messages = await _maybe_splice_compaction(session_id, client, messages)
+        elif effective_backend == "loom":
             messages = await _maybe_splice_compaction(session_id, client, messages)
         elif effective_backend == "opencode":
             messages = await _maybe_splice_opencode_compaction(

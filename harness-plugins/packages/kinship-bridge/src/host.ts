@@ -328,19 +328,18 @@ class CordisBridgeHost implements BridgeHost {
         }
       }
     }
-    const active = open.size > 0
-    if (summary === undefined) {
-      return active
-        ? { status: 'active', covered_count: 0, summary_text: '', anchor_message_id: null, anchor_timestamp_ms: null }
-        : null
-    }
+    if (summary === undefined) return null
     const shadowed = Array.isArray(summary['shadowedSeqs']) ? summary['shadowedSeqs'] : []
+    // `status` follows the Kinship W51A contract: `active` means a compaction
+    // boundary exists in the history, not that a compaction is still running.
+    // The durable lock state (`open`) is exposed separately.
     return {
-      status: active ? 'active' : 'none',
+      status: 'active',
       covered_count: shadowed.length,
       summary_text: contentText(summary['summary']),
       anchor_message_id: anchorId,
       anchor_timestamp_ms: anchorTime ?? (summaryTime > 0 ? summaryTime : null),
+      running: open.size > 0,
     }
   }
 }

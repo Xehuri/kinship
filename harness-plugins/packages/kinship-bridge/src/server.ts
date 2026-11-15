@@ -467,6 +467,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
         summary_text: snapshot?.summary_text ?? '',
         anchor_message_id: snapshot?.anchor_message_id ?? null,
         anchor_timestamp_ms: snapshot?.anchor_timestamp_ms ?? null,
+        running: snapshot?.running === true,
       })
       return
     }
