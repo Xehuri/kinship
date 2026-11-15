@@ -1298,11 +1298,21 @@ async def get_session_chatlog(
             turns = await asyncio.to_thread(loom_session_log.read_turns, start_ms, end_ms)
         except OSError as e:
             raise HTTPException(status_code=503, detail=f"Loom 会话日志读取失败: {e}")
+        cleaned: List[Dict[str, Any]] = []
+        for turn in turns:
+            turn["time_str"] = _format_ts(turn["time_ms"])
+            if turn["role"] == "user":
+                # Loom 日志里同样带 <Axeuh-home-system> 信封；纯注入消息（清洗后
+                # 为空）不进时间线，与 dsh/opencode 的 chatlog 口径一致。
+                turn["content"] = _extract_user_text(turn["content"])
+                if not turn["content"]:
+                    continue
+            cleaned.append(turn)
+        turns = cleaned
+        # 清洗后再截断：否则"只回最近 N 条"可能落在被过滤的注入消息上。
         if len(turns) > _CHATLOG_LOOM_MAX_TURNS:
             turns = turns[-_CHATLOG_LOOM_MAX_TURNS:]
             truncated = True
-        for turn in turns:
-            turn["time_str"] = _format_ts(turn["time_ms"])
         children_unsupported = include_children
         resolved_by = "loom_log"
         source = "loom_jsonl"

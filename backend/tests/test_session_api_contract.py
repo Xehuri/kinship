@@ -313,6 +313,16 @@ def _write_loom_log(path, base_ms: int) -> None:
         {"t": "entry", "sid": "loom_main", "e": {"id": "L4", "entry": {
             "kind": "message", "message": {"role": "user", "content": "窗口外",
                                            "timestamp": base_ms + 9 * 86400 * 1000}}}},
+        {"t": "entry", "sid": "loom_main", "e": {"id": "L5", "entry": {
+            "kind": "message", "message": {"role": "user", "content": (
+                "<Axeuh-home-system>\n{\n  \"current_datetime\": \"x\"\n}\n"
+                "</Axeuh-home-system>\n\n真实提问"
+            ), "timestamp": base_ms + 4000}}}},
+        {"t": "entry", "sid": "loom_main", "e": {"id": "L6", "entry": {
+            "kind": "message", "message": {"role": "user", "content": (
+                "<Axeuh-home-system>\n{\n  \"current_datetime\": \"x\"\n}\n"
+                "</Axeuh-home-system>"
+            ), "timestamp": base_ms + 5000}}}},
         "not json",
     ]
     body = "\n".join(
@@ -909,11 +919,13 @@ class TestChatlogContract:
         assert payload["source"] == "loom_jsonl"
         assert payload["resolved_by"] == "loom_log"
         assert payload["session_id"] == "loom_main"
-        assert payload["message_count"] == 2  # toolResult 与窗口外条目被过滤
-        assert [t["role"] for t in payload["turns"]] == ["user", "assistant"]
+        assert payload["message_count"] == 3  # toolResult/窗口外/纯信封注入被过滤
+        assert [t["role"] for t in payload["turns"]] == ["user", "assistant", "user"]
         assert payload["turns"][1]["content"] == "旧账回复"
         assert payload["turns"][1]["tools"] == ["bash"]
         assert payload["turns"][1]["time_str"].startswith("2024-07-")
+        # Loom 日志里的 <Axeuh-home-system> 信封被剥掉，只留真实用户文本
+        assert payload["turns"][2]["content"] == "真实提问"
 
     def test_chatlog_loom_marks_children_unsupported(
         self, client, auth_headers, tmp_manager, monkeypatch, tmp_path
@@ -952,7 +964,8 @@ class TestChatlogContract:
         payload = resp.json()
         assert payload["truncated"] is True
         assert payload["message_count"] == 1
-        assert payload["turns"][0]["role"] == "assistant"
+        assert payload["turns"][0]["role"] == "user"
+        assert payload["turns"][0]["content"] == "真实提问"
 
     def test_chatlog_loom_rejects_unknown_session_id(
         self, client, auth_headers, tmp_manager, monkeypatch, tmp_path
