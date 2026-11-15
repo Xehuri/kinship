@@ -1,5 +1,5 @@
 /**
- * Web 后端热切换 API (W31)
+ * AI 后端读取/切换 API (W31 立项, W53 收敛)
  *
  * 对应 /api/screen/backend 接口 (契约固定, 勿自行增删字段):
  *   - GET  /api/screen/backend -> 200 { ok: true, backend, options }
@@ -9,19 +9,21 @@
  * 与 session.ts / downloads.ts 等邻居一致: 请求失败/响应无法归一化时
  * 统一吞为 null (apiGet/apiPostVerbose 内部已 console.warn), 不向上抛。
  *
- * 语义: 仅影响网页对话通道 (opencode:5096 / loom:5100);
- * 定时任务/脚本/语音仍按全局配置走 opencode, 与本开关无关。
+ * 语义 (W53): 后端唯一真源是 config.yaml 顶层 ai_backend，GET 读到的就是
+ * 全局生效值 (opencode / loom / dsh)。POST 已退役 (410): 切换入口统一在配置
+ * (设置页/`PUT /api/system/config`，写操作需要密码二次校验)，不再有"网页通道
+ * 单独一套后端"的第二判据；`switchWebBackend` 保留只为兼容旧调用点，永远拿不到成功。
  */
 
 import { apiGet, apiPostVerbose } from '@/api/client'
 
 // ==================== 类型 ====================
 
-/** Web 对话通道可选后端 */
-export type WebBackendId = 'opencode' | 'loom'
+/** AI 后端可选通道 */
+export type WebBackendId = 'opencode' | 'loom' | 'dsh'
 
 /** 合法取值清单 (与后端契约一致, 归一化回退基准) */
-const WEB_BACKEND_OPTIONS: readonly WebBackendId[] = ['opencode', 'loom']
+const WEB_BACKEND_OPTIONS: readonly WebBackendId[] = ['opencode', 'loom', 'dsh']
 
 /** 当前后端运行状态 */
 export interface WebBackendState {
@@ -66,7 +68,7 @@ function normalizeState(raw: unknown): WebBackendState | null {
 // ==================== API 函数 ====================
 
 /**
- * 查询当前 Web 通道后端
+ * 查询当前 AI 后端 (config.yaml ai_backend 的快照)
  * GET /api/screen/backend
  * @returns 运行状态; 请求失败或响应非法时 null (不抛异常)
  */
@@ -81,13 +83,14 @@ export async function fetchWebBackend(): Promise<WebBackendState | null> {
 }
 
 /**
- * 切换 Web 通道后端
- * POST /api/screen/backend, body { backend }
+ * 触发后端切换 (POST /api/screen/backend)
+ *
+ * W53 起该端点已退役并恒返回 410 { ok:false, error }；本函数保留只为兼容旧
+ * 调用点（当前仓库内零调用），永远只会拿到"明确失败"。真正切换请走配置
+ * （`PUT /api/system/config` 的 `ai_backend`，需要密码二次校验）。
  *
  * @param backend 目标后端
- * @returns 成功 { ok: true, backend: 新当前值 };
- *          后端明确拒绝 (如 400 非法值) { ok: false, backend: '' };
- *          网络异常无法判定时 null (与"明确失败"区分, 调用方均不应视为成功)
+ * @returns 恒为 { ok: false, backend: '' }（410/其它明确拒绝）或 null（网络异常）
  */
 export async function switchWebBackend(
   backend: WebBackendId,

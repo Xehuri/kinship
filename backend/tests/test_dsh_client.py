@@ -902,8 +902,9 @@ class TestFactoryAndSelector:
         finally:
             _set_backend(old)
 
-    def test_selector_accepts_dsh(self, monkeypatch, tmp_path, dsh_cfg):
-        monkeypatch.setattr(wbs, "_state_path", lambda: tmp_path / "web_backend.json")
+    def test_selector_accepts_dsh(self, monkeypatch):
+        """W53：dsh 是 config.yaml 的合法取值，selector 直接按全局值路由。"""
+        old = _set_backend("dsh")
         sentinel = object()
 
         async def _acquire():
@@ -911,17 +912,15 @@ class TestFactoryAndSelector:
 
         monkeypatch.setattr(wbs, "acquire_dsh_client", _acquire)
         monkeypatch.setattr(wbs, "get_dsh_client", lambda: sentinel)
+        try:
+            assert wbs.get_web_backend() == "dsh"
+            assert asyncio.run(wbs.acquire_web_client()) is sentinel
+            assert wbs.get_web_client() is sentinel
+            assert list(wbs.WEB_BACKEND_OPTIONS) == ["opencode", "loom", "dsh"]
+        finally:
+            _set_backend(old)
 
-        assert wbs.set_web_backend("dsh") == "dsh"
-        assert wbs.get_web_backend() == "dsh"
-        assert asyncio.run(wbs.acquire_web_client()) is sentinel
-        assert wbs.get_web_client() is sentinel
-        assert list(wbs.WEB_BACKEND_OPTIONS) == ["opencode", "loom"]
-
-    def test_selector_falls_back_to_global_dsh_with_real_client(
-        self, monkeypatch, tmp_path
-    ):
-        monkeypatch.setattr(wbs, "_state_path", lambda: tmp_path / "missing.json")
+    def test_selector_reads_global_dsh_with_real_client(self):
         old = _set_backend("dsh")
         try:
             assert wbs.get_web_backend() == "dsh"

@@ -194,28 +194,25 @@ async def _start_deferred_integrations(app: FastAPI, report: dict) -> None:
         logger.warning(f"小米云后台服务启动失败（不影响主系统）: {e}")
         _subsystem(report, "health_cloud", "failed", str(e))
 
+    # AI 后端派生面（W53）：健康探针只在生效通道上跑，起停与热切换共用
+    # services.config_reconciler.sync_ai_surface 单一实现；启动期不动编排器
+    # （随后 orchestrator.start_all 自己按 gate 判定 Loom 期望态）。
+    # getattr 兜底：启动校验的测试/降级配置对象可能没有 AI_BACKEND 属性，
+    # 缺省按非 dsh/非 loom 归一 opencode，不因此记为失败。
     try:
-        loom_health.start_loom_health_probe()
-        logger.info("[LoomHealth] 健康探针已启动")
-        _subsystem(report, "loom_health", "ok")
-    except Exception as e:
-        logger.warning(f"Loom 健康探针启动失败（不影响主系统）: {e}")
-        _subsystem(report, "loom_health", "failed", str(e))
+        from services.config_reconciler import sync_ai_surface
 
-    # dsh 探针只在当前 ai_backend=dsh 时启动；其余通道保持 /health 里的
-    # dsh.status="unknown"（不假装有结论）。getattr 兜底：启动校验的测试/降级
-    # 配置对象可能没有 AI_BACKEND 属性，缺省按"非 dsh"处理，不因此记为失败。
-    try:
         ai_backend = str(getattr(get_config(), "AI_BACKEND", "") or "").strip().lower()
-        if ai_backend == "dsh":
-            dsh_health.start_dsh_health_probe()
-            logger.info("[DshHealth] 健康探针已启动")
-            _subsystem(report, "dsh_health", "ok")
-        else:
-            logger.info("[DshHealth] 当前 ai_backend=%s，跳过 dsh 健康探针", ai_backend or "unknown")
-            _subsystem(report, "dsh_health", "skipped")
+        await sync_ai_surface(ai_backend or "opencode", reconcile_orchestrator=False)
+        _subsystem(report, "loom_health", "ok" if ai_backend == "loom" else "skipped")
+        _subsystem(report, "dsh_health", "ok" if ai_backend == "dsh" else "skipped")
+        logger.info(
+            "[AiSurface] ai_backend=%s：健康探针已按生效通道对齐",
+            ai_backend or "unknown",
+        )
     except Exception as e:
-        logger.warning(f"dsh 健康探针启动失败（不影响主系统）: {e}")
+        logger.warning(f"AI 后端派生面启动失败（不影响主系统）: {e}")
+        _subsystem(report, "loom_health", "failed", str(e))
         _subsystem(report, "dsh_health", "failed", str(e))
 
     try:
@@ -574,6 +571,16 @@ async def _start_service_plane(
         _subsystem(report, "config_watcher", "failed", str(e))
         if validation_mode:
             raise
+    try:
+        from services.web_backend_selector import deprecate_legacy_state
+
+        # W53：W30 的 Web 通道状态文件已退役（config.yaml 是唯一真源），
+        # 启动时一次性改名归档留证；无文件即 no-op，失败只告警不影响判定。
+        deprecate_legacy_state()
+        _subsystem(report, "web_backend_state", "ok")
+    except Exception as e:
+        logger.warning(f"[WebBackend] 旧状态文件归档失败（忽略）: {e}")
+        _subsystem(report, "web_backend_state", "failed", str(e))
     return report
 
 

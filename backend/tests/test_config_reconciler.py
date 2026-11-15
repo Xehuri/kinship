@@ -18,12 +18,14 @@ from config.providers import ProviderInfo
 from config.store import ConfigChange, ConfigStore
 from services.config_reconciler import (
     apply_ai,
+    apply_ai_surface,
     apply_audio,
     apply_data_paths,
     apply_integrations,
     apply_kernel,
     apply_listener,
     register_default_appliers,
+    sync_ai_surface,
 )
 
 
@@ -149,6 +151,7 @@ def test_register_default_appliers_order_and_replace() -> None:
 
     assert names == [
         "ai",
+        "ai_surface",
         "audio",
         "data_paths",
         "integrations",
@@ -1045,3 +1048,203 @@ def test_applier_is_idempotent_for_repeated_calls(monkeypatch) -> None:
     asyncio.run(apply_data_paths(_change("data.dir")))
 
     assert calls == ["perception", "perception"]
+
+
+# ---------------------------------------------------------------------------
+# W53 AI 后端派生面：健康探针 + 编排器 Loom 期望态（与热切换共用一条实现）
+# ---------------------------------------------------------------------------
+
+
+def _ai_change(old: str, new: str) -> ConfigChange:
+    return ConfigChange(
+        old={"ai_backend": old},
+        new={"ai_backend": new},
+        changed_paths=("ai_backend",),
+    )
+
+
+class _ProbeRecorder:
+    """探针起停桩：只记录调用，绝不起后台任务/触网。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def start(self, name: str):
+        def _start() -> None:
+            self.calls.append(("start", name))
+
+        return _start
+
+    def stop(self, name: str):
+        async def _stop() -> None:
+            self.calls.append(("stop", name))
+
+        return _stop
+
+
+def _patch_surface(monkeypatch, *, orchestrator_calls: list[tuple[str, str]] | None = None):
+    import services.config_reconciler as reconciler_module
+    import services.dsh_health as dsh_health
+    import services.loom_health as loom_health
+
+    recorder = _ProbeRecorder()
+    monkeypatch.setattr(dsh_health, "start_dsh_health_probe", recorder.start("dsh"))
+    monkeypatch.setattr(dsh_health, "stop_dsh_health_probe", recorder.stop("dsh"))
+    monkeypatch.setattr(loom_health, "start_loom_health_probe", recorder.start("loom"))
+    monkeypatch.setattr(loom_health, "stop_loom_health_probe", recorder.stop("loom"))
+
+    calls = orchestrator_calls if orchestrator_calls is not None else []
+
+    async def _fake_reconcile(backend: str):
+        calls.append(("orch", backend))
+        return None
+
+    monkeypatch.setattr(
+        reconciler_module, "_reconcile_orchestrator_loom", _fake_reconcile
+    )
+    return recorder, calls
+
+
+def test_ai_surface_switches_to_dsh_starting_dsh_probe(monkeypatch) -> None:
+    recorder, orch = _patch_surface(monkeypatch)
+
+    asyncio.run(apply_ai_surface(_ai_change("loom", "dsh")))
+
+    assert recorder.calls == [("start", "dsh"), ("stop", "loom")]
+    assert orch == [("orch", "dsh")]
+
+
+def test_ai_surface_switches_to_loom_starting_loom_probe(monkeypatch) -> None:
+    recorder, orch = _patch_surface(monkeypatch)
+
+    asyncio.run(apply_ai_surface(_ai_change("dsh", "loom")))
+
+    assert recorder.calls == [("stop", "dsh"), ("start", "loom")]
+    assert orch == [("orch", "loom")]
+
+
+def test_ai_surface_other_backend_stops_both_probes(monkeypatch) -> None:
+    recorder, orch = _patch_surface(monkeypatch)
+
+    asyncio.run(apply_ai_surface(_ai_change("dsh", "opencode")))
+
+    assert recorder.calls == [("stop", "dsh"), ("stop", "loom")]
+    assert orch == [("orch", "opencode")]
+
+
+def test_ai_surface_ignores_unrelated_change(monkeypatch) -> None:
+    recorder, orch = _patch_surface(monkeypatch)
+
+    asyncio.run(apply_ai_surface(_change("dsh.timeout_seconds")))
+
+    assert recorder.calls == []
+    assert orch == []
+
+
+def test_sync_ai_surface_boot_mode_skips_orchestrator(monkeypatch) -> None:
+    recorder, orch = _patch_surface(monkeypatch)
+
+    result = asyncio.run(sync_ai_surface("dsh", reconcile_orchestrator=False))
+
+    assert recorder.calls == [("start", "dsh"), ("stop", "loom")]
+    assert orch == []
+    assert result["loom"] is None
+
+
+class _FakeOrchestrator:
+    def __init__(self, *, state: str = "stopped", pid=None, enabled: bool = True) -> None:
+        self.enabled = enabled
+        self.state = state
+        self.pid = pid
+        self.calls: list[tuple[str, str]] = []
+
+    def snapshot(self):
+        return {
+            "orchestrator": "on",
+            "services": [{"id": "loom", "state": self.state, "pid": self.pid}],
+        }
+
+    async def start(self, service_id: str):
+        self.calls.append(("start", service_id))
+        self.state = "starting"
+        return {}
+
+    async def stop(self, service_id: str):
+        self.calls.append(("stop", service_id))
+        self.state = "stopped"
+        return {}
+
+
+def _patch_orchestrator(monkeypatch, orch) -> None:
+    import services.orchestrator.runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "peek_orchestrator", lambda: orch)
+
+
+def test_orchestrator_loom_starts_when_switch_to_loom(monkeypatch) -> None:
+    import services.config_reconciler as reconciler_module
+
+    orch = _FakeOrchestrator(state="stopped")
+    _patch_orchestrator(monkeypatch, orch)
+
+    result = asyncio.run(reconciler_module._reconcile_orchestrator_loom("loom"))
+
+    assert orch.calls == [("start", "loom")]
+    assert result == {"running": False, "backend": "loom"}
+
+
+def test_orchestrator_loom_stops_when_leaving_loom(monkeypatch) -> None:
+    import services.config_reconciler as reconciler_module
+
+    orch = _FakeOrchestrator(state="ready", pid=1234)
+    _patch_orchestrator(monkeypatch, orch)
+
+    asyncio.run(reconciler_module._reconcile_orchestrator_loom("dsh"))
+
+    assert orch.calls == [("stop", "loom")]
+
+
+def test_orchestrator_loom_pid_alone_marks_running(monkeypatch) -> None:
+    import services.config_reconciler as reconciler_module
+
+    orch = _FakeOrchestrator(state="stopped", pid=4321)
+    _patch_orchestrator(monkeypatch, orch)
+
+    asyncio.run(reconciler_module._reconcile_orchestrator_loom("opencode"))
+
+    assert orch.calls == [("stop", "loom")]
+
+
+def test_orchestrator_loom_disabled_is_noop(monkeypatch) -> None:
+    import services.config_reconciler as reconciler_module
+
+    orch = _FakeOrchestrator(state="ready", pid=1, enabled=False)
+    _patch_orchestrator(monkeypatch, orch)
+
+    assert asyncio.run(reconciler_module._reconcile_orchestrator_loom("dsh")) is None
+    assert orch.calls == []
+
+
+def test_orchestrator_loom_absent_singleton_is_noop(monkeypatch) -> None:
+    import services.config_reconciler as reconciler_module
+
+    _patch_orchestrator(monkeypatch, None)
+
+    assert asyncio.run(reconciler_module._reconcile_orchestrator_loom("loom")) is None
+
+
+def test_orchestrator_loom_failure_is_swallowed(monkeypatch) -> None:
+    import services.config_reconciler as reconciler_module
+
+    orch = _FakeOrchestrator(state="stopped")
+
+    async def _boom(service_id: str):
+        raise RuntimeError("spawn failed")
+
+    monkeypatch.setattr(orch, "start", _boom)
+    _patch_orchestrator(monkeypatch, orch)
+
+    result = asyncio.run(reconciler_module._reconcile_orchestrator_loom("loom"))
+
+    assert result is not None and "error" in result
+    assert "spawn failed" in result["error"]

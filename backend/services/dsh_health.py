@@ -125,7 +125,11 @@ def start_dsh_health_probe() -> asyncio.Task:
 
 
 async def stop_dsh_health_probe() -> None:
-    """取消后台探针；从未启动时是 no-op。"""
+    """取消后台探针；从未启动时是 no-op。
+
+    W53 起热切换会真正停止非当前通道的探针，缓存一并归 unknown——否则
+    /health 会把"停止观测前的最后一帧"当成当前结论展示（假在线/假离线）。
+    """
     global _task
     task, _task = _task, None
     if task is None:
@@ -133,3 +137,4 @@ async def stop_dsh_health_probe() -> None:
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
+    _STATE.update({"status": "unknown", "version": None, "session_id": None, "checked_at": None})

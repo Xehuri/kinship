@@ -103,10 +103,13 @@ export function normalizeSession(raw: unknown): SessionInfo {
     s.createdAt,
   );
   const preview = firstString(s.preview, s.description, s.last_message);
-  // W45: 通道归属标签——仅接受协议冻结的精确取值, 缺失/未知一律归 undefined
-  // (视为未标注: 老后端条目继续走默认路由, 前端不会把猜测值带上请求线)。
+  // W45: 通道归属标签——仅接受协议冻结的精确取值 (W53 起含 dsh), 缺失/未知一律
+  // 归 undefined (视为未标注: 老后端条目继续走默认路由, 前端不会把猜测值带上请求线)。
   const rawBackend = s.backend;
-  const backend = rawBackend === 'loom' || rawBackend === 'opencode' ? rawBackend : undefined;
+  const backend =
+    rawBackend === 'loom' || rawBackend === 'opencode' || rawBackend === 'dsh'
+      ? rawBackend
+      : undefined;
   return {
     id,
     title,

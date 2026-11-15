@@ -163,8 +163,11 @@ export function useSubAgents(): UseSubAgentsReturn {
       const payload = await apiGet<{ children?: Array<Record<string, unknown>> }>(url)
       if (payload && Array.isArray(payload.children)) {
         return payload.children.map((c, idx) => {
-          // 条目标注精确匹配协议冻结取值, 未知/缺失 = 未标注
-          const cBackend = c.backend === 'loom' || c.backend === 'opencode' ? c.backend : undefined
+          // 条目标注精确匹配协议冻结取值 (W53 起含 dsh), 未知/缺失 = 未标注
+          const cBackend =
+            c.backend === 'loom' || c.backend === 'opencode' || c.backend === 'dsh'
+              ? c.backend
+              : undefined
           // W49.4: 时间取源——后端 createdAt (epoch ms) 优先, opencode 形态次级取 time.created;
           // 缺失/0/非法值 = 无时间, 排序回退位次 (W49.3 并行改动期防御)
           const timeField = c.time && typeof c.time === 'object'

@@ -185,7 +185,8 @@ class TestDualLiveSlots:
         # loom 客户端必须经 services.loom_client 模块单例缝注入（绝不 get_web_client）
         monkeypatch.setattr(lc, "_loom_client", fake)
         current = {"backend": "loom"}
-        monkeypatch.setattr(wbs, "get_web_backend", lambda: current["backend"])
+        # W53：消费方命名空间里的是直接导入的符号，patch 点必须落在 events 上
+        monkeypatch.setattr(events, "get_web_backend", lambda: current["backend"])
 
         hub_loom = events.get_event_hub("loom")
         hub_open = events.get_event_hub("opencode")

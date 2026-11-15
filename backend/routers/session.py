@@ -25,7 +25,8 @@ import logging
 import re
 
 # 双通道工厂（ai_backend 择路）：别名保留原符号名，调用点与测试 monkeypatch 缝零改动
-# W30 后此缝仅 chatlog 与全局语义使用；web 对话端点改走 web_backend_selector（热切换通道）
+# W30 后此缝仅 chatlog 与全局语义使用；web 对话端点改走 web_backend_selector
+# （W53 起 selector 不再持第二真源，读到的就是同一个顶层 ai_backend）。
 from services.ai_client_factory import acquire_ai_client as acquire_opencode_client
 from services.web_backend_selector import (
     WEB_BACKEND_OPTIONS,
@@ -35,7 +36,7 @@ from services.web_backend_selector import (
 )
 # W44 显式通道直调原语（显式腿唯一入口）：不经 ai_client_factory 全局缝
 # （ai_backend=loom 时该缝返回 loom 单例，显式 opencode 会投错引擎）、
-# 不经 acquire_web_client 通道缝（热切换值≠显式请求值）。
+# 不经 acquire_web_client 通道缝（显式请求值≠当前生效值）。
 from services.opencode_client import acquire_opencode_client as acquire_opencode_client_direct
 from services.loom_client import acquire_loom_client as acquire_loom_client_direct
 from services.dsh_client import acquire_dsh_client as acquire_dsh_client_direct
@@ -92,8 +93,12 @@ def _validate_explicit_backend(value: Optional[str]) -> Optional[str]:
 
 
 def _global_backend() -> str:
-    """全局 ai_backend 快照（缺省按空串；测试可只补需要的属性）。"""
-    return str(getattr(get_config(), "AI_BACKEND", "") or "").strip().lower()
+    """当前生效后端快照（W53 起 config.yaml ai_backend 是唯一真源）。
+
+    Web 通道不再有第二份状态文件，``get_web_backend()`` 即全局值；保留本函数
+    只是给调用点一个"全局语义"的显式名字。
+    """
+    return get_web_backend()
 
 
 def _resolve_explicit_backend(requested: Optional[str]) -> Optional[str]:
@@ -465,11 +470,11 @@ def _opencode_leg_active(current_backend: str) -> bool:
 def _loom_leg_active(current_backend: str) -> bool:
     """Loom 聚合腿是否参与本次列表。
 
-    W44 原语义是双通道恒探活；唯一例外是 dsh 接管（全局与当前 Web 通道都是
-    dsh）：Loom 已被编排器判 blocked 停用，继续探活只会每轮刷 5100 连接失败，
-    且会把 partial 永久污染。此时该腿回空信封、不请求、不计 partial。
+    唯一后端为 dsh 时 Loom 已被编排器判 blocked 停用，继续探活只会每轮刷
+    5100 连接失败并永久污染 partial；此时该腿回空信封、不请求、不计 partial。
+    W53 起 ``current_backend`` 就是全局值，不再有"两层判据各说各话"。
     """
-    return not (_global_backend() == "dsh" and current_backend == "dsh")
+    return current_backend != "dsh"
 
 
 async def _empty_leg() -> Dict[str, Any]:

@@ -1,14 +1,18 @@
 """
-Web 通道后端切换 API（W30-B2）—— /api/screen/backend。
+AI 后端读取 API（W30 立项，W53 收敛为 config 唯一入口）—— /api/screen/backend。
 
-切换只作用于网页对话管线的请求路由（routers/session.py 的 web 端点）；
-SSE 事件流自 W44 起恒多路复用双通道（routers/events.py 双活 hub 注册表，
-每帧带 properties.backend 标），本开关不重建不停止任何 hub；后台链路
-（定时任务/脚本/语音）继续跟随全局 ai_backend，与本开关无关。
-响应形状为前端已发货的固定契约（frontend/mobile/src/api/backend.ts），
-勿增删字段：
-  GET  -> 200 {"ok": true, "backend": <当前>, "options": ["opencode", "loom"]}
-  POST {"backend": ...} -> 200 同 GET 形态；非法取值 -> 400 {"ok": false, "error": <文本>}
+历史（W30-B2）：本端点既读又写独立状态文件 web_backend.json，于是同一部署可能
+出现「SSE/探针按全局 ai_backend、聊天端点按状态文件」的两层判据。W53 起：
+  - 唯一真源 = config.yaml 顶层 ai_backend（系统配置页/`PUT /api/system/config`
+    的同一条路径，写操作需要密码二次校验）；
+  - GET 保留为只读镜像：前端用它给新建会话标注默认通道、给设置页回显；
+  - POST 退役（410）：旧写入口若继续可用，等于绕开配置写入的密码校验并持久化
+    一份与配置并列的真源，与"统一入口"背道而驰。
+旧 web_backend.json 不参与择路，启动时归档留证（services.web_backend_selector）。
+
+响应形状（GET 为前端已发货的固定契约，勿增删字段）：
+  GET  -> 200 {"ok": true, "backend": <当前>, "options": ["opencode", "loom", "dsh"]}
+  POST -> 410 {"ok": false, "error": <文本>}（已退役；切后端请改配置）
 鉴权即标准 /api/screen Bearer 中间件（与 /api/screen/restart 先例同级），
 不新增任何 auth 机制。
 """
@@ -17,23 +21,24 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from services.web_backend_selector import (
-    WEB_BACKEND_OPTIONS,
-    get_web_backend,
-    set_web_backend,
-)
+from services.web_backend_selector import WEB_BACKEND_OPTIONS, get_web_backend
 
 router = APIRouter(prefix="", tags=["web-backend"])
 
+RETIRED_MESSAGE = (
+    "该端点已退役：AI 后端切换统一走系统配置（config.yaml 顶层 ai_backend，"
+    "经 /api/system/config 写入并需密码二次校验），GET 仍可用于读取当前值。"
+)
+
 
 class WebBackendSwitchRequest(BaseModel):
-    """切换请求体：{"backend": "loom"|"opencode"}（契约固定键）。"""
+    """旧切换请求体（仅为让 410 响应可解析，不再读取 backend 取值）。"""
 
     backend: str
 
 
 def _state_payload() -> dict:
-    """GET/POST 共用的成功响应体（现读 selector，含刚生效值）。"""
+    """GET 响应体（现读配置快照，与系统配置页同一取值）。"""
     return {
         "ok": True,
         "backend": get_web_backend(),
@@ -43,21 +48,17 @@ def _state_payload() -> dict:
 
 @router.get("/backend")
 async def get_backend():
-    """查询当前 Web 通道后端（状态文件每次现读，缺失/损坏回落全局 ai_backend）。"""
+    """查询当前 AI 后端（直接读 config.yaml 快照，与系统配置页同一取值）。"""
     return _state_payload()
 
 
 @router.post("/backend")
 async def switch_backend(request: WebBackendSwitchRequest):
-    """切换 Web 通道后端：校验 -> 落盘 -> 响应（与 SSE hub 生命周期解耦，W44）。
+    """已退役：切换入口统一在配置（见模块文档与 RETIRED_MESSAGE）。
 
-    双活 hub 注册表恒并活、/events/stream 恒双流多路复用——切换不再重建/关停
-    任何 hub，只改变对话请求的通道归属；在途事件流一帧不断，前端按帧内
-    properties.backend 标分流。非法值按契约回 400 {"ok":false,"error":<文本>}，
-    不走 HTTPException 统一信封（前端判定的错误形状即 {ok:false,error}）。
+    返回 410 而非静默成功，避免旧客户端以为"切换生效了"却在配置里看不到。
     """
-    try:
-        set_web_backend(request.backend)
-    except ValueError as e:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
-    return _state_payload()
+    return JSONResponse(
+        status_code=410,
+        content={"ok": False, "error": RETIRED_MESSAGE},
+    )

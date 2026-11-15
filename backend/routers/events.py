@@ -45,7 +45,7 @@ OPENCODE_EVENT_URL = f"{_cfg_ev.OPENCODE_URL}/global/event"
 # Loom 会话来源（列表面 GET /sessions 已废弃）：权威主会话 + 本地 loom: 绑定 + SSE 子会话帧
 from services.loom_main_session import LOOM_MAIN_AGENT, resolve_loom_main_session
 from services.stt_session_manager import get_session_manager
-from services.web_backend_selector import web_agent_key
+from services.web_backend_selector import get_web_backend, web_agent_key
 
 # 单行上限：超过则丢弃，避免超大 payload 撑爆内存
 MAX_LINE_BYTES = 1024 * 1024
@@ -667,8 +667,8 @@ def _opencode_enabled() -> bool:
 
 
 def _dsh_enabled() -> bool:
-    """dsh 通道接管 SSE：ai_backend=dsh 时只起 dsh 单会话 hub。"""
-    return str(get_config().AI_BACKEND or "").strip().lower() == "dsh"
+    """dsh 通道接管 SSE：唯一后端（config.yaml ai_backend）为 dsh 时只起 dsh 单会话 hub。"""
+    return get_web_backend() == "dsh"
 
 
 async def event_generator():

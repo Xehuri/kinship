@@ -203,14 +203,23 @@ def tmp_manager(monkeypatch, tmp_path):
     return mgr
 
 
+_WEB_STATE: dict[str, str] = {"backend": "opencode"}
+
+
 @pytest.fixture(autouse=True)
 def _isolate_web_backend_state(tmp_path, monkeypatch):
-    """W30：Web 通道状态文件一律重定向 tmp（缺文件=回落全局 ai_backend），
-    绝不读写生产 ai/data/cache/web_backend.json。"""
-    import services.web_backend_selector as wbs
+    """W53：后端由 config.yaml 决定，旧状态文件已退役（仅归档用）。
 
-    monkeypatch.setattr(wbs, "_state_path",
+    归档隔离守卫 + 把 router 的"当前后端"读缝钉在 `_WEB_STATE`：本文件的通道
+    用例经 `_set_web()` 改测试取值，绝不写真实配置、不触 ConfigStore。
+    """
+    import services.web_backend_selector as wbs
+    from routers import session as session_router
+
+    monkeypatch.setattr(wbs, "legacy_state_path",
                         lambda: tmp_path / "web_backend.json")
+    _WEB_STATE["backend"] = "opencode"
+    monkeypatch.setattr(session_router, "get_web_backend", lambda: _WEB_STATE["backend"])
 
 
 @pytest.fixture(autouse=True)
@@ -790,10 +799,8 @@ class TestAuthContract:
 
 
 def _set_web(backend: str):
-    """写 Web 通道状态（autouse fixture 已把状态文件重定向 tmp，零污染生产）。"""
-    import services.web_backend_selector as wbs
-
-    wbs.set_web_backend(backend)
+    """钉当前后端取值（W53：config.yaml 单一真源；测试改 router 读缝，零落盘）。"""
+    _WEB_STATE["backend"] = backend
 
 
 def _patch_web_only(monkeypatch, web_stub, global_stub):

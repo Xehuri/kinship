@@ -154,10 +154,8 @@ def _patch_channels(monkeypatch, *, oc=None, loom=None, web=None, glob=None, dsh
 
 
 def _set_web(backend: str):
-    """写 Web 通道状态（autouse fixture 已把状态文件重定向 tmp，零污染生产）。"""
-    import services.web_backend_selector as wbs
-
-    wbs.set_web_backend(backend)
+    """钉当前后端取值（W53：config.yaml 单一真源；测试改 router 读缝，零落盘）。"""
+    _WEB_STATE["backend"] = backend
 
 
 def _patch_global_backend(monkeypatch, backend: str, *, opencode_enabled: bool = False) -> None:
@@ -193,12 +191,22 @@ def tmp_manager(monkeypatch, tmp_path):
     return mgr
 
 
+_WEB_STATE: Dict[str, str] = {"backend": "opencode"}
+
+
 @pytest.fixture(autouse=True)
 def _isolate_web_backend_state(tmp_path, monkeypatch):
-    """Web 通道状态文件一律重定向 tmp，绝不读写生产 ai/data/cache/web_backend.json。"""
-    import services.web_backend_selector as wbs
+    """W53：后端唯一真源是 config.yaml，旧状态文件仅归档用（重定向 tmp 防污染）。
 
-    monkeypatch.setattr(wbs, "_state_path", lambda: tmp_path / "web_backend.json")
+    本文件的"Web 通道"用例统一经 router 的读缝钉住取值——`_set_web()` 直接改
+    `_WEB_STATE`，不写真实配置、不触 ConfigStore。
+    """
+    import services.web_backend_selector as wbs
+    from routers import session as session_router
+
+    monkeypatch.setattr(wbs, "legacy_state_path", lambda: tmp_path / "web_backend.json")
+    _WEB_STATE["backend"] = "opencode"
+    monkeypatch.setattr(session_router, "get_web_backend", lambda: _WEB_STATE["backend"])
 
 
 @pytest.fixture(autouse=True)

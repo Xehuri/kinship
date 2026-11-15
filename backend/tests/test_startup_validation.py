@@ -414,7 +414,7 @@ class _FakeValidation:
         self.promoted += 1
 
 
-def _wire_plane(monkeypatch) -> SimpleNamespace:
+def _wire_plane(monkeypatch, *, ai_backend: str | None = None) -> SimpleNamespace:
     scheduler = _FakeScheduler()
     runner = _FakeRunner()
     registry = _FakeRegistry()
@@ -426,6 +426,8 @@ def _wire_plane(monkeypatch) -> SimpleNamespace:
     loom_started = {"value": False}
 
     cfg = SimpleNamespace(
+        # W53：健康探针只在生效通道上跑，本假的 AI_BACKEND 决定哪个探针启动。
+        AI_BACKEND=ai_backend,
         AUDIO_COMPRESSOR_ENABLED=False,
         AUDIO_COMPRESSOR_KEEP_DAYS=30,
         AUDIO_COMPRESSOR_FFMPEG_THREADS=1,
@@ -544,7 +546,8 @@ def test_validation_mode_starts_safe_subset(monkeypatch):
 
 def test_full_mode_still_starts_deferred_integrations(monkeypatch):
     async def scenario():
-        wired = _wire_plane(monkeypatch)
+        # W53：探针跟随生效通道——loom 部署照常起 Loom 探针。
+        wired = _wire_plane(monkeypatch, ai_backend="loom")
         report = await main_module._start_service_plane(wired.app, mode="full")
 
         assert wired.scheduler.paused is False
@@ -554,6 +557,23 @@ def test_full_mode_still_starts_deferred_integrations(monkeypatch):
         assert wired.qq.started is True
         assert wired.p2p.started is True
         assert wired.loom_started["value"] is True
+
+        await main_module._stop_service_plane(wired.app)
+
+    asyncio.run(scenario())
+
+
+def test_full_mode_skips_loom_probe_for_non_loom_backend(monkeypatch):
+    """W53：非 loom 部署不跑 Loom 探针（旧行为会每 60s 刷 offline 假警报）。"""
+
+    async def scenario():
+        wired = _wire_plane(monkeypatch, ai_backend="opencode")
+        report = await main_module._start_service_plane(wired.app, mode="full")
+
+        assert report["subsystems"]["loom_health"] == "skipped"
+        assert report["subsystems"]["dsh_health"] == "skipped"
+        assert wired.loom_started["value"] is False
+        assert wired.cloud.started is True  # 其余延迟集成不受影响
 
         await main_module._stop_service_plane(wired.app)
 

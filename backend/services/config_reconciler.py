@@ -517,6 +517,87 @@ async def apply_ai(change: ConfigChange) -> None:
         ai_client_factory._reset_ai_client()
 
 
+# ── AI 后端派生面（健康探针 / 编排器 Loom 期望态） ─────────
+
+_LOOM_RUNNING_STATES = frozenset({"starting", "ready"})
+
+
+async def _reconcile_orchestrator_loom(backend: str) -> dict[str, Any] | None:
+    """把编排器里 Loom 的期望态对齐到当前 ai_backend（热切换时）。
+
+    Loom 的 gate 只在 ``_attempt_start`` 判定（``ai_backend == "loom"``），启动后
+    不再评估；热切后端若不主动停/起，Loom 会停留在旧期望态（切入 dsh 后仍在跑、
+    切回 loom 后仍 blocked）。这里只碰 loom 单服务，不重启 kernel/moss/qq。
+    """
+    try:
+        from services.orchestrator.runtime import peek_orchestrator
+
+        orch = peek_orchestrator()
+        if orch is None or not orch.enabled:
+            return None
+        rows = orch.snapshot().get("services") or []
+        row = next((item for item in rows if item.get("id") == "loom"), None)
+        running = bool(
+            row
+            and (row.get("state") in _LOOM_RUNNING_STATES or row.get("pid") is not None)
+        )
+        if backend == "loom" and not running:
+            await orch.start("loom")
+            logger.info("[Config] ai_backend=loom，已按新期望态拉起 Loom")
+        elif backend != "loom" and running:
+            await orch.stop("loom")
+            logger.info("[Config] ai_backend=%s，已按新期望态停用 Loom", backend)
+        return {"running": running, "backend": backend}
+    except Exception as exc:
+        logger.warning(
+            "[Config] 编排器 Loom 期望态对齐失败（配置已生效，可重启后端兜底）: %s",
+            redact_text(str(exc)),
+        )
+        return {"error": redact_text(str(exc))}
+
+
+async def sync_ai_surface(
+    backend: str, *, reconcile_orchestrator: bool = True
+) -> dict[str, Any]:
+    """把「当前 AI 后端」同步到全部派生面（健康探针 + 编排器 Loom 期望态）。
+
+    单一实现，启动与热切换共用：boot 传 ``reconcile_orchestrator=False``
+    （编排器自己的 start_all 已按 gate 判定），热切换用默认值。
+    探针只在对应通道生效时运行——非当前通道保持 unknown 且不再刷离线告警。
+    """
+    from services import dsh_health, loom_health
+
+    if backend == "dsh":
+        dsh_health.start_dsh_health_probe()
+    else:
+        await dsh_health.stop_dsh_health_probe()
+    if backend == "loom":
+        loom_health.start_loom_health_probe()
+    else:
+        await loom_health.stop_loom_health_probe()
+
+    loom_state = None
+    if reconcile_orchestrator:
+        loom_state = await _reconcile_orchestrator_loom(backend)
+    return {"backend": backend, "loom": loom_state}
+
+
+def _effective_ai_backend(change: ConfigChange) -> str:
+    """变更后的生效后端（删键/空值按缺省 opencode 归一）。"""
+    return _ai_backend_of(change.new) or "opencode"
+
+
+async def apply_ai_surface(change: ConfigChange) -> None:
+    """ai_backend 变更的派生面应用器（探针 + 编排器；客户端/hub 归 apply_ai）。
+
+    与 apply_ai 分成两个应用器：客户端/hub 重建在既有测试里被逐条锁定，派生面
+    另列可独立测；两者由同一个 ConfigChange 驱动，不存在第二处判据。
+    """
+    if not _touched(change, "ai_backend"):
+        return
+    await sync_ai_surface(_effective_ai_backend(change))
+
+
 # ── 音频 / TTS / 归档 / 陌生人 ─────────────────────────────
 
 
@@ -752,11 +833,12 @@ def register_default_appliers(
     registry_sink: RegistrySink | None = None,
     cors_refresh: CorsRefresh | None = None,
 ) -> list[str]:
-    """按依赖顺序注册六个领域应用器；重复调用幂等替换。"""
+    """按依赖顺序注册七个领域应用器；重复调用幂等替换。"""
     appliers: list[
         tuple[str, Callable[[ConfigChange], Awaitable[Any]]]
     ] = [
         ("ai", apply_ai),
+        ("ai_surface", apply_ai_surface),
         ("audio", partial(apply_audio, registry_sink=registry_sink)),
         ("data_paths", apply_data_paths),
         ("integrations", partial(apply_integrations, reconnects=False)),
@@ -776,6 +858,7 @@ def register_default_appliers(
 __all__ = [
     "STRATEGY_HANDLERS",
     "apply_ai",
+    "apply_ai_surface",
     "apply_audio",
     "apply_data_paths",
     "apply_integrations",
@@ -784,4 +867,5 @@ __all__ = [
     "apply_staged",
     "dispatch_apply_strategy",
     "register_default_appliers",
+    "sync_ai_surface",
 ]

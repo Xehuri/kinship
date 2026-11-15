@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
-"""W30-B2 /api/screen/backend 切换端点契约测（conftest client + auth_headers）。
+"""W53 /api/screen/backend 端点契约测（conftest client + auth_headers）。
 
-前端已发货的固定契约（frontend/mobile/src/api/backend.ts）逐形状锁死：
-  GET  200 {"ok":true,"backend":<当前>,"options":["opencode","loom"]}
-  POST 合法 200 同形态 + 状态文件已落盘（进程内现读，无需重启即生效）；
-  POST 非法 400 {"ok":false,"error":<文本>} 且不落盘。
-W44 解耦钉：POST（合法/非法）一律零触碰 events 双活 hub 注册表——切换只改
-对话管线路由，SSE 恒双流多路复用，hub 生命周期与开关无关。
-401 无 Token 形状抄 test_session_api_contract.TestAuthContract 先例
-（中间件短路裸 {"detail":...}）。状态文件一律 monkeypatch 重定向 tmp。
+W30 契约形状保留，语义收敛：config.yaml 顶层 ai_backend 是唯一真源。
+  - GET 200 {"ok":true,"backend":<config 值>,"options":["opencode","loom","dsh"]}
+    直接读配置快照；旧 web_backend.json 即使存在也不影响结果。
+  - POST 退役：410 {"ok":false,"error":<文本>}，零写入、零副作用——切换入口
+    统一在配置（/api/system/config 的 ai_backend，写操作需密码二次校验）。
+锁定"退役端点不会绕开配置写入授权"这条红线。
 """
 import json
 import os
@@ -34,101 +32,73 @@ def _set_global(value):
 
 
 @pytest.fixture
-def tmp_state(monkeypatch, tmp_path):
-    """状态文件重定向 tmp（绝不写生产 ai/data/cache/web_backend.json）。"""
-    path = tmp_path / "web_backend.json"
-    monkeypatch.setattr(wbs, "_state_path", lambda: path)
-    return path
+def restore_backend():
+    cfg = get_config()
+    had = "ai_backend" in cfg._data
+    old = cfg._data.get("ai_backend")
+    yield
+    if had:
+        cfg._data["ai_backend"] = old
+    else:
+        cfg._data.pop("ai_backend", None)
 
 
 @pytest.fixture
-def global_opencode():
-    """全局通道钉 opencode：验证 Web 开关独立于全局值。"""
-    old = _set_global("opencode")
-    yield
-    _set_global(old)
+def legacy_file(monkeypatch, tmp_path):
+    path = tmp_path / "web_backend.json"
+    monkeypatch.setattr(wbs, "legacy_state_path", lambda: path)
+    return path
 
 
 class TestGetBackendContract:
-    def test_shape_without_state_file_falls_back_global(
-        self, client, auth_headers, tmp_state, global_opencode
+    @pytest.mark.parametrize("backend", ["opencode", "loom", "dsh"])
+    def test_shape_reflects_config(
+        self, client, auth_headers, legacy_file, restore_backend, backend
     ):
+        _set_global(backend)
         resp = client.get("/api/screen/backend", headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json() == {
-            "ok": True, "backend": "opencode", "options": ["opencode", "loom"],
+            "ok": True,
+            "backend": backend,
+            "options": ["opencode", "loom", "dsh"],
         }
 
-    def test_shape_reflects_web_override_not_global(
-        self, client, auth_headers, tmp_state, global_opencode
+    def test_legacy_state_file_is_ignored(
+        self, client, auth_headers, legacy_file, restore_backend
     ):
-        wbs.set_web_backend("loom")
+        legacy_file.write_text('{"backend": "loom"}', encoding="utf-8")
+        _set_global("dsh")
         resp = client.get("/api/screen/backend", headers=auth_headers)
-        assert resp.json()["backend"] == "loom"  # 全局仍 opencode，Web 通道独立
+        assert resp.json()["backend"] == "dsh"
 
 
-class TestPostBackendContract:
-    def test_valid_roundtrip_persisted_and_live(
-        self, client, auth_headers, tmp_state, global_opencode
+class TestPostRetired:
+    def test_post_is_gone_with_error_envelope(
+        self, client, auth_headers, legacy_file, restore_backend
     ):
-        resp = client.post("/api/screen/backend", json={"backend": "loom"},
-                           headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.json() == {
-            "ok": True, "backend": "loom", "options": ["opencode", "loom"],
-        }
-        state = json.loads(tmp_state.read_text(encoding="utf-8"))
-        assert state["backend"] == "loom"
-        again = client.get("/api/screen/backend", headers=auth_headers)
-        assert again.json()["backend"] == "loom"  # 现读生效，无重启语义
-
-    def test_invalid_400_contract_shape(
-        self, client, auth_headers, tmp_state, global_opencode
-    ):
-        resp = client.post("/api/screen/backend", json={"backend": "lmao"},
-                           headers=auth_headers)
-        assert resp.status_code == 400
+        _set_global("opencode")
+        resp = client.post(
+            "/api/screen/backend", json={"backend": "loom"}, headers=auth_headers
+        )
+        assert resp.status_code == 410
         payload = resp.json()
         assert set(payload.keys()) == {"ok", "error"}
         assert payload["ok"] is False
-        assert isinstance(payload["error"], str) and payload["error"]
-        assert not tmp_state.exists()  # 非法值零落盘
+        assert "配置" in payload["error"]
+        # 退役端点绝不落盘：GET 仍是原取值
+        assert client.get("/api/screen/backend", headers=auth_headers).json()[
+            "backend"
+        ] == "opencode"
 
-    def test_valid_post_leaves_hub_registry_untouched(
-        self, client, auth_headers, tmp_state, global_opencode, monkeypatch
-    ):
-        """W44 解耦钉（取代 W30 "POST 必 await reset" 钉）：切换只落状态文件，
-        双活 hub 注册表零触碰——reset_event_hub 不再被调用、两槽对象原样保留。"""
-        import routers.events as events_api
+    def test_post_has_no_config_writer_import(self):
+        """红线：端点不得 import 任何配置写入原语（绕开密码校验的旁路）。"""
+        from pathlib import Path
 
-        calls = []
-
-        async def _spy_reset():
-            calls.append("reset")
-
-        hubs_before = {"opencode": object(), "loom": object()}
-        monkeypatch.setattr(events_api, "_hubs", hubs_before)
-        monkeypatch.setattr(events_api, "reset_event_hub", _spy_reset)
-        resp = client.post("/api/screen/backend", json={"backend": "loom"},
-                           headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.json()["backend"] == "loom"
-        assert calls == []  # 切换与 hub 生命周期解耦
-        assert events_api._hubs == hubs_before  # 两槽对象与键零变动
-        assert not hasattr(web_backend_api, "reset_event_hub")  # import 面已摘除
-
-    def test_invalid_post_keeps_hub_registry_untouched(
-        self, client, auth_headers, tmp_state, global_opencode, monkeypatch
-    ):
-        """非法值第一步就 400，同样绝不惊动 hub（与合法路径同一不变量）。"""
-        import routers.events as events_api
-
-        hubs_before = {"opencode": object(), "loom": object()}
-        monkeypatch.setattr(events_api, "_hubs", hubs_before)
-        resp = client.post("/api/screen/backend", json={"backend": "nope"},
-                           headers=auth_headers)
-        assert resp.status_code == 400
-        assert events_api._hubs == hubs_before
+        source = Path(web_backend_api.__file__).read_text(encoding="utf-8")
+        assert "set_web_backend" not in source
+        assert "get_config_store" not in source
+        assert "require_config_write" not in source
 
 
 class TestBackendAuth:
