@@ -53,10 +53,17 @@ master file (through the plan card's edits), its own scheduler state under
   atomic rewrite, `O_EXCL` instance lock in the same directory). A failed
   delivery is retried once 30 s later and then archived as `failed`; `plan`
   entries are retained 48 h and the delivered archive keeps 500 records.
+- The plan root needs no dsh-side configuration: the Kinship backend pushes
+  `{ai_root, data_dir, plan_root, plan_master}` over
+  `POST /v1/kinship/paths`, the bridge persists it as
+  `$DSH_HOME/kinship/paths.json` and emits `kinship/paths`, and the scheduler
+  prefers that root (row config / env remain fallbacks). Replays after a
+  restart keep the layout without asking the owner to repeat paths.
 - The wake text injected through `kinshipBridge.deliver` is a plain user message:
   `【计划唤醒·<action>】HH:MM · <title>`, the entry instruction, `条目：<entry
-  id>`, the dsh done hint (`plan note` for actions other than build/review), and
-  the fixed line `不发用户通知，除非条目要求。`.
+  id>`, a trailing hint that names **no** write-back tool (neither `plan done`
+  nor `plan note` can reach a master id), and the fixed line
+  `不发用户通知，除非条目要求。`.
 - Edits ride the owner-only `/api/kinship/ui/plan*` routes and are versioned: a
   stale `expectedVersion` is refused with `master_conflict` instead of
   overwriting another writer.
@@ -68,7 +75,10 @@ master file (through the plan card's edits), its own scheduler state under
 - The sidebar page needs the `kinship-bridge` row; without it the page reports
   that the bridge did not answer.
 - The plan card needs the `kinship-plan-scheduler` row; without it the card says
-  the scheduler is not installed and the rest of the page keeps working.
+  the scheduler is not installed and the rest of the page keeps working. The
+  card shows where the plan root came from (backend push / row config / env /
+  default); until the backend pushes once, the root falls back to the
+  environment.
 - Plan wakes need the `kinship-bridge` row and a bound Session: without them the
   scheduler reconciles but defers, and queues nothing.
 - The wake queue belongs to the bound Session id, so a manual rebind starts an

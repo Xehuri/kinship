@@ -355,7 +355,10 @@ JSON 先写（同目录 temp + fsync + rename），成功后写 md。md 写失�
 Host 级插件，把 Loom 的计划调度器搬到 dsh：读同一份 `{planRoot}/plan/master.json`
 与 `{planRoot}/daily/{date}/plan-{date}.overlay.json`，按锚点/看门狗对账出当日
 唤醒，写进每会话持久队列，再经 `kinship-bridge` 的 `deliver` 以普通用户消息注入
-绑定会话。所以切换运行时不会出现第二份排班真源。引擎移植自
+绑定会话。所以切换运行时不会出现第二份排班真源。**dsh 侧不需要配任何路径**：
+Kinship 后端把自己的 `data.ai_root` / `data.dir` 经 bridge 的
+`POST /v1/kinship/paths` 推过来（落 `$DSH_HOME/kinship/paths.json`），本插件以推送
+的 `plan_root` 为准；时区与对账锚点也从母版派生。引擎移植自
 `loom-harness/packages/server/src/plan/plan-scheduler.ts` 与
 `serve/wake-queue.ts`；完整设计、对账公式与逐条差异见
 [packages/kinship-plan-scheduler/docs/DETAIL.md](packages/kinship-plan-scheduler/docs/DETAIL.md)。
@@ -364,21 +367,27 @@ Host 级插件，把 Loom 的计划调度器搬到 dsh：读同一份 `{planRoot
 
 | 路径 | 解析顺序 |
 |---|---|
-| `planRoot` | 插件 `planRoot` -> `KINSHIP_PLAN_ROOT` -> `KINSHIP_AI_ROOT/data` |
-| `stateDir` | 插件 `stateDir` -> `KINSHIP_PLAN_STATE_DIR` -> `$DSH_HOME/kinship/state` |
+| `planRoot` | **Kinship 后端推送的 `plan_root`** -> 插件 `planRoot` -> `KINSHIP_PLAN_ROOT` -> `KINSHIP_AI_ROOT/data` |
+| `stateDir` | 插件 `stateDir` -> `KINSHIP_PLAN_STATE_DIR` -> `$DSH_HOME/kinship/state`（dsh 私有运行态，不由后端推） |
 
-相对路径一律拒绝（不按进程 cwd 猜出一个计划树）；此时插件仍然挂载，只是不启动
-引擎，面板用 `problem` 说明该配什么。
+推送由后端在启动、`data_paths` 配置应用、切到 `ai_backend=dsh`、以及 dsh 健康探针
+`offline→online`（覆盖 dsh 重启）时触发；bridge 以 0600 原子写落
+`$DSH_HOME/kinship/paths.json` 并发 `kinship/paths` 事件，本插件启动时读该文件、
+每次事件重新解析：根变了就原地重启引擎，根没变只刷新面板上的同步时间；被拒或空的
+推送不会掐掉正在跑的引擎。相对路径一律拒绝并继续尝试下一候选（不按进程 cwd 猜计划树）。
+
+面板的「计划排班」卡片会标出 `planRoot` 的来源（`kinship 后端推送（时间）` /
+`插件配置` / `env` / `默认（等待 kinship 后端推送）`）与 `pathsProblem`。
 
 ### 配置
 
 | 字段 | 默认 | 环境变量 | 说明 |
 |---|---|---|---|
-| `planRoot` | 空 | `KINSHIP_PLAN_ROOT` | 绝对路径；空则走上面的回落链 |
+| `planRoot` | 空 | `KINSHIP_PLAN_ROOT` | 绝对路径覆盖；正常不用配，后端推送优先 |
 | `stateDir` | 空 | `KINSHIP_PLAN_STATE_DIR` | 绝对路径；空则 `$DSH_HOME/kinship/state` |
 | `mode` | `live` | `KINSHIP_PLAN_MODE` | `live` / `shadow` / `off` |
-| `timezone` | `Asia/Shanghai` | `KINSHIP_PLAN_TIMEZONE` | 母版自带时区前的兜底时区 |
-| `anchors` | `05:00,07:30` | `KINSHIP_PLAN_ANCHORS`（逗号分隔） | 每日对账锚点，严格 `HH:MM`，最多 8 个 |
+| `timezone` | `Asia/Shanghai` | `KINSHIP_PLAN_TIMEZONE` | 仅母版不可读时的兜底；母版自带时区优先 |
+| `anchors` | 空（从母版派生） | `KINSHIP_PLAN_ANCHORS`（逗号分隔） | 每日对账锚点，严格 `HH:MM`，最多 8 个；空则取母版 `plan.build`/`plan.review` 的时刻，再退 `05:00,07:30` |
 | `watchdogMs` | `60000` | `KINSHIP_PLAN_WATCHDOG_MS` | 看门狗间隔，`0` 关闭 |
 | `horizonHours` | `48` | `KINSHIP_PLAN_HORIZON_HOURS` | 向前排多久（上限 168） |
 | `catchupMaxAgeHours` | `8` | `KINSHIP_PLAN_CATCHUP_MAX_AGE_HOURS` | 迟到但仍在窗口内的条目保持原时刻 |
@@ -423,8 +432,10 @@ payload 上。
 - 投递失败重试一次（`now + 30s`），再失败归档 `failed`；`plan` 条目保留 48h，
   已投递归档保留最近 500 条。
 - 唤醒行固定为 `【计划唤醒·<action>】HH:MM · <title>` + 指令 + `条目：<id>` +
-  done 提示 + `不发用户通知，除非条目要求。`；dsh 下 done 提示不再让模型对母版 id
-  跑 `plan done`，改为 `plan note`。
+  尾行 + `不发用户通知，除非条目要求。`；dsh 下尾行**不指派任何回写工具**
+  （`plan done` 对母版 id 必然 item-not-found，`plan note` 在 v1 账 closed/版本
+  对不上时同样失败——2026-11-15 生产实测），改为「完成后无需回写计划…如需留痕，
+  在回复里说明」。
 - 只做 `source: "plan"`：flow / special / inbox 三个来源没有生产者，队列与渲染器
   仍然认识它们（`source` 字段与保留期分档保留），但本插件不会产生这类条目。
 
@@ -432,7 +443,8 @@ payload 上。
 
 - 当日存在 v1 `plan-{date}.json` 时仍排母版条目（Loom 会用旧计划整体替换当日视图）；
   旧计划条目按 overlay 的 add 语义追加、无唤醒时刻，撞 id 只记 `legacy_collision:<id>`。
-- done 提示改为 `plan note`：dsh 的 v1 plan 工具只读写当日 `plan-{date}.json`，看不到母版 id。
+- 尾行不指派回写工具：dsh 的 v1 plan 工具只读写当日 `plan-{date}.json`，看不到母版
+  id，`plan done`/`plan note` 都可能失败；等 overlay 写入工具移植后再恢复完成回写。
 - 状态根默认 `$DSH_HOME/kinship/state`（Loom 由宿主传 `stateRoot`）。
 - 需要 `kinship-bridge` 行和绑定会话，否则对账一律 `deferred_no_session`；
   手动改绑会换成新会话的队列文件，旧队列里未投递的条目不迁移。
@@ -548,5 +560,8 @@ profile 使用方式：profile 的 `dsh.profile.bundles` 加
   profile 显示；面板与 bridge 本身不受影响。
 - 面板的"未绑定 / 没有 kinship 会话"状态只有单测覆盖，未在浏览器里实测。
 - 计划调度器的移植差异与限制集中在 `## kinship-plan-scheduler` 的「已知差异 / 限制」：
-  legacy 当日仍排母版、done 提示改 `plan note`、只实现 `plan` 来源、需要 bridge 行
-  与绑定会话、master id 暂时不能 `plan done`。
+  legacy 当日仍排母版、唤醒尾行不指派回写工具、只实现 `plan` 来源、需要 bridge 行
+  与绑定会话、master id 暂时不能 `plan done`（overlay 写入工具是待办）。
+- 路径由 Kinship 后端推送这一点同样只影响计划调度：bridge 新增
+  `POST/GET /v1/kinship/paths`（落 `$DSH_HOME/kinship/paths.json`），后端在启动/
+  data_paths/ai_surface/health 上线四个时机推一次；其它行不依赖它。

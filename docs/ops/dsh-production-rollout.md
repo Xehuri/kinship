@@ -278,8 +278,10 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
   `【计划唤醒·coverage.run】22:00 · 覆盖检查点 cov-22`。`plan/master.json` 未被改动
   （version 仍 1、updated_at 仍是 2026-10-27）。
 - 文案修复时差：2026-11-15 23:05 这次重启加载的是 22:48 同步的构建，coverage 唤醒里
-  仍带旧的「完成后 plan done。」一句（与尾部 plan note 提示重复）；修复 `7aa542f`
-  已于 23:1x 重新同步进 profile，**下一次 dsh 重启后生效**——纯文案，不影响排程与投递。
+  仍带旧的「完成后 plan done。」一句；`7aa542f` 先修掉与尾部提示重复的那句，W58
+  （路径推送）又按生产实测把尾行改成**不指派回写工具**（`plan note` 在 v1 账 closed /
+  版本冲突时同样失败）。两笔修复都已重新同步进 profile，**下一次 dsh 重启后生效**——
+  纯文案，不影响排程与投递。overlay 写入工具移植后才会恢复完成回写。
 - 出问题时看**面板**的降级提示（`scheduler.degraded` / `lastError`）与
   `{planRoot}/daily/{date}/plan-ledger.jsonl` 里 `source: scheduler` 的行
   （`deferred_no_session`、`master_error`、`overlay_error`、queue_error 等）；
@@ -312,6 +314,31 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
 - 回滚不碰计划文件：移植引擎是加法件，不改 `master.json`（只有面板编辑才写），
   不写日计划与 overlay。`<dsh-home>/kinship/state` 下的队列与影子文件可以留着，
   再次启用且会话 id 相同时会继续用同一队列文件。
+
+### 8.5 路径同步（2026-11-15 晚，W58）
+
+计划根不再需要在 dsh 侧显式配置：Kinship 后端把自己的 `data.ai_root` /
+`data.dir` 经 bridge 推过来。
+
+- 链路：后端 `services/dsh_paths.py` → `POST {DSH_URL}/v1/kinship/paths`
+  （Bearer 同 bridge token）→ bridge 原子写 `<dsh-home>/kinship/paths.json`（0600）
+  → 发 `kinship/paths` 事件 → 调度器启动读文件、事件到达重新解析。
+- 触发点：后端启动（`boot`）、`data_paths` 配置应用（`data_paths`）、
+  切到 `ai_backend=dsh`（`ai_surface`）、dsh 健康探针 `offline→online`（`health`，
+  覆盖 dsh 重启）。同一秒内的多次触发合并成一次推送；失败只记 warning，不影响启动。
+- 优先级：推送的 `plan_root` > 行配置 > `KINSHIP_PLAN_ROOT` > `KINSHIP_AI_ROOT/data`。
+  因此上线后 `/etc/axeuh-dsh/env` 里的 `KINSHIP_PLAN_ROOT` 可以从“必配”降级为
+  “兜底”（先保留，等面板来源显示为「kinship 后端推送」后再决定是否删除）；
+  `KINSHIP_AI_ROOT` 仍保留（persona 在会话装配时读它）。
+- 上线顺序：先重启 dsh（加载 bridge 路由 + 新调度器 + 面板），再重启后端
+  （加载推送钩子）。后端重启后首探即 `online`，会立刻推一次；
+  若先重启后端，旧 bridge 没有该路由，只会多一条 warning，随后 dsh 重启后下一次
+  探针上线会再推一次，最终一致。
+- 验证：`cat <dsh-home>/kinship/paths.json` 应含 `data_dir`/`plan_root`；
+  面板「计划排班」的计划根来源显示 `kinship 后端推送（时间）`；后端日志出现
+  `[DshPaths] pushed plan_root=… reason=health`（或 `boot`）。
+- 回滚：删 `<dsh-home>/kinship/paths.json` 并重启 dsh，即回到 env/默认回落；
+  后端推送钩子是加法件，不推送也不影响既有路径解析。
 
 ## 9. E 段：回滚
 

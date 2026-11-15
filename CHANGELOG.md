@@ -6,12 +6,20 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 新增
 
+- **dsh 计划调度：路径由 Kinship 后端经 API 推送（2026-11-15 晚，W58）**：dsh 侧不再需要显式配置计划根等路径——后端把自己知道的布局推给 bridge，调度器直接使用。
+  - 链路：新增 `backend/services/dsh_paths.py`（`build_paths_payload` / `push_paths` / `schedule_push` / `last_push`，1s 合并、永不抛）与 `DshClient.push_kinship_paths`；bridge 新增 `POST/GET /v1/kinship/paths`（Bearer 同 bridge token、64 KiB、400 校验）落 `$DSH_HOME/kinship/paths.json`（0600、tmp+fsync+rename），并发 `kinship/paths` 事件、扩展 `kinshipBridge.paths()`。
+  - 触发点：后端启动、`data_paths` 配置应用、切到 `ai_backend=dsh`、dsh 健康探针 `offline→online`（覆盖 dsh 重启）。
+  - 调度器：启动读 `paths.json`、监听事件；`planRoot` 优先级改为 **推送的 `plan_root` → 行配置 → `KINSHIP_PLAN_ROOT` → `KINSHIP_AI_ROOT/data`**；根变则原地重启引擎，根同只刷新同步时间；被拒/空推送不掐运行中的引擎。`anchors` 默认改为空并从母版 `plan.build`/`plan.review` 派生物化时刻，`timezone` 以母版为准。
+  - 面板：计划根行下新增来源提示（`kinship 后端推送（时间）` / `插件配置` / `env` / `默认（等待推送）` / `未解析` + 推送被拒原因），锚点/时区也标来源；snapshot `scheduler` 增 `planRootSource/pathsPushedAt/pathsSource/pathsProblem/anchorsSource`。
+  - 唤醒文案修正：尾行不再指派 `plan note`（2026-11-15 生产实测 v1 账 closed/版本冲突时同样失败），改为“完成后无需回写计划…如需留痕，在回复里说明”；覆盖唤醒里旧的 `完成后 plan done。` 一并去掉。overlay 写入工具（`plan done`/`plan note` 真正可用）仍是待办。
+  - 验证：backend `test_dsh_paths.py` 13 项 + 相关 148 项通过、全量套件失败数维持基线 40；harness-plugins 292 项（26 文件）+ typecheck/build 绿；隔离栈端到端：用“诱饵” `KINSHIP_PLAN_ROOT` 起 dsh（无队列）→ 推送到真实数据根 → 引擎原地重启、队列出现、23:34 唤醒投递；再次重启 dsh 后仍从 `paths.json` 取推送根（`planRootSource=pushed`）。
+
 - **dsh 计划调度器（2026-11-15）**：新增 Host 级插件包 `harness-plugins/packages/kinship-plan-scheduler`，把 Loom 的计划调度器搬到 dsh。它读写同一份计划真源——`{planRoot}/plan/master.json` 母版、`{planRoot}/daily/{date}/plan-{date}.overlay.json` 当日覆盖层，并把 v1 `plan-{date}.json` 作为只读回退——所以切换运行时不会出现第二份排班。
   - 引擎移植：`plan/plan-scheduler.ts`（对账、`materializeMasterEntries` 物化、锚点定时器、看门狗、catchup/debt/horizon 三档、迟到 coverage 按日合并成一条补做、`plan.build`/`plan.review` 每天各最多一条、昨日遗留挂到今日 build 的 payload）与 `wake/queue.ts`（schema 2 持久队列、原子写、`.instance.json` 实例锁、失败重试一次 30s、`plan` 保留 48h / 归档 500 条、旧单条唤醒文件迁移）移植自 `loom-harness/packages/server/src/plan/plan-scheduler.ts` 与 `serve/wake-queue.ts`；`plan/legacy.ts` 是 dsh 适配层（两级 legacy 读取 + 母版与 legacy 合并）。
   - 投递：`kinship-bridge` 新增 `kinshipBridge.deliver(text)` 服务（先 `ensureBoundSession`，冷会话会被恢复；再以 user 消息、`next-turn` 注入绑定会话），调度器经它投递。唤醒行固定为 `【计划唤醒·<action>】HH:MM · <title>` + 指令 + `条目：<id>` + done 提示 + `不发用户通知，除非条目要求。`。
   - 面板：Kinship 页新增「计划排班」卡片——模式/计划根/状态目录/时区/锚点/健康状态、主排班表（启停、改时间、两步删除）、新增条目表单、立即对账（回显新增/更新/取消）、创建默认排班，以及唤醒队列预览；写操作走 owner-only 的四个 `/api/kinship/ui/plan*` 路由，每次带 `expectedVersion`，冲突返回 409 `master_conflict` 而不是覆盖。
   - 配置：新增 env 驱动的 `kinship-plan-scheduler` host 行——`KINSHIP_PLAN_MODE`（`live`/`shadow`/`off`）、`KINSHIP_PLAN_STATE_DIR`、`KINSHIP_PLAN_TIMEZONE`、`KINSHIP_PLAN_ANCHORS`、`KINSHIP_PLAN_WATCHDOG_MS`、`KINSHIP_PLAN_HORIZON_HOURS`、`KINSHIP_PLAN_CATCHUP_MAX_AGE_HOURS`、`KINSHIP_PLAN_DEBT_AFTER_HOURS`；状态根默认 `$DSH_HOME/kinship/state`，计划根回落 `KINSHIP_PLAN_ROOT` / `KINSHIP_AI_ROOT/data`。
-  - 与 Loom 的有意差异：当日存在 v1 计划时仍排母版条目（Loom 会用旧计划整体替换当日视图，dsh 侧改为追加、撞 id 只记 `legacy_collision:<id>`）；唤醒的 done 提示改成 `plan note`（母版 id 不在当日 v1 账里，`plan done` 会找不到条目）；只实现 `plan` 唤醒来源（dsh 没有 flow/special/inbox 生产者，队列与渲染器仍认识它们）；状态根默认值不同。
+  - 与 Loom 的有意差异：当日存在 v1 计划时仍排母版条目（Loom 会用旧计划整体替换当日视图，dsh 侧改为追加、撞 id 只记 `legacy_collision:<id>`）；唤醒尾行不指派回写工具（母版 id 不在当日 v1 账里，`plan done` 会找不到条目；`plan note` 在 v1 账 closed/版本冲突时同样失败，见上条 W58）；只实现 `plan` 唤醒来源（dsh 没有 flow/special/inbox 生产者，队列与渲染器仍认识它们）；状态根默认值不同。
   - 验证：`harness-plugins` 249 条单测 + 8 条集成测试通过、`tsc --noEmit` 通过；隔离测试栈用 `scripts/ui/plan-panel.mjs` 实测面板路由可读、写盘版本递增、禁用条目后 `next` 清空、2 分钟后的唤醒真的进了绑定会话。另按来源各跑一次真实唤醒：`anchor/coverage.run`（含昨日迟到 coverage 合并成的 `补覆盖` catch-up）、`long_term`（`next_check` 当日才排）、`review.daily` 均按点投递并进会话；真 GUI 交互（表单新增/启停/行内改时间/立即对账/两步删除）与重启后队列存活也在测试栈复验。据此修掉覆盖唤醒里「完成后 plan done」与尾部提示「plan note」自相矛盾的一句（`7aa542f`）。设计、配置表与差异清单见 `harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md`。
 - **harness 切换入口收敛 + dsh 冷会话自愈（2026-11-15，W53/W54）**：
   - 入口统一：`config.yaml` 顶层 `ai_backend` 成为唯一真源——`services/web_backend_selector` 删掉 `web_backend.json` 第二状态与写入面，`get_web_backend()` 恒等于 `get_ai_backend()`；后端启动时把遗留状态文件改名归档为 `web_backend.json.deprecated-<stamp>`；`POST /api/screen/backend` 退役返回 410（避免绕开配置写入的密码二次校验），`GET` 保留为只读回显并新增 `dsh` 取值；前端 `backend.ts` / `session.ts` / `useSubAgents.ts` 接受 dsh 标签。

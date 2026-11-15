@@ -17,9 +17,12 @@ note. `plan/legacy.ts` is the dsh-specific adaptation; see
 ## What it is
 
 - A Host plugin (`name: kinship-plan-scheduler`, `inject: ['agents']`) that is
-  always mounted. When the plan root cannot be resolved it stays mounted but
-  starts no engine, so the panel can explain what to configure instead of the
-  routes disappearing.
+  always mounted. The operator configures **no paths**: the Kinship backend
+  pushes them through the sibling bridge (see
+  [Paths pushed by the Kinship backend](#paths-pushed-by-the-kinship-backend)),
+  and the plugin re-resolves when a push moves the plan root. When nothing
+  resolves it stays mounted but starts no engine, so the panel can explain what
+  is missing instead of the routes disappearing.
 - A scheduling layer only. It never writes completion state back into a day
   plan: it reads the master and the day's overlay, queues wakes, and appends
   facts to a ledger.
@@ -251,8 +254,36 @@ state root (`$DSH_HOME/kinship/state` by default).
 | `{stateDir}/session/wake/{sessionId}.json` | old single-wake file | migrated once, then renamed |
 | `{stateDir}/plan/shadow/{date}.jsonl` | shadow reconcile | what would have been queued |
 | `{stateDir}/plan/scheduler.jsonl` | engine fallback ledger | not written by the dsh wiring |
+| `$DSH_HOME/kinship/paths.json` | `kinship-bridge` | last paths pushed by the Kinship backend; the plan root comes from here |
 
+## Paths pushed by the Kinship backend
 
+The Kinship backend owns the deployment layout (`data.ai_root`,
+`data.dir`). Instead of asking the operator to repeat those paths in dsh
+environment variables, the backend pushes them over the bridge's authenticated
+loopback channel:
+
+```
+Kinship backend ──POST /v1/kinship/paths──▶ kinship-bridge
+                                             ├─ $DSH_HOME/kinship/paths.json (0600, atomic)
+                                             └─ emits `kinship/paths`
+                                                        │
+                              kinship-plan-scheduler ◀───┘ re-resolves the plan root
+```
+
+The scheduler reads that file at boot (so a restart keeps the last accepted
+layout even when the backend is down) and re-reads it on every `kinship/paths`
+event. `plan_root` from the push is the first plan-root candidate:
+**pushed → row config → `KINSHIP_PLAN_ROOT` → `KINSHIP_AI_ROOT/data`**. A push
+that resolves to a different root stops and restarts the engine in place
+(anchors and timezone are derived again from the new master); a push that
+resolves to the same root only refreshes the provenance shown in the panel. A
+rejected or `null` payload never tears down a running engine.
+
+The plugin never writes `paths.json`; it only validates what it reads. When the
+document is missing (backend never pushed), the panel shows the plan root's
+provenance as `env` / `default` and explains that it is waiting for the Kinship
+backend.
 
 ## Configuration
 
@@ -261,11 +292,11 @@ environment variables below):
 
 | Field | Default | Env fallback | Meaning |
 | --- | --- | --- | --- |
-| `planRoot` | `""` | `KINSHIP_PLAN_ROOT`, else `KINSHIP_AI_ROOT/data` | absolute plan root; empty falls back to the chain |
+| `planRoot` | `""` | `KINSHIP_PLAN_ROOT`, else `KINSHIP_AI_ROOT/data` | absolute plan root override; the root the backend pushed wins, this is the fallback |
 | `stateDir` | `""` | `KINSHIP_PLAN_STATE_DIR` | absolute state root; empty uses `$DSH_HOME/kinship/state` |
 | `mode` | `live` | `KINSHIP_PLAN_MODE` | `live` / `shadow` / `off` |
-| `timezone` | `Asia/Shanghai` | `KINSHIP_PLAN_TIMEZONE` | zone used until the master supplies its own |
-| `anchors` | `["05:00", "07:30"]` | `KINSHIP_PLAN_ANCHORS` (comma separated) | daily reconcile clocks, strict `HH:MM`, at most 8, no duplicates |
+| `timezone` | `Asia/Shanghai` | `KINSHIP_PLAN_TIMEZONE` | zone used only until the master supplies its own (the master wins) |
+| `anchors` | `[]` (derive) | `KINSHIP_PLAN_ANCHORS` (comma separated) | daily reconcile clocks, strict `HH:MM`, at most 8, no duplicates; empty derives `plan.build`/`plan.review` slots from the master, falling back to `05:00,07:30` |
 | `watchdogMs` | `60000` | `KINSHIP_PLAN_WATCHDOG_MS` | watchdog interval; `0` disables |
 | `horizonHours` | `48` | `KINSHIP_PLAN_HORIZON_HOURS` | how far ahead slots are materialized (max 168) |
 | `catchupMaxAgeHours` | `8` | `KINSHIP_PLAN_CATCHUP_MAX_AGE_HOURS` | late slots younger than this keep their own time |
@@ -273,11 +304,20 @@ environment variables below):
 
 
 
-`KINSHIP_PLAN_ROOT` is read twice on purpose: the bundle patch passes it as the
-row config, and `config.ts` uses it again when the config value is empty. A
-relative `planRoot` is refused with a panel-facing `problem` instead of being
-resolved against the working directory. `$DSH_HOME` unset or blank means
-`~/.dsh`.
+`planRoot` normally needs no value at all: the Kinship backend pushes the
+layout and the plugin prefers it. `KINSHIP_PLAN_ROOT` is still read twice on
+purpose as a fallback: the bundle patch passes it as the row config, and
+`config.ts` uses it again when the config value is empty. A relative candidate
+is refused and the next candidate is tried (a stale override must not mask a
+pushed root); the panel-facing `problem` is only set when nothing resolves.
+`$DSH_HOME` unset or blank means `~/.dsh`.
+
+`timezone` and `anchors` follow the plan master once it is readable: the
+master's `timezone` becomes the scheduler zone, and when `anchors` is empty the
+`plan.build` / `plan.review` entries' `schedule.at` clocks become the reconcile
+anchors (`05:00` / `07:30` if the master has none). The snapshot reports both
+sources (`timezone` effective, `anchorsSource: config|master|default`) so the
+panel can show where the schedule comes from.
 
 Mode semantics:
 
@@ -312,10 +352,15 @@ plugin effect, so a reload removes and re-registers them.
 
 Snapshot (`GET`, and the answer of every write):
 
-- `scheduler`: `{mode, planRoot, stateDir, timezone, anchors, degraded,
-  lastError, problem, masterPresent}`. `problem` is a root-resolution failure,
+- `scheduler`: `{mode, planRoot, stateDir, timezone, anchors, planRootSource,
+  pathsPushedAt, pathsSource, pathsProblem, anchorsSource, degraded, lastError,
+  problem, masterPresent}`. `problem` is a root-resolution failure,
   `degraded`/`lastError` a runtime one, `masterPresent` says whether a master
-  file exists even when it cannot be read.
+  file exists even when it cannot be read. Provenance: `planRootSource` is
+  `pushed|config|env|default` (null while nothing resolves), `pathsPushedAt` /
+  `pathsSource` describe the accepted backend push, `pathsProblem` a refused
+  one, `anchorsSource` is `config|master|default`, and `timezone` is the
+  effective zone (master first).
 - `master`: `null` or `{version, timezone, updatedAt, entries}`; each entry is
   `{id, kind, title, action, enabled, status, schedule, next_at, next_local}`
   with `next_at` computed by the ported timezone helpers.
@@ -379,8 +424,13 @@ those ids. dsh's v1 plan tools read and write `plan-{date}.json`, which does not
 contain master ids, so `plan done` would answer item-not-found. The rendered
 wake therefore says, for `plan.build` / `plan.review`,
 `完成后只写当日计划，不需要 plan done。`, and for everything else
-`完成后用 plan note 记一行结论（母版条目不在当日 v1 账里，plan done 不适用）。`
-The `条目：` line is still the master id, so the model can quote it in a note.
+`完成后无需回写计划（母版条目不在当日 v1 账里）；如需留痕，在回复里说明。`
+The `条目：` line is still the master id, so the model can quote it in its reply.
+The first version of this port said `plan note` instead; the 2026-11-15
+production wake showed that path also fails (the day's v1 file was a closed test
+leftover and the model passed the overlay version, so `plan note` answered
+`expected version 20, actual 4`). Naming no tool is the honest hint until the
+overlay write path is ported (see Known limits).
 
 (c) **Only the `plan` wake source is implemented.** Loom also scheduled `flow`,
 `special` and `inbox` wakes; dsh has no flow engine, no automatic wake command
@@ -411,11 +461,11 @@ kept out of the plan root so switching runtimes does not mix state formats.
   day-overlay write tool (the overlay store is already mounted, but no tool
   exposes it), which would let the model write `update` ops against master ids.
 - Coverage entries without an explicit `instruction` get the ported generated
-  line, which ends after the task/window sentence; the trailing hint line owns
-  the write-back guidance (`plan note`, never `plan done` on a master id). The
-  earlier port kept Loom's `完成后 plan done。` in that line and produced two
-  contradictory orders in one wake; fixed 2026-11-15 after the real-surface
-  end-to-end run caught it.
+  line, which ends after the task/window sentence; no wake names a write-back
+  tool. Two earlier variants were wrong in production: Loom's
+  `完成后 plan done。` (item-not-found on a master id) and the first port's
+  `plan note` (closed v1 account / version conflict). Completion facts stay in
+  the session reply until the overlay write tool exists.
 - All master edits go through the panel routes. The Kinship model's own plan
   tools keep writing the v1 day file, which the scheduler then reads as legacy.
 - `mode: "shadow"` never mounts a queue, so the panel's queue section is empty
