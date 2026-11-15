@@ -1,0 +1,33 @@
+{
+  "name": "kinship-task-compat",
+  "version": "0.1.0",
+  "description": "Loom/opencode-compatible task, todowrite, and MCP aliases for Kinship on dsh.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
+  "engines": {
+    "dsh": ">=0.2.2-rc.1 <0.2.3"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.19.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-agent": ">=0.2.2-rc.1 <0.2.3",
+    "@deepseek-ai/dsh-llm": ">=0.2.2-rc.1 <0.2.3",
+    "@deepseek-ai/dsh-scope": ">=0.2.2-rc.1 <0.2.3",
+    "@deepseek-ai/dsh-subagent": ">=0.2.2-rc.1 <0.2.3",
+    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.1 <0.2.3"
+  }
+}

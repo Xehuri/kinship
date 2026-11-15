@@ -1,0 +1,46 @@
+{
+  "name": "kinship-harness-plugins",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kinship integration for DeepSeek Harness: bridge, plan tool, Loom/opencode compatibility tools, and the kinship agent preset patch.",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "files": [
+    "cordis.patch.yml",
+    "presets/*.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": [
+        "./cordis.patch.yml",
+        "./presets/kinship.patch.yml"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": ">=0.2.2-rc.1 <0.2.3"
+  },
+  "scripts": {
+    "link:dsh": "node scripts/link-dsh.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p packages/kinship-bridge/tsconfig.json && tsc -p packages/kinship-plan/tsconfig.json && tsc -p packages/kinship-task-compat/tsconfig.json",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "verify": "npm run typecheck && npm run build && npm run test"
+  },
+  "dependencies": {
+    "kinship-bridge": "0.1.0",
+    "kinship-plan": "0.1.0",
+    "kinship-task-compat": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3",
+    "vitest": "~3.2.7"
+  }
+}

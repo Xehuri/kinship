@@ -1,0 +1,17 @@
+# Host-level Kinship rows inserted by this bundle.
+#
+# The bridge is one loopback HTTP endpoint over the live dsh agent registry.
+# It binds at most one root Session whose preset is `kinship`; the preset itself
+# is declared in presets/kinship.patch.yml.
+- insert:
+    - id: kinship-bridge
+      name: 'kinship-bridge'
+      config:
+        host: !!js process.env.KINSHIP_BRIDGE_HOST ?? '127.0.0.1'
+        port: !!js Number(process.env.KINSHIP_BRIDGE_PORT ?? 18765)
+        tokenEnv: KINSHIP_BRIDGE_TOKEN
+        tokenFile: !!js process.env.KINSHIP_BRIDGE_TOKEN_FILE ?? ''
+        policy: !!js process.env.KINSHIP_BRIDGE_POLICY ?? 'first'
+        sessionId: !!js process.env.KINSHIP_BRIDGE_SESSION_ID ?? ''
+        rebindOnMissing: !!js process.env.KINSHIP_BRIDGE_REBIND_ON_MISSING === '1'
+        bodyLimitBytes: 65536

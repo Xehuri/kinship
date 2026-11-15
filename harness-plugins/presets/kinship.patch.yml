@@ -1,0 +1,87 @@
+# Kinship agent preset for the dsh Web surface.
+#
+# Persona: the complete ai/agents/main.md text, prefix-only (complete:false).
+# No agent-instructions row and no AGENTS.md edit: the file is the persona.
+# Order 5 keeps the shipped standard(1), ptc(2), minimal(3), cordis(4) presets
+# untouched and appends Kinship after them.
+- insert:
+    - id: preset-kinship
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: kinship
+        name: Kinship
+        description: Kinship personal-assistant preset with the Loom tool aliases and daily plan.
+        order: 5
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: !!js (() => { const fs = process.getBuiltinModule('node:fs'); const path = process.getBuiltinModule('node:path'); const root = process.env.KINSHIP_AI_ROOT; if (!root) throw new Error('KINSHIP_AI_ROOT is required to load the kinship persona'); return fs.readFileSync(path.join(root, 'agents', 'main.md'), 'utf8'); })()
+              complete: false
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: delegation
+            name: cordis:group
+            group: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+                config:
+                  interrupt: false
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  modelSelection: true
+                  modelDiscovery: true
+              - id: tool-subagent-fork
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: kinship-plan
+            name: 'kinship-plan'
+            config:
+              root: !!js process.env.KINSHIP_PLAN_ROOT ?? ''
+              timezone: !!js process.env.KINSHIP_PLAN_TIMEZONE ?? 'Asia/Shanghai'
+              allowOverlayShadow: !!js process.env.KINSHIP_PLAN_ALLOW_OVERLAY_SHADOW === '1'
+          - id: kinship-task-compat
+            name: 'kinship-task-compat'
+            config:
+              provider: spawn
