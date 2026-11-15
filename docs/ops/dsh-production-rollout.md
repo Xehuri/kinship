@@ -234,7 +234,13 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
    重启时刻落在当天 12:00 之后时，`plan.build`/`plan.review`/`daily-review`/`weather`/
    `long_term` 等已过时且仍在 `debtAfterHours`（24h）内的条目会各投一条迟到唤醒，
    7 个 coverage 检查点里超过 8h 的会合并成一条「补覆盖」唤醒，其余按原时刻立即投递；
-   最坏情况下重启后 1 分钟内会有 ~8-10 条 `【计划唤醒…】` 进入绑定会话。三个选项：
+   最坏情况下重启后 1 分钟内会有 ~8-10 条 `【计划唤醒…】` 进入绑定会话。
+   **实际以当天 overlay 的完成状态为准**：`update … status: done` 的条目是终态、不会补投。
+   2026-11-15 23:05 生产首次 `live` 重启实测：当天 overlay（v20）已把
+   `daily-review/compactor/plan-build/weather/plan-review/cov-00/06/08/12/16/20/biweekly/lt_soak_7d`
+   全部标 done，只有最后一个检查点 `cov-22` 仍是 planned → **只补投了 1 条**
+   `【计划唤醒·coverage.run】22:00 · 覆盖检查点 cov-22`（23:05:35 进会话），
+   随后 48h 视界内排好 27 条待投（次日 00:00 起）。想进一步降低噪声的三个选项：
    （a）先 `KINSHIP_PLAN_MODE=shadow` 重启一次观察、再切 `live`；
    （b）选一个当天档位基本跑完的时刻（例如 23:00 之后或 00:35 之前）重启，噪声最小；
    （c）临时把 `KINSHIP_PLAN_CATCHUP_MAX_AGE_HOURS=0`、`KINSHIP_PLAN_DEBT_AFTER_HOURS=1`
@@ -265,9 +271,19 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
 - 回滚演练（2026-11-15 在隔离栈实测）：`KINSHIP_PLAN_MODE=off` 起 dsh 后，
   `GET /api/kinship/ui/plan` 仍 200 且 `scheduler.mode=off`，四个写/对账路由一律
   409 `scheduler_disabled`，不产生队列文件。
-- 出问题时先看 `journalctl -u axeuh-dsh | grep 'kinship-plan-scheduler'`：`engine
-  disabled: planRoot …` 表示根没解析，`reconcile deferred, no bound session` 表示
-  bridge 还没有绑定会话。
+- 生产首次上线实测（2026-11-15 23:05 重启）：bridge `/v1/health` 立刻 `bound`；
+  队列文件 `session-2f8b68aa-….json` 生成（delivered 1 / pending 27）；
+  会话消息与后端 chatlog 都出现该唤醒——`GET /api/screen/session/chatlog`
+  返回 `backend=dsh, source=dsh_bridge`，其中 23:05:35 的 user 消息就是
+  `【计划唤醒·coverage.run】22:00 · 覆盖检查点 cov-22`。`plan/master.json` 未被改动
+  （version 仍 1、updated_at 仍是 2026-10-27）。
+- 文案修复时差：2026-11-15 23:05 这次重启加载的是 22:48 同步的构建，coverage 唤醒里
+  仍带旧的「完成后 plan done。」一句（与尾部 plan note 提示重复）；修复 `7aa542f`
+  已于 23:1x 重新同步进 profile，**下一次 dsh 重启后生效**——纯文案，不影响排程与投递。
+- 出问题时看**面板**的降级提示（`scheduler.degraded` / `lastError`）与
+  `{planRoot}/daily/{date}/plan-ledger.jsonl` 里 `source: scheduler` 的行
+  （`deferred_no_session`、`master_error`、`overlay_error`、queue_error 等）；
+  journal 里没有这些行是正常的（见上）。
 
 ### 8.3 对生产计划文件的影响
 
