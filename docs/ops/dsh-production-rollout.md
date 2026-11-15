@@ -199,7 +199,7 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
 ### 8.1 步骤
 
 1. 构建（Node 24）：`cd harness-plugins && npm run verify`（typecheck + build +
-   313 个用例 / 28 个文件）。
+   316 个用例 / 28 个文件）。
 2. 同步进 profile（`sync-profile.sh` 现在拷六个包 + bundle patch）：
 
    ```bash

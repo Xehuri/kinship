@@ -42,7 +42,7 @@ export PATH=/mnt/d/tools/node-v24.22.3-linux-x64/bin:$PATH
 cd harness-plugins
 npm install
 npm run link:dsh   # 把安装机的 @deepseek-ai/* 链到本 workspace node_modules
-npm run verify     # typecheck + build + tests（313 个用例，28 个文件）
+npm run verify     # typecheck + build + tests（316 个用例，28 个文件）
 ```
 
 `link:dsh` 默认读取
