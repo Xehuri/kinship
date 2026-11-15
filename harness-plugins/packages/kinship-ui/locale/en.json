@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Kinship panel",
-    "description": "Kinship bridge status, configuration, and Session binding in the Web sidebar.",
+    "description": "Kinship bridge status, configuration, Session binding, and the plan schedule in the Web sidebar.",
     "detail": "docs/DETAIL.md"
   }
 }

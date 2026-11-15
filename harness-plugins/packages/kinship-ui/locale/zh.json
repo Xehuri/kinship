@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Kinship 面板",
-    "description": "在 Web 侧栏查看 Kinship 桥接状态、修改桥接配置并绑定会话。",
+    "description": "在 Web 侧栏查看 Kinship 桥接状态、修改桥接配置、绑定会话并编辑计划排班。",
     "detail": "docs/DETAIL.md"
   }
 }
