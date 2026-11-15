@@ -221,6 +221,13 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
   绑定 id（不再静默替换、不再把内容错记到旧会话）；`include_children` 在 dsh 下标
   `children_unsupported: true` 并跳过，绝不用父会话内容冒充子会话历史。响应新增
   `requested_session_id` / `resolved_by` / `children_unsupported` 三个只增字段。
+- **chatlog 可选通道（W56，2026-11-15 21:4x）**：`GET /api/screen/session/chatlog` 新增
+  可选 `backend=opencode|loom|dsh`，`query_chatlog.py` 对应新增 `--backend`。缺省仍跟随
+  `ai_backend`。`loom` 腿**离线**读 Loom 追加式主会话日志
+  `<AI_ROOT>/.loom/session/loom-main.jsonl`（不要求 Loom 进程在线；反向分块扫描，
+  两小时窗约 0.05s、整月约 1.4s/2 万轮次，超过 4000 条只回最近 N 条并标 `truncated`）；
+  它只覆盖主会话、不扫 `.bak-*` 轮转备份，`include_children` 标不支持。响应再增
+  `backend` / `source`（`dsh_bridge` / `loom_jsonl` / `engine`）两个只增字段。
 - **令牌来源**：当前用插件生成的文件，可在面板显示/轮换；若改成环境变量来源，面板会拒绝轮换
   （409 `token_env_managed`）。
 - **面板保存语义**：从面板保存桥接配置会写 profile 的完整覆盖，bundle patch 里 env 驱动的字段

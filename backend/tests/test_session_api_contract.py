@@ -31,6 +31,7 @@ V6 重构（gateway 退役、router 直连 client）后本文件断言一字不�
 从网关工厂换为 acquire_opencode_client——形状即契约。
 """
 import asyncio
+import json
 import re
 from typing import Any, Dict, List, Optional
 
@@ -292,6 +293,33 @@ def _patch_dsh_chatlog(monkeypatch, bound_id: str = "session-bound-1"):
     _patch_client(monkeypatch, stub)
     monkeypatch.setattr(session_router, "get_web_backend", lambda: "dsh")
     return stub
+
+
+def _write_loom_log(path, base_ms: int) -> None:
+    """写一份最小 Loom 追加日志（W56 离线 chatlog 用）。"""
+    rows = [
+        {"t": "entry", "sid": "loom_main", "e": {"id": "L1", "entry": {
+            "kind": "message", "message": {"role": "user", "content": "旧账问题",
+                                           "timestamp": base_ms + 1000}}}},
+        {"t": "entry", "sid": "loom_main", "e": {"id": "L2", "entry": {
+            "kind": "message", "message": {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "reasoning..."},
+                {"type": "text", "text": "旧账回复"},
+                {"type": "toolCall", "name": "bash", "arguments": {}},
+            ], "timestamp": base_ms + 2000}}}},
+        {"t": "entry", "sid": "loom_main", "e": {"id": "L3", "entry": {
+            "kind": "message", "message": {"role": "toolResult", "content": [
+                {"type": "text", "text": "ok"}], "timestamp": base_ms + 3000}}}},
+        {"t": "entry", "sid": "loom_main", "e": {"id": "L4", "entry": {
+            "kind": "message", "message": {"role": "user", "content": "窗口外",
+                                           "timestamp": base_ms + 9 * 86400 * 1000}}}},
+        "not json",
+    ]
+    body = "\n".join(
+        row if isinstance(row, str) else json.dumps(row, ensure_ascii=False)
+        for row in rows
+    )
+    path.write_text(body + "\n", encoding="utf-8")
 
 
 @pytest.fixture
@@ -712,12 +740,15 @@ class TestChatlogContract:
         assert resp.status_code == 200
         payload = resp.json()
         assert set(payload.keys()) == {"session_id", "requested_session_id",
-                                       "resolved_by", "children_unsupported",
-                                       "window", "include_children",
-                                       "message_count", "truncated", "turns"}
+                                       "backend", "source", "resolved_by",
+                                       "children_unsupported", "window",
+                                       "include_children", "message_count",
+                                       "truncated", "turns"}
         assert set(payload["window"].keys()) == {"start_ms", "end_ms", "start", "end"}
         assert payload["session_id"] == "ses_cl1"
         assert payload["requested_session_id"] == "ses_cl1"
+        assert payload["backend"] == "opencode"
+        assert payload["source"] == "engine"
         assert payload["resolved_by"] == "binding"
         assert payload["children_unsupported"] is False
         assert payload["include_children"] is False
@@ -833,7 +864,7 @@ class TestChatlogContract:
                           params={**params, "format": "text"},
                           headers=auth_headers)
         assert text.status_code == 200
-        assert "include_children 不支持" in text.text
+        assert "不支持 include_children" in text.text
 
     def test_msg_to_turn_skips_system_reminder(self):
         """dsh 的 <system-reminder> 以 user 角色注入，chatlog 不能当成用户发言。"""
@@ -855,6 +886,142 @@ class TestChatlogContract:
         }
         turn = _msg_to_turn(real_user, "s")
         assert turn is not None and turn["content"] == "你好"
+
+    # ---- W56：一次查询可选 loom / dsh（不必改 config） ----
+
+    def test_chatlog_backend_loom_reads_offline_log(
+        self, client, auth_headers, tmp_manager, monkeypatch, tmp_path
+    ):
+        from services import loom_session_log
+
+        log = tmp_path / "loom-main.jsonl"
+        _write_loom_log(log, 1_720_000_000_000)
+        monkeypatch.setattr(loom_session_log, "loom_log_path", lambda: log)
+
+        resp = client.get("/api/screen/session/chatlog",
+                          params={"start": "2024-07-03 00:00:00",
+                                  "end": "2024-07-05 00:00:00",
+                                  "backend": "loom"},
+                          headers=auth_headers)
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["backend"] == "loom"
+        assert payload["source"] == "loom_jsonl"
+        assert payload["resolved_by"] == "loom_log"
+        assert payload["session_id"] == "loom_main"
+        assert payload["message_count"] == 2  # toolResult 与窗口外条目被过滤
+        assert [t["role"] for t in payload["turns"]] == ["user", "assistant"]
+        assert payload["turns"][1]["content"] == "旧账回复"
+        assert payload["turns"][1]["tools"] == ["bash"]
+        assert payload["turns"][1]["time_str"].startswith("2024-07-")
+
+    def test_chatlog_loom_marks_children_unsupported(
+        self, client, auth_headers, tmp_manager, monkeypatch, tmp_path
+    ):
+        from services import loom_session_log
+
+        log = tmp_path / "loom-main.jsonl"
+        _write_loom_log(log, 1_720_000_000_000)
+        monkeypatch.setattr(loom_session_log, "loom_log_path", lambda: log)
+
+        resp = client.get("/api/screen/session/chatlog",
+                          params={"start": "2024-07-03", "end": "2024-07-05",
+                                  "backend": "loom",
+                                  "include_children": "true"},
+                          headers=auth_headers)
+        payload = resp.json()
+        assert payload["include_children"] is True
+        assert payload["children_unsupported"] is True
+
+    def test_chatlog_loom_caps_large_windows(
+        self, client, auth_headers, tmp_manager, monkeypatch, tmp_path
+    ):
+        """整月窗口不把上万条塞进一个响应：保留最近 N 条并标 truncated。"""
+        from routers import session as session_router
+        from services import loom_session_log
+
+        log = tmp_path / "loom-main.jsonl"
+        _write_loom_log(log, 1_720_000_000_000)
+        monkeypatch.setattr(loom_session_log, "loom_log_path", lambda: log)
+        monkeypatch.setattr(session_router, "_CHATLOG_LOOM_MAX_TURNS", 1)
+
+        resp = client.get("/api/screen/session/chatlog",
+                          params={"start": "2024-07-03", "end": "2024-07-05",
+                                  "backend": "loom"},
+                          headers=auth_headers)
+        payload = resp.json()
+        assert payload["truncated"] is True
+        assert payload["message_count"] == 1
+        assert payload["turns"][0]["role"] == "assistant"
+
+    def test_chatlog_loom_rejects_unknown_session_id(
+        self, client, auth_headers, tmp_manager, monkeypatch, tmp_path
+    ):
+        from services import loom_session_log
+
+        log = tmp_path / "loom-main.jsonl"
+        _write_loom_log(log, 1_720_000_000_000)
+        monkeypatch.setattr(loom_session_log, "loom_log_path", lambda: log)
+
+        resp = client.get("/api/screen/session/chatlog",
+                          params={"start": "2024-07-03", "end": "2024-07-05",
+                                  "backend": "loom", "session_id": "ses_other"},
+                          headers=auth_headers)
+        assert resp.status_code == 409
+        message = resp.json()["error"]["message"]
+        assert "loom 离线日志只覆盖主会话" in message
+        assert "ses_other" in message
+
+    def test_chatlog_loom_missing_log_404(
+        self, client, auth_headers, tmp_manager, monkeypatch, tmp_path
+    ):
+        from services import loom_session_log
+
+        monkeypatch.setattr(loom_session_log, "loom_log_path",
+                            lambda: tmp_path / "absent.jsonl")
+
+        resp = client.get("/api/screen/session/chatlog",
+                          params={"start": "2024-07-03", "end": "2024-07-05",
+                                  "backend": "loom"},
+                          headers=auth_headers)
+        assert resp.status_code == 404
+        assert "未找到 Loom 会话日志" in resp.json()["error"]["message"]
+
+    def test_chatlog_explicit_dsh_without_switching_config(
+        self, client, auth_headers, tmp_manager, monkeypatch
+    ):
+        from routers import session as session_router
+
+        stub = _DshChatlogStub("session-bound-9")
+
+        async def _acquire(backend):
+            assert backend == "dsh"
+            return stub
+
+        monkeypatch.setattr(session_router, "_acquire_client_by_backend", _acquire)
+        monkeypatch.setattr(session_router, "get_web_backend", lambda: "opencode")
+
+        resp = client.get("/api/screen/session/chatlog",
+                          params={"start": "2024-07-03 00:00:00",
+                                  "end": "2024-07-05 00:00:00",
+                                  "backend": "dsh"},
+                          headers=auth_headers)
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["backend"] == "dsh"
+        assert payload["source"] == "dsh_bridge"
+        assert payload["session_id"] == "session-bound-9"
+        assert payload["message_count"] == 2
+
+    def test_chatlog_invalid_backend_400(
+        self, client, auth_headers, tmp_manager
+    ):
+        resp = client.get("/api/screen/session/chatlog",
+                          params={"start": "2024-07-03", "end": "2024-07-05",
+                                  "backend": "nope"},
+                          headers=auth_headers)
+        assert resp.status_code == 400
+        assert "backend 取值非法" in resp.json()["error"]["message"]
 
     def test_chatlog_bad_time_400_envelope(self, client, auth_headers, tmp_manager):
         resp = client.get("/api/screen/session/chatlog",
@@ -944,11 +1111,11 @@ def _patch_web_only(monkeypatch, web_stub, global_stub):
 
 
 class TestWebBackendSwapW30:
-    def test_web_endpoints_use_web_client_chatlog_stays_global(
+    def test_web_endpoints_use_web_client_chatlog_uses_global_factory(
         self, client, auth_headers, tmp_manager, monkeypatch
     ):
-        """web=loom：6 个 web 端点不碰全局工厂；chatlog 照旧走全局缝。"""
-        _set_web("loom")
+        """web 端点走 web 缝；chatlog 走全局工厂缝（W53 后两者取值同源）。"""
+        _set_web("opencode")
         web_stub = _StubClient()
         global_stub = _StubClient()
         _patch_web_only(monkeypatch, web_stub, global_stub)
@@ -1060,11 +1227,11 @@ class TestWebBackendSwapW30:
         assert tmp_manager.get_agent_session("opencode:main-task") == "ses_x1"
         assert tmp_manager.get_agent_session("main-task") == "ses_voice_old"
 
-    def test_chatlog_default_target_stays_bare_when_web_loom(
+    def test_chatlog_default_target_stays_bare(
         self, client, auth_headers, tmp_manager, monkeypatch
     ):
-        """chatlog 缺省目标恒取裸 main-task 绑定（全局通道语义），无视 loom 命名键。"""
-        _set_web("loom")
+        """chatlog 缺省目标恒取裸 main-task 绑定（全局通道语义），无视命名键。"""
+        _set_web("opencode")
         web_stub = _StubClient()
         global_stub = _StubClient()
         _patch_web_only(monkeypatch, web_stub, global_stub)

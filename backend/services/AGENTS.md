@@ -64,6 +64,7 @@
 | WebBackendSelector | `web_backend_selector.py` | Web 对话管线择路（W30 立项，W53 收敛为**无第二真源**）：`get_web_backend` 恒等于 `get_ai_backend()`（顶层 `ai_backend`，每次现读配置快照，非法值 fail-fast）；旧的独立状态文件 `web_backend.json` 已退役，`deprecate_legacy_state()` 在启动时把它改名归档为 `.deprecated-<时间戳>` 留证；`acquire_web_client`/`get_web_client` 按该唯一值路由 opencode/loom/dsh 原语（后台链路仍直接经 `ai_client_factory`）；`web_agent_key` = 绑定命名空间键形制单源（`"<backend>:<agent>"`）；W53 起不再提供写入面（切换统一走 `/api/system/config`，写操作受 `require_config_write` 密码校验约束） |
 | OpenCodeClient | `opencode_client.py` | OpenCode API 客户端（V6 起含信封公共层，原 OpenCodeGateway 已退役拍扁；裸传输改 `_raw_*`，mock/默认模型注入下沉同名方法） |
 | LoomClient | `loom_client.py` + `loom_messages.py` | Loom harness 通道客户端与**页级**消息形状转换（与 opencode 信封逐键同构）：toolResult 按 `toolCallId` 并回同页 assistant toolCall part，同页无宿主的孤儿原位保留独立壳（规则见下节） |
+| LoomSessionLog | `loom_session_log.py` | **W56 新增**：Loom 主会话追加日志 `<AI_ROOT>/.loom/session/loom-main.jsonl` 的只读离线读取层（chatlog 的 loom 腿，不要求 Loom 进程在线）。反向分块扫描 + 时间窗过滤（早于 start_ms 即停），user 字符串 / assistant block 列表归一为（正文, 工具名），thinking 与 toolResult 跳过，坏行逐行容错；只读当前文件，不扫 `.bak-*` 轮转备份 |
 
 #### Loom 历史消息转换（`loom_messages.py`，W43/W50 修正）
 

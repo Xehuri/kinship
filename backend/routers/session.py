@@ -1201,6 +1201,11 @@ def _msg_to_turn(msg: Dict[str, Any], fallback_sid: str) -> Optional[Dict[str, A
     }
 
 
+# chatlog 的 loom 腿离线读日志：单次最多返回 4000 条（超出保留最近 N 条并标
+# truncated），防止"整月查询"把两万条轮次塞进一个 JSON 响应。
+_CHATLOG_LOOM_MAX_TURNS = 4000
+
+
 async def _collect_session_turns(
     client, session_id: str, start_ms: int, end_ms: int
 ) -> tuple[List[Dict[str, Any]], bool]:
@@ -1231,6 +1236,7 @@ async def get_session_chatlog(
     session_id: Optional[str] = None,
     include_children: bool = False,
     format: str = "json",
+    backend: Optional[str] = None,
 ):
     """
     按时间段查询 AI 与用户的对话日志。
@@ -1238,18 +1244,22 @@ async def get_session_chatlog(
     Args:
         start: 起始时间（ISO8601 或 YYYY-MM-DD HH:MM[:SS]，UTC+8）
         end: 结束时间
-        session_id: 会话ID；缺省=当前 main-task 主会话。dsh 单会话后端下只接受
-            绑定会话 id（不一致返回 409，绝不静默替换）
-        include_children: 是否包含子会话（子智能体任务）；dsh 单会话后端不支持，
-            响应里以 children_unsupported=true 标注并忽略
+        session_id: 会话ID；缺省=当前主会话。dsh 单会话后端下只接受绑定会话 id
+            （不一致返回 409，绝不静默替换）；loom 离线日志只覆盖主会话
+        include_children: 是否包含子会话（子智能体任务）；dsh 与 loom 离线日志
+            不支持，响应里以 children_unsupported=true 标注并忽略
         format: json 结构化 或 text 纯文本时间线
+        backend: 可选显式通道（opencode|loom|dsh）；缺省跟随 config.yaml 的
+            ai_backend。loom 走离线会话日志（不要求 Loom 进程在线）
     """
-    # chatlog（运维查询面）走全局通道：ai_backend 择路（W53 单一真源）。
-    # dsh 是单会话后端：目标恒等于 bridge 绑定会话，显式 session_id 必须完全一致，
-    # 否则 409——静默归一会把内容错记到调用方传入的旧会话 id 上（W55 修正）。
-    client = await acquire_opencode_client()
+    # chatlog（运维查询面）：默认跟随全局 ai_backend（W53 单一真源），另接受显式
+    # backend 参数（W56：不切配置也能查另一条腿）。
+    # - dsh：目标恒等于 bridge 绑定会话，显式 session_id 必须一致，否则 409；
+    # - loom：离线读 Loom 追加式会话日志，不要求 Loom 进程在线；
+    # - opencode：同旧语义（main-task 裸键）。
+    requested_backend = _validate_explicit_backend(backend)
+    effective_backend = requested_backend or get_web_backend()
     manager = get_session_manager()
-    backend = get_web_backend()
 
     start_ms = _parse_dt_to_ms(start)
     end_ms = _parse_dt_to_ms(end)
@@ -1260,47 +1270,93 @@ async def get_session_chatlog(
 
     requested_session_id = session_id
     children_unsupported = False
-    if backend == "dsh":
-        try:
-            target_sid = await client.get_main_session_id()
-        except Exception as e:
-            raise HTTPException(status_code=503, detail=f"dsh bridge 会话不可用: {e}")
-        if session_id and session_id != target_sid:
+    truncated = False
+
+    if effective_backend == "loom":
+        from services import loom_session_log
+
+        allowed_ids = {"loom_main"}
+        bound_loom = manager.get_agent_session("loom:main-task")
+        if bound_loom:
+            allowed_ids.add(bound_loom)
+        if session_id and session_id not in allowed_ids:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"dsh 是单会话后端，只提供绑定会话 {target_sid}；"
-                    f"拒绝静默查询 {session_id}（省略 session_id 或改传绑定 id）"
+                    "loom 离线日志只覆盖主会话 "
+                    f"{'、'.join(sorted(allowed_ids))}；拒绝静默查询 {session_id}"
+                    "（省略 session_id 或改传主会话 id）"
                 ),
             )
+        target_sid = session_id or bound_loom or "loom_main"
+        log_path = loom_session_log.loom_log_path()
+        if not log_path.is_file():
+            raise HTTPException(
+                status_code=404, detail=f"未找到 Loom 会话日志: {log_path}"
+            )
+        try:
+            turns = await asyncio.to_thread(loom_session_log.read_turns, start_ms, end_ms)
+        except OSError as e:
+            raise HTTPException(status_code=503, detail=f"Loom 会话日志读取失败: {e}")
+        if len(turns) > _CHATLOG_LOOM_MAX_TURNS:
+            turns = turns[-_CHATLOG_LOOM_MAX_TURNS:]
+            truncated = True
+        for turn in turns:
+            turn["time_str"] = _format_ts(turn["time_ms"])
+        children_unsupported = include_children
+        resolved_by = "loom_log"
+        source = "loom_jsonl"
     else:
-        # 解析目标会话：缺省取 main-task 裸键（语音/任务链共用的全局绑定）
-        target_sid = session_id or manager.get_agent_session("main-task")
-        if not target_sid:
-            raise HTTPException(status_code=404, detail="未找到会话，请传入 session_id 或先绑定 main-task 会话")
-
-    turns, truncated = await _collect_session_turns(client, target_sid, start_ms, end_ms)
-
-    # 可选：递归子会话（dsh 单会话后端不能按子会话取历史，显式标注而不是让
-    # child_id 被归一到父会话后重复计入）
-    if include_children:
-        if backend == "dsh":
-            children_unsupported = True
+        if requested_backend:
+            client = await _acquire_client_by_backend(requested_backend)
         else:
+            client = await acquire_opencode_client()
+
+        if effective_backend == "dsh":
             try:
-                children_result = await client.get_session_children(target_sid)
-                if children_result["ok"]:
-                    for child in children_result["data"].get("children", []):
-                        child_id = child.get("id") or child.get("session_id")
-                        if not child_id:
-                            continue
-                        child_turns, child_trunc = await _collect_session_turns(client, child_id, start_ms, end_ms)
-                        turns.extend(child_turns)
-                        truncated = truncated or child_trunc
-                # 全量按时间排序
-                turns.sort(key=lambda t: t["time_ms"])
+                target_sid = await client.get_main_session_id()
             except Exception as e:
-                logger.warning(f"[Chatlog] 子会话拉取异常（忽略）: {e}")
+                raise HTTPException(status_code=503, detail=f"dsh bridge 会话不可用: {e}")
+            if session_id and session_id != target_sid:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"dsh 是单会话后端，只提供绑定会话 {target_sid}；"
+                        f"拒绝静默查询 {session_id}（省略 session_id 或改传绑定 id）"
+                    ),
+                )
+            resolved_by = "dsh_binding"
+            source = "dsh_bridge"
+        else:
+            # 解析目标会话：缺省取 main-task 裸键（语音/任务链共用的全局绑定）
+            target_sid = session_id or manager.get_agent_session("main-task")
+            if not target_sid:
+                raise HTTPException(status_code=404, detail="未找到会话，请传入 session_id 或先绑定 main-task 会话")
+            resolved_by = "binding"
+            source = "engine"
+
+        turns, truncated = await _collect_session_turns(client, target_sid, start_ms, end_ms)
+
+        # 可选：递归子会话（dsh 单会话后端不能按子会话取历史，显式标注而不是让
+        # child_id 被归一到父会话后重复计入）
+        if include_children:
+            if effective_backend == "dsh":
+                children_unsupported = True
+            else:
+                try:
+                    children_result = await client.get_session_children(target_sid)
+                    if children_result["ok"]:
+                        for child in children_result["data"].get("children", []):
+                            child_id = child.get("id") or child.get("session_id")
+                            if not child_id:
+                                continue
+                            child_turns, child_trunc = await _collect_session_turns(client, child_id, start_ms, end_ms)
+                            turns.extend(child_turns)
+                            truncated = truncated or child_trunc
+                    # 全量按时间排序
+                    turns.sort(key=lambda t: t["time_ms"])
+                except Exception as e:
+                    logger.warning(f"[Chatlog] 子会话拉取异常（忽略）: {e}")
 
     window = {
         "start_ms": start_ms,
@@ -1312,7 +1368,9 @@ async def get_session_chatlog(
     payload = {
         "session_id": target_sid,
         "requested_session_id": requested_session_id,
-        "resolved_by": "dsh_binding" if backend == "dsh" else "binding",
+        "backend": effective_backend,
+        "source": source,
+        "resolved_by": resolved_by,
         "children_unsupported": children_unsupported,
         "window": window,
         "include_children": include_children,
@@ -1325,8 +1383,9 @@ async def get_session_chatlog(
     if format == "text":
         lines = []
         lines.append(f"# 会话对话 ({window['start']} ~ {window['end']})")
+        lines.append(f"后端: {effective_backend}（source={source}）")
         if children_unsupported:
-            lines.append(f"会话: {target_sid}（dsh 单会话后端；include_children 不支持，已忽略）")
+            lines.append(f"会话: {target_sid}（当前后端不支持 include_children，已忽略）")
         elif include_children:
             lines.append(f"会话: {target_sid} (含子会话)")
         else:
