@@ -77,6 +77,7 @@ describe('kinship preset in a real dsh Web composition', () => {
       'tool-subagent-control',
       'compaction-basic',
       'command-compact',
+      'compact-context',
       'tool-result-pruner',
       'kinship-plan',
       'kinship-task-compat',

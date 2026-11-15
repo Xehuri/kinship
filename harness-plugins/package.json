@@ -34,7 +34,7 @@
   "scripts": {
     "link:dsh": "node scripts/link-dsh.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "tsc -p packages/kinship-bridge/tsconfig.json && tsc -p packages/kinship-plan/tsconfig.json && tsc -p packages/kinship-task-compat/tsconfig.json && tsc -p packages/kinship-plan-scheduler/tsconfig.json",
+    "build": "tsc -p packages/kinship-bridge/tsconfig.json && tsc -p packages/kinship-plan-scheduler/tsconfig.json && tsc -p packages/kinship-plan/tsconfig.json && tsc -p packages/kinship-task-compat/tsconfig.json && tsc -p packages/kinship-compact/tsconfig.json",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
@@ -42,6 +42,7 @@
   },
   "dependencies": {
     "kinship-bridge": "0.1.0",
+    "kinship-compact": "0.1.0",
     "kinship-plan": "0.1.0",
     "kinship-plan-scheduler": "0.1.0",
     "kinship-task-compat": "0.1.0",
