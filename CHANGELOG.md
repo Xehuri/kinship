@@ -6,6 +6,13 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 新增
 
+- **dsh 计划调度器（2026-11-15）**：新增 Host 级插件包 `harness-plugins/packages/kinship-plan-scheduler`，把 Loom 的计划调度器搬到 dsh。它读写同一份计划真源——`{planRoot}/plan/master.json` 母版、`{planRoot}/daily/{date}/plan-{date}.overlay.json` 当日覆盖层，并把 v1 `plan-{date}.json` 作为只读回退——所以切换运行时不会出现第二份排班。
+  - 引擎移植：`plan/plan-scheduler.ts`（对账、`materializeMasterEntries` 物化、锚点定时器、看门狗、catchup/debt/horizon 三档、迟到 coverage 按日合并成一条补做、`plan.build`/`plan.review` 每天各最多一条、昨日遗留挂到今日 build 的 payload）与 `wake/queue.ts`（schema 2 持久队列、原子写、`.instance.json` 实例锁、失败重试一次 30s、`plan` 保留 48h / 归档 500 条、旧单条唤醒文件迁移）移植自 `loom-harness/packages/server/src/plan/plan-scheduler.ts` 与 `serve/wake-queue.ts`；`plan/legacy.ts` 是 dsh 适配层（两级 legacy 读取 + 母版与 legacy 合并）。
+  - 投递：`kinship-bridge` 新增 `kinshipBridge.deliver(text)` 服务（先 `ensureBoundSession`，冷会话会被恢复；再以 user 消息、`next-turn` 注入绑定会话），调度器经它投递。唤醒行固定为 `【计划唤醒·<action>】HH:MM · <title>` + 指令 + `条目：<id>` + done 提示 + `不发用户通知，除非条目要求。`。
+  - 面板：Kinship 页新增「计划排班」卡片——模式/计划根/状态目录/时区/锚点/健康状态、主排班表（启停、改时间、两步删除）、新增条目表单、立即对账（回显新增/更新/取消）、创建默认排班，以及唤醒队列预览；写操作走 owner-only 的四个 `/api/kinship/ui/plan*` 路由，每次带 `expectedVersion`，冲突返回 409 `master_conflict` 而不是覆盖。
+  - 配置：新增 env 驱动的 `kinship-plan-scheduler` host 行——`KINSHIP_PLAN_MODE`（`live`/`shadow`/`off`）、`KINSHIP_PLAN_STATE_DIR`、`KINSHIP_PLAN_TIMEZONE`、`KINSHIP_PLAN_ANCHORS`、`KINSHIP_PLAN_WATCHDOG_MS`、`KINSHIP_PLAN_HORIZON_HOURS`、`KINSHIP_PLAN_CATCHUP_MAX_AGE_HOURS`、`KINSHIP_PLAN_DEBT_AFTER_HOURS`；状态根默认 `$DSH_HOME/kinship/state`，计划根回落 `KINSHIP_PLAN_ROOT` / `KINSHIP_AI_ROOT/data`。
+  - 与 Loom 的有意差异：当日存在 v1 计划时仍排母版条目（Loom 会用旧计划整体替换当日视图，dsh 侧改为追加、撞 id 只记 `legacy_collision:<id>`）；唤醒的 done 提示改成 `plan note`（母版 id 不在当日 v1 账里，`plan done` 会找不到条目）；只实现 `plan` 唤醒来源（dsh 没有 flow/special/inbox 生产者，队列与渲染器仍认识它们）；状态根默认值不同。
+  - 验证：`harness-plugins` 249 条单测 + 8 条集成测试通过、`tsc --noEmit` 通过；隔离测试栈用 `scripts/ui/plan-panel.mjs` 实测面板路由可读、写盘版本递增、禁用条目后 `next` 清空、2 分钟后的唤醒真的进了绑定会话。设计、配置表与差异清单见 `harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md`。
 - **harness 切换入口收敛 + dsh 冷会话自愈（2026-11-15，W53/W54）**：
   - 入口统一：`config.yaml` 顶层 `ai_backend` 成为唯一真源——`services/web_backend_selector` 删掉 `web_backend.json` 第二状态与写入面，`get_web_backend()` 恒等于 `get_ai_backend()`；后端启动时把遗留状态文件改名归档为 `web_backend.json.deprecated-<stamp>`；`POST /api/screen/backend` 退役返回 410（避免绕开配置写入的密码二次校验），`GET` 保留为只读回显并新增 `dsh` 取值；前端 `backend.ts` / `session.ts` / `useSubAgents.ts` 接受 dsh 标签。
   - 派生面统一：新增配置应用器 `ai_surface`（`apply_ai_surface` / `sync_ai_surface`），启动与热切换共用一份实现——dsh/loom 健康探针只在生效通道上运行（停止时缓存归 `unknown`，消除 dsh 模式下每 60s 的 `LoomHealth offline` 噪声），编排器只对齐 loom 单服务（切入 loom 自动拉起、切走自动停止），回滚不再需要重启后端。

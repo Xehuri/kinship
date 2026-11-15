@@ -28,7 +28,7 @@ Kinship/ (public tree)
 ├── app/                       # Android data collection app (Kotlin)
 ├── desktop/                   # Electron shell + embedded PC sensor (desktop/pc-sensor/)
 ├── loom-harness/              # Loom agent harness (TypeScript/Node), Kinship default workflow
-├── harness-plugins/           # Optional external-harness adapters (dsh reference implementation)
+├── harness-plugins/           # Optional external-harness adapters (dsh reference implementation, incl. plan wake scheduling)
 ├── ai-template/               # Sanitized template for the configured AI root (data.ai_root)
 ├── deploy/                    # systemd unit references
 ├── docs/                      # user/ ops/ dev/ adr/ + kernel/ distribution docs
@@ -71,7 +71,7 @@ Private or excluded from the public tree: the AI runtime directory (default `ai/
 | 修改 AI 任务/行为 | `ai/data/tasks/*.yaml` + `ai/agents/*.md`                                          |
 | Loom 交互式 PTY | `../loom-harness/packages/tools/src/pty/`（五件套）+ `../loom-harness/packages/server/src/session-api/registry.ts`（退出唤醒 `deliverWake`）；配置 `ai/.loom/config.yaml` 的 `pty` 段 |
 | Loom Feature Plugin | `../loom-harness/packages/plugin-sdk/`（公开契约）+ `../loom-harness/packages/server/src/plugin-host/`（Host/loader/storage）+ `../loom-harness/packages/server/src/features/`（todo/pty/task 抽离）；P0-P2a 已实现，P2b 沙箱设计见 `docs/dev/plugin-host-p2b.md`（暂缓） |
-| 外部 harness 适配 | `harness-plugins/`（可选；dsh 参考实现：`packages/kinship-bridge/` + `packages/kinship-ui/`（Web 侧栏面板）+ `packages/kinship-plan/` + `packages/kinship-task-compat/` + `presets/kinship.patch.yml`）；契约 `docs/dev/adapter-contract.md`，运行时选择 `docs/dev/ai-runtimes.md` |
+| 外部 harness 适配 | `harness-plugins/`（可选；dsh 参考实现：`packages/kinship-bridge/` + `packages/kinship-ui/`（Web 侧栏面板，含计划排班卡片）+ `packages/kinship-plan/` + `packages/kinship-plan-scheduler/`（Loom 计划调度器移植：母版/覆盖层 + 唤醒队列）+ `packages/kinship-task-compat/` + `presets/kinship.patch.yml`）；契约 `docs/dev/adapter-contract.md`，运行时选择 `docs/dev/ai-runtimes.md` |
 | Android 采集器    | `app/.../service/collectors/`                                                        |
 | Android UI 设置页 | `app/.../ui/settings/`（状态卡 + 5 组 20 行概览；主页面 `CollectionControlPage` / `DevicePage` / `BackgroundPage` / `SoundPage` / `RunStatusPage`，已退役 `DataCollectionPage` / `SystemPage` / `BatteryPage`） |
 | Android 登录态    | `app/.../auth/SessionManager.kt` + `app/.../ui/settings/LoginNavigationPolicy.kt`    |

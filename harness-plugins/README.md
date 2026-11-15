@@ -1,6 +1,6 @@
 # harness-plugins
 
-Kinship 的 dsh 侧集成。四个独立插件包加一个 preset patch，全部是普通 Cordis
+Kinship 的 dsh 侧集成。五个独立插件包加一个 preset patch，全部是普通 Cordis
 插件，不改 dsh 主循环，不写 `backend/`、`frontend/`、`kinship-data/` 或生产
 `dsh-home`。
 
@@ -14,13 +14,14 @@ Kinship 的 dsh 侧集成。四个独立插件包加一个 preset patch，全部
 ```
 harness-plugins/
   package.json              # workspace + dsh.bundle.patch
-  cordis.patch.yml          # host 行: kinship-bridge + kinship-ui
+  cordis.patch.yml          # host 行: kinship-bridge + kinship-ui + kinship-plan-scheduler
   presets/kinship.patch.yml # agent preset: kinship, order 5
   locale/, icon.svg, docs/  # bundle 在 dsh 插件页的标题、描述、图标与详情文档
   packages/
     kinship-bridge/         # 本机 HTTP API + 单 Session 绑定 + 面板 JSON API
     kinship-ui/             # Web 侧栏 Kinship 面板（浏览器模块 + 无 host 行为）
     kinship-plan/           # daily plan JSON/md/ledger + CAS
+    kinship-plan-scheduler/ # Loom 计划调度器的 dsh 移植：母版/覆盖层 + 唤醒队列
     kinship-task-compat/    # task / todowrite / MCP aliases
   tests/
     unit/
@@ -40,7 +41,7 @@ export PATH=/mnt/d/tools/node-v24.22.3-linux-x64/bin:$PATH
 cd harness-plugins
 npm install
 npm run link:dsh   # 把安装机的 @deepseek-ai/* 链到本 workspace node_modules
-npm run verify     # typecheck + build + 82 tests
+npm run verify     # typecheck + build + tests（249 unit + 8 integration）
 ```
 
 `link:dsh` 默认读取
@@ -48,7 +49,7 @@ npm run verify     # typecheck + build + 82 tests
 可用 `DSH_PACKAGES_DIR` 覆盖。它只写本 workspace 的 `node_modules`，不碰任何
 DSH_HOME。
 
-集成测试会创建临时 `DSH_HOME`，复制四个包和 bundle patch，运行
+集成测试会创建临时 `DSH_HOME`，复制五个包和 bundle patch，运行
 `dsh --profile kinship-test --dump-config`；测试结束删除临时目录。生产
 `dsh-home`、systemd、正在运行的 dsh 都不会被访问。
 
@@ -64,8 +65,8 @@ DSH_HOME=/path/to/dsh-home bash scripts/sync-profile.sh web
 [docs/ops/dsh-production-rollout.md](../docs/ops/dsh-production-rollout.md)。
 
 装进真实 profile 后，启动 `dsh web`，左侧栏会出现 **Kinship** 页：桥接地址、
-token（显示/复制/轮换）、桥接配置、绑定会话和待粘贴的 `config.yaml` 片段都在
-那里，不需要手改 profile 文件。本 README 后面的表格是面板背后的字段与端点细节。
+token（显示/复制/轮换）、桥接配置、绑定会话、计划排班卡片和待粘贴的 `config.yaml`
+片段都在那里，不需要手改 profile 文件。本 README 后面的表格是面板背后的字段与端点细节。
 
 ## kinship-bridge
 
@@ -277,6 +278,9 @@ Bearer token，Kinship 后端也不调用它们。
 - `bind` 等价于 `POST /v1/session/bind`，只接受 live 的 root `kinship` 会话。
 - 没有 `configEditor` 的部署（如纯 CLI 组合）页面只读，保存返回 409
   `config_read_only`；没有 Connection 的部署不会注册这些路由，页面显示"桥接未响应"。
+- 页面底部的计划排班卡片读写的四个 `/api/kinship/ui/plan*` 路由不属于本包，由
+  `kinship-plan-scheduler` 行注册（见下一节）；该行缺席时卡片单独提示"未安装"，
+  其余卡片不受影响。
 
 ## kinship-plan
 
@@ -345,6 +349,95 @@ JSON 先写（同目录 temp + fsync + rename），成功后写 md。md 写失�
 ```
 
 `plan-read` 返回的 `plan` 是文件形状（不是内部 `extra` 结构）。
+
+## kinship-plan-scheduler
+
+Host 级插件，把 Loom 的计划调度器搬到 dsh：读同一份 `{planRoot}/plan/master.json`
+与 `{planRoot}/daily/{date}/plan-{date}.overlay.json`，按锚点/看门狗对账出当日
+唤醒，写进每会话持久队列，再经 `kinship-bridge` 的 `deliver` 以普通用户消息注入
+绑定会话。所以切换运行时不会出现第二份排班真源。引擎移植自
+`loom-harness/packages/server/src/plan/plan-scheduler.ts` 与
+`serve/wake-queue.ts`；完整设计、对账公式与逐条差异见
+[packages/kinship-plan-scheduler/docs/DETAIL.md](packages/kinship-plan-scheduler/docs/DETAIL.md)。
+
+### Root 与状态目录
+
+| 路径 | 解析顺序 |
+|---|---|
+| `planRoot` | 插件 `planRoot` -> `KINSHIP_PLAN_ROOT` -> `KINSHIP_AI_ROOT/data` |
+| `stateDir` | 插件 `stateDir` -> `KINSHIP_PLAN_STATE_DIR` -> `$DSH_HOME/kinship/state` |
+
+相对路径一律拒绝（不按进程 cwd 猜出一个计划树）；此时插件仍然挂载，只是不启动
+引擎，面板用 `problem` 说明该配什么。
+
+### 配置
+
+| 字段 | 默认 | 环境变量 | 说明 |
+|---|---|---|---|
+| `planRoot` | 空 | `KINSHIP_PLAN_ROOT` | 绝对路径；空则走上面的回落链 |
+| `stateDir` | 空 | `KINSHIP_PLAN_STATE_DIR` | 绝对路径；空则 `$DSH_HOME/kinship/state` |
+| `mode` | `live` | `KINSHIP_PLAN_MODE` | `live` / `shadow` / `off` |
+| `timezone` | `Asia/Shanghai` | `KINSHIP_PLAN_TIMEZONE` | 母版自带时区前的兜底时区 |
+| `anchors` | `05:00,07:30` | `KINSHIP_PLAN_ANCHORS`（逗号分隔） | 每日对账锚点，严格 `HH:MM`，最多 8 个 |
+| `watchdogMs` | `60000` | `KINSHIP_PLAN_WATCHDOG_MS` | 看门狗间隔，`0` 关闭 |
+| `horizonHours` | `48` | `KINSHIP_PLAN_HORIZON_HOURS` | 向前排多久（上限 168） |
+| `catchupMaxAgeHours` | `8` | `KINSHIP_PLAN_CATCHUP_MAX_AGE_HOURS` | 迟到但仍在窗口内的条目保持原时刻 |
+| `debtAfterHours` | `24` | `KINSHIP_PLAN_DEBT_AFTER_HOURS` | 超过即记为 debt 跳过；必须大于 `catchupMaxAgeHours` |
+
+面板不编辑这一行：改环境变量或 profile patch 后重启 dsh。
+
+### 模式与对账
+
+- `live`（默认）：对账 + 入队 + 到点投递。
+- `shadow`：只对账，把"本来会入队"的条目写到 `{stateDir}/plan/shadow/{date}.jsonl`，不碰队列。
+- `off`：不建引擎、不排定时器、不写文件；`GET` 面板仍可读，写路由返回 409
+  `scheduler_disabled`。
+
+对账触发：启动一次（`boot`）、每日锚点（缺省 05:00 与 07:30）、看门狗（缺省 60s）、
+面板「立即对账」（`manual`）。启动时若还没有绑定会话会先 defer，等 `agent/created`
+后 1 秒补跑一次。日期窗口是 `now - debtAfterHours` 到 `now + horizonHours`，最多 20 天；
+`plan.build` / `plan.review` 每天各最多一条，昨日未完成条目挂在今日 `plan.build` 的
+payload 上。
+
+### 面板路由
+
+| 方法 | 路径 | 请求 | 成功响应 |
+|---|---|---|---|
+| GET | `/api/kinship/ui/plan` | - | `{ok, scheduler, master, queue, next}` |
+| POST | `/api/kinship/ui/plan/ops` | `{expectedVersion, ops:[...]}` | 同上（写入后重新对账） |
+| POST | `/api/kinship/ui/plan/reconcile` | `{reason:"manual"}`（可省略） | `{ok, queued:{added,updated,cancelled}, snapshot}` |
+| POST | `/api/kinship/ui/plan/seed` | `{}` | 同上（写入默认排班） |
+
+`ops` 是母版编辑操作：`upsert_entry` / `replace_entry` / `remove_entry` /
+`set_enabled` / `set_status` / `update_entry`（带 patch）。每次写都必须带上次读到的
+`expectedVersion`，不匹配返回 409 `master_conflict` 且文件不变。错误码：400
+`invalid_request`、404 `master_missing`（还没有母版时调 ops）、413 `body_too_large`
+（16 KiB 上限）、409 `scheduler_disabled`、409 `master_exists`（seed 时母版已存在）、
+500 `internal`。这四个路由和 bridge 面板同属 dsh Connection 的 owner-only Fetch
+通道：未登录 401、非 owner 403、不接受 bridge 的 bearer token。
+
+### 队列与投递
+
+- 队列 `{stateDir}/session/wake-queue/{sessionId}.json`（schema 2，原子写；实例锁
+  `{stateDir}/session/wake-queue/.instance.json` 用 `O_EXCL` + pid 存活判定）。
+- 投递失败重试一次（`now + 30s`），再失败归档 `failed`；`plan` 条目保留 48h，
+  已投递归档保留最近 500 条。
+- 唤醒行固定为 `【计划唤醒·<action>】HH:MM · <title>` + 指令 + `条目：<id>` +
+  done 提示 + `不发用户通知，除非条目要求。`；dsh 下 done 提示不再让模型对母版 id
+  跑 `plan done`，改为 `plan note`。
+- 只做 `source: "plan"`：flow / special / inbox 三个来源没有生产者，队列与渲染器
+  仍然认识它们（`source` 字段与保留期分档保留），但本插件不会产生这类条目。
+
+### 已知差异 / 限制
+
+- 当日存在 v1 `plan-{date}.json` 时仍排母版条目（Loom 会用旧计划整体替换当日视图）；
+  旧计划条目按 overlay 的 add 语义追加、无唤醒时刻，撞 id 只记 `legacy_collision:<id>`。
+- done 提示改为 `plan note`：dsh 的 v1 plan 工具只读写当日 `plan-{date}.json`，看不到母版 id。
+- 状态根默认 `$DSH_HOME/kinship/state`（Loom 由宿主传 `stateRoot`）。
+- 需要 `kinship-bridge` 行和绑定会话，否则对账一律 `deferred_no_session`；
+  手动改绑会换成新会话的队列文件，旧队列里未投递的条目不迁移。
+- master 条目暂时无法从 dsh 的 v1 plan 工具标 done；待办是移植 overlay 写入工具。
+- 认领后、投递前进程崩溃会丢那一条唤醒（认领先落盘，与 Loom 同口径）。
 
 ## kinship-task-compat
 
@@ -416,8 +509,9 @@ mcp__<serverName>__<rawName>
 现有 shipped presets（standard=1、ptc=2、minimal=3、cordis=4）不变。
 
 profile 使用方式：profile 的 `dsh.profile.bundles` 加
-`kinship-harness-plugins`，并让三个包在 profile 的 `node_modules` 可解析。
-`--dump-config` 会显示 host 的 `kinship-bridge` 行和 `preset-kinship` 行。
+`kinship-harness-plugins`，并让 bundle 引用的五个包在 profile 的 `node_modules`
+可解析（`scripts/sync-profile.sh` 会一次拷全）。`--dump-config` 会显示 host 的
+`kinship-bridge`、`kinship-ui`、`kinship-plan-scheduler` 三行和 `preset-kinship` 行。
 `--dump-config-schema` 对 preset 子行会报 "unrecognized Loader tree carrier"：
 这是该 dsh 版本对所有 preset（包括 shipped 的 standard/ptc/minimal/cordis）
 的 schema dump 限制，不代表 preset 不能加载。
@@ -433,8 +527,11 @@ profile 使用方式：profile 的 `dsh.profile.bundles` 加
 - `GET /v1/session` 的 `status` 是绑定状态 `bound`；agent 的
   `idle/running` 在 `GET /v1/session/status`。
 - `plan` CAS 是进程内串行 + version 比较，不是跨进程文件锁。
-- `plan-ledger.jsonl` 的事件名是 `commit|note|done|close`；旧 Loom 用 `diff`
-  表示建账/改写。若共享同一 root，按 `commit` 兼容或改回 `diff`。
+- `plan-ledger.jsonl` 里 `source: "plan"` 的行事件名是 `commit|note|done|close`；
+  `source: "scheduler"` 的行是调度器事实行（`deferred_no_session` / `master_error` /
+  `master_fallback` / `overlay_error` / `skipped_debt` / `queue_error`，部分带
+  `reason` / `entry_id`）。旧 Loom 用 `diff` 表示建账/改写。若共享同一 root，按
+  `commit` 兼容或改回 `diff`。
 - `plan_close` 会把 `carry_over` 写进 truth JSON；旧 Loom v1 reader 对未知顶层
   键是拒绝的，若两个系统共享同一 root，需要让 Loom 侧忽略该字段或把
   carry_over 只留在 ledger。
@@ -450,3 +547,6 @@ profile 使用方式：profile 的 `dsh.profile.bundles` 加
   列成"已安装插件"，bundle/插件行的标题、描述、图标与详情文档只对普通插件安装的
   profile 显示；面板与 bridge 本身不受影响。
 - 面板的"未绑定 / 没有 kinship 会话"状态只有单测覆盖，未在浏览器里实测。
+- 计划调度器的移植差异与限制集中在 `## kinship-plan-scheduler` 的「已知差异 / 限制」：
+  legacy 当日仍排母版、done 提示改 `plan note`、只实现 `plan` 来源、需要 bridge 行
+  与绑定会话、master id 暂时不能 `plan done`。

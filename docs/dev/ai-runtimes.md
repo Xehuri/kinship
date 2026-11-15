@@ -44,6 +44,7 @@ dsh 是另一条可选路径，面向已经运行 dsh、并且愿意安装 Kinsh
 
 - `kinship-bridge`：loopback HTTP 与 SSE，只服务一个绑定的 Kinship 会话；同时转发实时助手流（`kinship/assistant-stream`），并提供手动压缩、模型目录、上下文窗口四个可选端点。
 - `kinship-plan`：提供 plan 工具和每日计划。
+- `kinship-plan-scheduler`：Loom 计划调度器的 dsh 移植——读同一份母版与当日覆盖层，按锚点/看门狗对账，把每日计划唤醒投递进绑定会话（见 3.1）。
 - `kinship-task-compat`：提供与 Loom 工具名兼容的任务工具。
 - `kinship-ui`：dsh Web 左侧栏的 **Kinship** 面板。桥接状态、token 显示/轮换、桥接配置（地址、端口、绑定策略、请求体上限等）、可绑定会话和接入片段都在这一页完成，等价于在 dsh 自己的 UI 里完成接入配置，不需要手改 profile 配置。
 - Kinship preset：把 persona、工具面、压缩和计划装配成一个 dsh preset。
@@ -58,6 +59,25 @@ dsh 路径的定位：
 - 已实现参考适配：dsh 适配层已有单元与集成测试；本文不声明所有部署环境的生产可用性，首次接入仍需自行验证。
 
 dsh 是 Loom 之外的另一条可选路径。选择 dsh 的理由通常是你已经有一套自己的 harness 和工具习惯，而不是因为 Loom 不能完成 Kinship 的工作流。Loom 继续作为默认运行时维护；dsh 也不改变这个默认值。
+
+### 3.1 计划调度（2026-11-15 起）
+
+dsh 现在也有计划排班。`kinship-plan-scheduler` 是 Host 级插件，读的就是 Loom 那套文件——`{planRoot}/plan/master.json` 与 `{planRoot}/daily/{date}/plan-{date}.overlay.json`——引擎从 `loom-harness/packages/server/src/plan/plan-scheduler.ts` 与 `serve/wake-queue.ts` 移植而来。所以切换运行时不会出现第二份排班真源，也不会改写对方的计划文件。
+
+- 对账：启动一次、每日锚点（默认 05:00 与 07:30）、60 秒看门狗、面板「立即对账」。窗口是 `now-24h` 到 `now+48h`；8 小时内的迟到档保留原时刻，更早的非覆盖档按 `now+60s` 补投，更早的覆盖检查点按日合并成一条补做条目；`plan.build` / `plan.review` 每天各最多一条。
+- 投递：每条到点条目先落到 `{stateDir}/session/wake-queue/{sessionId}.json`（schema 2、原子写、进程级实例锁），再由 `kinship-bridge` 的 `deliver` 作为普通用户消息注入绑定会话（冷会话会先恢复）；投递失败重试一次（30s），再失败归档 `failed`。`plan` 条目保留 48 小时。
+- 唤醒行契约：`【计划唤醒·<action>】HH:MM · <title>` + 指令 + `条目：<id>` + done 提示 + `不发用户通知，除非条目要求。`。dsh 下 done 提示改成 `plan note`，因为母版条目不在当日 v1 计划里，`plan done` 会找不到条目。
+- 面板：Kinship 页的「计划排班」卡片可启停条目、改时间、增删条目、立即对账、创建默认排班；写操作走 owner-only 的 `/api/kinship/ui/plan*`，每次带版本号，冲突返回 409 而不是覆盖。
+- 与 Loom 的差异：当日存在 v1 `plan-{date}.json` 时仍排母版条目（Loom 会用旧计划整体替换当日视图）；只实现 `plan` 唤醒来源（没有 flow / special / inbox 生产者）；状态根默认 `$DSH_HOME/kinship/state`。完整清单见 [harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)。
+
+验证与关闭：
+
+```bash
+journalctl -u axeuh-dsh | grep 'kinship-plan-scheduler: engine ready'   # 引擎已挂载（日志含 planRoot 与 mode）
+ls <DSH_HOME>/kinship/state/session/wake-queue/                          # 绑定后有 {sessionId}.json 队列文件
+```
+
+关闭或观察：`/etc/axeuh-dsh/env` 里 `KINSHIP_PLAN_MODE=off`（完全不跑）或 `shadow`（只对账、只写影子文件、不投递），改完重启 dsh；这一步不写任何计划文件。部署与回滚步骤见 [../ops/dsh-production-rollout.md](../ops/dsh-production-rollout.md) 的「计划调度器上线」。
 
 ## 4. 未来 harness
 
@@ -82,7 +102,7 @@ dsh 只是一个参考实现，不是唯一答案。`harness-plugins/` 展示了
 | 能力 | Loom | dsh 适配路径 | 未来 harness |
 | --- | --- | --- | --- |
 | 工作流 | 完整：任务、调度、复盘、通知、收件箱按 Kinship 节拍实现 | 由 dsh preset 与插件组合决定；实时流式、手动压缩、模型目录、上下文窗口、`/health` 探针已由适配层补齐 | 由实现方决定，契约只约束会话与消息面 |
-| 计划 | 内置 plan 工具、master/overlay 与 coverage 检查点 | `kinship-plan` 提供 plan 工具与每日计划 | 需自行实现或适配 |
+| 计划 | 内置 plan 工具、master/overlay 与 coverage 检查点 | `kinship-plan` 提供 plan 工具与每日计划；`kinship-plan-scheduler` 读同一份 master/overlay 排班并按点投递唤醒 | 需自行实现或适配 |
 | 工具 | 自带工具面，按 Kinship 数据格式调优 | dsh 工具面加 Kinship 兼容工具，模型选择在 preset | 由实现方决定 |
 | 配置界面 | Kinship 设置页（AI 后端字段与端点配置） | dsh Web 左侧栏的 **Kinship** 面板：桥接状态、token 显示/轮换、桥接配置与绑定会话 | 由实现方决定；契约推荐在 harness 自己的 UI 里做，不要在 loopback 端口另开写接口 |
 | 维护 | Kinship 主路径，随版本更新 | 用户自持 dsh 与插件版本，Kinship 维护适配层 | 用户自持 |
@@ -123,4 +143,5 @@ dsh 或其他 harness 的接入不是点一个开关。至少需要：
 - [AI_SYSTEM.md](AI_SYSTEM.md)：Loom 现行架构、任务、记忆与数据流。
 - [PROJECT_MAP.md](PROJECT_MAP.md)：目录结构与子系统路由。
 - [../ops/CONFIGURATION.md](../ops/CONFIGURATION.md)：`ai_backend`、`loom` 与 `dsh` 配置键。
+- [../../harness-plugins/README.md](../../harness-plugins/README.md)：dsh 插件包、面板路由与计划调度器配置表。
 - [../../loom-harness/docs/06-Loom使用文档.md](../../loom-harness/docs/06-Loom使用文档.md)：Loom 使用文档。

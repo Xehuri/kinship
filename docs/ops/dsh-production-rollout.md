@@ -24,7 +24,7 @@
 
 | 项 | 位置 |
 |---|---|
-| 插件包源码与构建 | `server/kinship/harness-plugins`（`packages/{kinship-bridge,kinship-ui,kinship-plan,kinship-task-compat}` + `presets/kinship.patch.yml`） |
+| 插件包源码与构建 | `server/kinship/harness-plugins`（`packages/{kinship-bridge,kinship-ui,kinship-plan,kinship-plan-scheduler,kinship-task-compat}` + `presets/kinship.patch.yml`） |
 | 同步脚本 | `harness-plugins/scripts/sync-profile.sh`（构建产物 → 目标 profile 的 `node_modules/`） |
 | dsh profile | `dsh-home/profiles/web/`（`package.json` 的 `dsh.profile.bundles` 含 `kinship-harness-plugins`） |
 | dsh 环境变量 | `/etc/axeuh-dsh/env`（systemd `EnvironmentFile`） |
@@ -188,7 +188,109 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
   （`ensureBoundSession` → `sessionController.resolveAgent`，与 UI 打开会话同一条路径），
   不需要人工打开 Kinship 会话；测试栈实测见 3.1 表 21:02 行。
 
-## 8. E 段：回滚
+## 8. 计划调度器上线（kinship-plan-scheduler，2026-11-15）
+
+这一段只装一个新的 Host 行，不改后端配置、不改 `ai_backend`、不动 bridge：
+`kinship-plan-scheduler` 把 Loom 的计划调度器搬进 dsh，读生产已经在用的
+`plan/master.json` 与当日 `plan-{date}.overlay.json`，按锚点对账，把唤醒写成
+绑定会话里的普通用户消息。设计与全部差异见
+[harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)。
+
+### 8.1 步骤
+
+1. 构建（Node 24）：`cd harness-plugins && npm run verify`（typecheck + build +
+   249 unit + 8 integration）。
+2. 同步进 profile（`sync-profile.sh` 现在拷五个包 + bundle patch）：
+
+   ```bash
+   DSH_HOME=/mnt/d/Users/Axeuh/Desktop/Axeuh-server/dsh-home \
+     bash harness-plugins/scripts/sync-profile.sh web
+   # 期望输出 5 行 [sync] <package> 加 [sync] kinship-harness-plugins / [sync] profile: …
+   ```
+
+3. bundle 行：`cordis.patch.yml` 已新增 `id: kinship-plan-scheduler`（带
+   `KINSHIP_PLAN_*` 驱动的 config）。只要 profile 的 `dsh.profile.bundles` 里有
+   `kinship-harness-plugins`，**重启后这一行自动出现**，不需要手改 profile。
+4. 可选环境变量（写 `/etc/axeuh-dsh/env`；都有默认值，不配也能跑）：
+
+   | 变量 | 默认 | 用途 |
+   |---|---|---|
+   | `KINSHIP_PLAN_MODE` | `live` | `live` / `shadow` / `off` |
+   | `KINSHIP_PLAN_STATE_DIR` | `$DSH_HOME/kinship/state` | 队列与影子文件根 |
+   | `KINSHIP_PLAN_TIMEZONE` | `Asia/Shanghai` | 母版时区缺省 |
+   | `KINSHIP_PLAN_ANCHORS` | `05:00,07:30` | 每日对账锚点，逗号分隔 |
+   | `KINSHIP_PLAN_WATCHDOG_MS` | `60000` | 看门狗间隔，`0` 关闭 |
+   | `KINSHIP_PLAN_HORIZON_HOURS` | `48` | 向前排多久 |
+   | `KINSHIP_PLAN_CATCHUP_MAX_AGE_HOURS` | `8` | 迟到但仍按原时刻投递的窗口 |
+   | `KINSHIP_PLAN_DEBT_AFTER_HOURS` | `24` | 超过即记为 debt 跳过 |
+   | `KINSHIP_PLAN_ROOT` | `KINSHIP_AI_ROOT/data` | 计划根；生产 §3 A 段已配 |
+
+5. 重启 dsh（**由你执行**）：`sudo systemctl restart axeuh-dsh`。同步脚本只写
+   profile 的 `node_modules`，新行要等 dsh 进程重启（或 HMR 重载该 profile）才加载。
+6. 默认 `KINSHIP_PLAN_MODE` 不配就是 `live`：重启后引擎立即开始对账与投递。想先
+   观察就显式配 `shadow`（只写影子文件、不投递），确认无误再改回 `live`。
+
+   **首次 `live` 启动会补做当天已过时的档位**（这是 Loom 的 catchup 语义，不是故障）：
+   重启时刻落在当天 12:00 之后时，`plan.build`/`plan.review`/`daily-review`/`weather`/
+   `long_term` 等已过时且仍在 `debtAfterHours`（24h）内的条目会各投一条迟到唤醒，
+   7 个 coverage 检查点里超过 8h 的会合并成一条「补覆盖」唤醒，其余按原时刻立即投递；
+   最坏情况下重启后 1 分钟内会有 ~8-10 条 `【计划唤醒…】` 进入绑定会话。三个选项：
+   （a）先 `KINSHIP_PLAN_MODE=shadow` 重启一次观察、再切 `live`；
+   （b）选一个当天档位基本跑完的时刻（例如 23:00 之后或 00:35 之前）重启，噪声最小；
+   （c）临时把 `KINSHIP_PLAN_CATCHUP_MAX_AGE_HOURS=0`、`KINSHIP_PLAN_DEBT_AFTER_HOURS=1`
+   一起配上重启（只投最近 1 小时内的档位），稳定后再去掉这两个变量重启一次。
+   次日 00:40 之后是所有档位重新开始的时刻，所以任何重启都会在当天自然收敛。
+
+### 8.2 验证
+
+```bash
+journalctl -u axeuh-dsh -n 300 --no-pager | grep 'kinship-plan-scheduler: engine ready'
+# 期望：kinship-plan-scheduler: engine ready (planRoot=/…/kinship-data/ai/data, mode=live)
+journalctl -u axeuh-dsh -n 300 --no-pager | grep 'kinship-plan-scheduler: panel API registered'
+ls -l <dsh-home>/kinship/state/session/wake-queue/
+# 绑定会话后出现 {sessionId}.json 与 .instance.json；未绑定时目录可能还不存在
+```
+
+- 面板：左侧栏 **Kinship** → 页面底部「计划排班」卡片，应显示 mode=live、
+  planRoot=`…/kinship-data/ai/data`、stateDir=`<dsh-home>/kinship/state`、时区、
+  锚点 `05:00` / `07:30`、主排班表（18 条）与下次唤醒；点「立即对账」应返回
+  新增/更新/取消计数。
+- 隔离环境的同款断言脚本在 kinship-test：`scripts/ui/plan-panel.mjs`（见该仓
+  README），它证明路由可读、写盘版本递增、禁用条目从 `next` 消失、且 2 分钟后的
+  唤醒真的进了绑定会话。
+- 出问题时先看 `journalctl -u axeuh-dsh | grep 'kinship-plan-scheduler'`：`engine
+  disabled: planRoot …` 表示根没解析，`reconcile deferred, no bound session` 表示
+  bridge 还没有绑定会话。
+
+### 8.3 对生产计划文件的影响
+
+- 生产 `plan/master.json` 现在是 schema 1 / version 1 / **18 条**（10 `fixed`、
+  7 `anchor`、1 `long_term`，mtime 2026-10-28）。本次上线**不修改**它，也不改
+  `master.md`、`master.last-good.json` 和任何 `daily/{date}/plan-{date}.json`
+  或 overlay。
+- 引擎只读计划文件。唯一的写入口是面板编辑：保存时写 `master.json`（版本 +1）
+  并派生 `master.md` / `master.last-good.json`。
+- 对账的异常事实（deferred、master 回退、overlay 错误、debt 跳过、队列错误）会
+  追加到 `kinship-data/ai/data/daily/{date}/plan-ledger.jsonl`，行内
+  `source: "scheduler"`。
+- 运行状态（唤醒队列、影子文件）落在 `<dsh-home>/kinship/state`，不进
+  `kinship-data/`。
+
+### 8.4 回滚
+
+- 软关（推荐）：`/etc/axeuh-dsh/env` 加 `KINSHIP_PLAN_MODE=off`（或 `shadow`），
+  `sudo systemctl restart axeuh-dsh`。`off` 不建引擎、不排队、不投递；面板仍可读，
+  写路由返回 409 `scheduler_disabled`。
+- 硬撤：从 profile `package.json` 的 `dsh.profile.bundles` 移除
+  `kinship-harness-plugins` 并删除 profile `node_modules/kinship-*`，重启 dsh；
+  或只删 `cordis.patch.yml` 里的 `kinship-plan-scheduler` 行后重新
+  `sync-profile.sh web` 再重启。bridge 与面板不受影响（面板的计划卡片会提示
+  调度器未安装）。
+- 回滚不碰计划文件：移植引擎是加法件，不改 `master.json`（只有面板编辑才写），
+  不写日计划与 overlay。`<dsh-home>/kinship/state` 下的队列与影子文件可以留着，
+  再次启用且会话 id 相同时会继续用同一队列文件。
+
+## 9. E 段：回滚
 
 - 回滚：把 `ai_backend` 改回 `loom`（热生效）——`apply_ai_surface` 会在同一次应用里按新期望态
   拉起 Loom（`orchestrator.start("loom")`，只碰 loom 单服务），**不需要重启后端**；核对
@@ -200,7 +302,7 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
   `kinship-harness-plugins`，删除 profile `node_modules/kinship-*`，重启 dsh；
   环境变量可保留（只对 bundle 有意义）。
 
-## 9. 已知限制与注意
+## 10. 已知限制与注意
 
 - **探针生命周期跟随后端（W53 起）**：`apply_ai_surface` 在启动与热切换共用一份实现——dsh 探针
   只在 `ai_backend=dsh` 时跑、Loom 探针只在 `loom` 时跑，非当前通道保持 `unknown`（不再刷
@@ -237,9 +339,10 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
   根级插件不进入该会话的工具面，但它们自己的 prompt 注入是否影响要看各自实现（当前没有
   额外 AGENTS.md 类注入）。
 
-## 10. 相关文件
+## 11. 相关文件
 
 - [harness-plugins/README.md](../../harness-plugins/README.md)：插件、面板 API、测试
+- [harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)：计划调度器设计、配置表与移植差异
 - [docs/dev/ai-runtimes.md](../dev/ai-runtimes.md)：运行时定位与能力对比
 - [docs/dev/adapter-contract.md](../dev/adapter-contract.md)：适配器契约与适配器 UI 约定
 - [docs/ops/CONFIGURATION.md](CONFIGURATION.md)：`ai_backend` / `dsh.*` 配置键
