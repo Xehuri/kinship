@@ -154,6 +154,22 @@ class _StubClient:
         return self._ok({"messages": messages, "truncated": False})
 
 
+class _DshChatlogStub(_StubClient):
+    """dsh chatlog 桩：单会话后端只多一个 get_main_session_id 入口。
+
+    消息/子会话/range 形状沿用 _StubClient（与真实 DshClient 的 opencode 同构
+    输出一致），这样断言只锁 W55 新增的会话解析语义，不复测消息转换。
+    """
+
+    def __init__(self, bound_id: str = "session-bound-1") -> None:
+        super().__init__()
+        self._bound_id = bound_id
+
+    async def get_main_session_id(self) -> str:
+        self.calls.append({"m": "get_main_session_id"})
+        return self._bound_id
+
+
 def _wrapped_user_msg(ts=None, msg_id="msg_u1"):
     parts_text = (
         "<Axeuh-home-system>\n{\n  \"current_datetime\": \"2026-10-08 10:00:00\"\n"
@@ -266,6 +282,16 @@ def stub_gw(monkeypatch):
     gw = _StubClient()
     _patch_client(monkeypatch, gw)
     return gw
+
+
+def _patch_dsh_chatlog(monkeypatch, bound_id: str = "session-bound-1"):
+    """把 chatlog 面切到 dsh：全局缝 = 单会话桩，后端取值 = dsh（W55）。"""
+    from routers import session as session_router
+
+    stub = _DshChatlogStub(bound_id)
+    _patch_client(monkeypatch, stub)
+    monkeypatch.setattr(session_router, "get_web_backend", lambda: "dsh")
+    return stub
 
 
 @pytest.fixture
@@ -685,10 +711,15 @@ class TestChatlogContract:
                           headers=auth_headers)
         assert resp.status_code == 200
         payload = resp.json()
-        assert set(payload.keys()) == {"session_id", "window", "include_children",
+        assert set(payload.keys()) == {"session_id", "requested_session_id",
+                                       "resolved_by", "children_unsupported",
+                                       "window", "include_children",
                                        "message_count", "truncated", "turns"}
         assert set(payload["window"].keys()) == {"start_ms", "end_ms", "start", "end"}
         assert payload["session_id"] == "ses_cl1"
+        assert payload["requested_session_id"] == "ses_cl1"
+        assert payload["resolved_by"] == "binding"
+        assert payload["children_unsupported"] is False
         assert payload["include_children"] is False
         assert payload["truncated"] is False
         # 窗口过滤：3 条样本消息只有窗口内 2 条成 turns
@@ -739,6 +770,70 @@ class TestChatlogContract:
         children_calls = [c for c in stub_gw.calls if c["m"] == "get_session_children"]
         assert children_calls == [{"m": "get_session_children",
                                    "session_id": "ses_cl3"}]
+
+    # ---- W55：dsh 单会话后端下的 chatlog 语义 ----
+
+    def test_chatlog_dsh_uses_bound_session(
+        self, client, auth_headers, tmp_manager, monkeypatch
+    ):
+        """dsh：目标恒为 bridge 绑定会话，不再回落到裸 main-task 键。"""
+        stub = _patch_dsh_chatlog(monkeypatch)
+
+        resp = client.get("/api/screen/session/chatlog",
+                          params={"start": "2024-07-03 00:00:00",
+                                  "end": "2024-07-05 00:00:00"},
+                          headers=auth_headers)
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["session_id"] == "session-bound-1"
+        assert payload["requested_session_id"] is None
+        assert payload["resolved_by"] == "dsh_binding"
+        assert payload["children_unsupported"] is False
+        assert payload["message_count"] == 2
+        assert stub.calls[0] == {"m": "get_main_session_id"}
+        range_calls = [c for c in stub.calls
+                       if c["m"] == "get_session_messages_range"]
+        assert [c["session_id"] for c in range_calls] == ["session-bound-1"]
+
+    def test_chatlog_dsh_rejects_mismatched_session_id(
+        self, client, auth_headers, tmp_manager, monkeypatch
+    ):
+        """显式 session_id 与绑定不一致 -> 409，绝不静默换成绑定会话。"""
+        stub = _patch_dsh_chatlog(monkeypatch)
+
+        resp = client.get("/api/screen/session/chatlog",
+                          params={"start": "2024-07-03", "end": "2024-07-05",
+                                  "session_id": "ses_old"},
+                          headers=auth_headers)
+        assert resp.status_code == 409
+        _assert_error_envelope(
+            resp.json(), "INTERNAL_ERROR",
+            "dsh 是单会话后端，只提供绑定会话 session-bound-1；"
+            "拒绝静默查询 ses_old（省略 session_id 或改传绑定 id）")
+        assert [c for c in stub.calls
+                if c["m"] == "get_session_messages_range"] == []
+
+    def test_chatlog_dsh_children_marked_unsupported(
+        self, client, auth_headers, tmp_manager, monkeypatch
+    ):
+        """dsh 无法按子会话取历史：显式标注并跳过，不产生重复父会话条目。"""
+        stub = _patch_dsh_chatlog(monkeypatch)
+        params = {"start": "2024-07-03", "end": "2024-07-05",
+                  "include_children": "true"}
+
+        resp = client.get("/api/screen/session/chatlog", params=params,
+                          headers=auth_headers)
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["include_children"] is True
+        assert payload["children_unsupported"] is True
+        assert [c for c in stub.calls if c["m"] == "get_session_children"] == []
+
+        text = client.get("/api/screen/session/chatlog",
+                          params={**params, "format": "text"},
+                          headers=auth_headers)
+        assert text.status_code == 200
+        assert "include_children 不支持" in text.text
 
     def test_chatlog_bad_time_400_envelope(self, client, auth_headers, tmp_manager):
         resp = client.get("/api/screen/session/chatlog",

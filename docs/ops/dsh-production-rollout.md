@@ -215,9 +215,12 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
   （headless profile，无 `sessionController`）时 bridge 不预热，行为与改动前一致。
 - **启动期 Loom 噪声已消除**：20:24:43 那条来自仍直连 Loom 的启动路径；dsh 模式下 Loom 探针
   现在不启动，21:06 之后 LoomHealth WARN 为 0。
-- **chatlog 的单会话语义**：`query_chatlog.py` 经 `/api/screen/session/chatlog` 走全局
-  `ai_backend`，在 dsh 下 `DshClient` 会把传入的 `session_id` 归一到绑定会话——内容能查，
-  但旧会话 id 会被静默替换（含 `--include-children` 退化），见遗留项。
+- **chatlog 的单会话语义（W55，2026-11-15 21:2x 修正）**：`query_chatlog.py` 经
+  `/api/screen/session/chatlog` 走全局 `ai_backend`。dsh 分支现在强制目标是 bridge
+  绑定会话：省略 `session_id` 即可查；显式传入不一致的旧 id 返回 409 并在文案里给出
+  绑定 id（不再静默替换、不再把内容错记到旧会话）；`include_children` 在 dsh 下标
+  `children_unsupported: true` 并跳过，绝不用父会话内容冒充子会话历史。响应新增
+  `requested_session_id` / `resolved_by` / `children_unsupported` 三个只增字段。
 - **令牌来源**：当前用插件生成的文件，可在面板显示/轮换；若改成环境变量来源，面板会拒绝轮换
   （409 `token_env_managed`）。
 - **面板保存语义**：从面板保存桥接配置会写 profile 的完整覆盖，bundle patch 里 env 驱动的字段
