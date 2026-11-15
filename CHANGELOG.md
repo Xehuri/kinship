@@ -6,6 +6,15 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 新增
 
+- **可选 dsh 运行时适配（2026-11-15）**：新增 `harness-plugins/` 参考适配层，包含 `kinship` preset、单会话 `kinship-bridge`、`kinship-plan` 与 `task`/`todowrite` 兼容工具；后端新增 `DshClient`、`dsh.*` 配置与 SSE hub。Loom 仍是默认完整工作流，`dsh` 是可选 BYO-harness 路径，需要手动安装、绑定会话与配置 token，不是开箱即用。选择与接入见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) 与 [docs/dev/adapter-contract.md](docs/dev/adapter-contract.md)。
+- **dsh 实时流式与产品面补齐（2026-11-15，不动生产）**：
+  - 新增 `backend/services/dsh_event_bridge.py`：把 dsh 原生 durable 事件与 live 助手流转译成前端已认得的 SSE 词表（`message.part.updated` / `message.updated` / `session.status` / `session.error` / `session.compacted`），逐帧注入 `sessionID`/`backend`；`DshEventHub` 改走该翻译器，不再直通原始类型。
+  - `kinship-bridge` 在 `/v1/session/events` 同流追加 `kinship/assistant-stream` 实时帧（来自 `agent/assistant-stream`，seq 为落在 durable 事件之间的小数），并新增四个可选端点：`GET /v1/models`、`GET /v1/session/context`、`POST /v1/session/compact`、`GET /v1/session/compaction`。
+  - 后端 `DshClient` 补 `get_available_models`（真实目录）、`get_active_model_context_window`、`summarize_session`（触发 `/compact` 命令，202 受理）、`get_session_compaction`（W51A 快照，历史页压缩分隔线对 dsh 生效）；`/api/screen/model` 的 dsh 分支只读展示当前路由、POST 明确拒绝（模型由 preset 决定）。
+  - `/health` 新增 `dsh` 键与 `services/dsh_health.py` 探针（15s 周期、2s 超时、离线按 `ai_backend=dsh` 判 degraded，`status` 取值域不变）。
+  - 配置声明：公开配置 schema 的 `ai_backend` 允许 `loom|dsh`；热重载 `apply_ai` 识别 `dsh.*`（重置单例、地址变更重建 hub）；onboarding 的 AI 助手步骤新增「Loom / dsh」通道选择（dsh 只写 `ai_backend` 与 `dsh.url`，不走 Loom 安装启动）。无运行时切换按钮。
+  - 修复：`kinship-bridge` 消息投影按 dsh 0.2.2-rc.3 真实嵌套形状（`data.message`）读 `assistant/message`/`tool/result`；后端 reasoning 块识别 `reasoning`（原只认 `thinking`）。
+  - 验证：真实 dsh 0.2.2-rc.3 临时实例上跑通挂载/绑定/实时流翻译/历史投影/压缩受理/模型目录/上下文窗口；`harness-plugins` 56 条测试、后端相关 172 条、前端单测全量通过。生产未启用、未重启服务、未改生产配置。
 - **claim 关系显式写入与修正（2026-11-07）**：新增 `stratum add claim-relation`（`derived_from` / `supersedes` / `contradicts`）与 `stratum revise claim`。02 日用关系写 `contradicts` / `supersedes`，03/04 写 `derived_from`；active claim 通过 `revise` 生成同层 draft 替换并自动写 `supersedes`，promote 后旧 claim 才失效。周报可据此修正日结论。版本仍为 `0.1.2`。
 - **Loom 子会话兜底压缩（2026-11-04）**：主会话声明 `compaction.fallbackTokens` 后，task 子会话默认继承 session-level fallback 压缩，阈值按子会话模型窗口封顶（`min(fallbackTokens, contextWindow - min(maxOutput,4096))`）；子会话不注入水位提醒，手动压缩与 `compact_context` 仍面向主会话。水位提醒、主会话工具压缩/兜底、手动压缩与子会话兜底现在默认同时存在。boot `loom compaction` 日志新增 `subagentFallback` 字段。
 - **v4 引导重构（2026-10-27）**：11 步 `welcome→account→dependencies→kernel→kernel_models→xiaomi→qq→moss→loom→clients→finish`，state v4；Xiaomi/QQ 独立前置步骤，MOSS 仅启用/地址/模型，Loom 仅端口/提供商/密钥并一次启动应用，finish 合并预检与启动校验并显示结束语。详见 [docs/dev/onboarding-v4-2026-10-27.md](docs/dev/onboarding-v4-2026-10-27.md)。

@@ -20,6 +20,16 @@ loom:
   credentials_file: ""
   manage_config: false
 
+# dsh（kinship-bridge 插件；监听 127.0.0.1:18765）
+# Bearer token 优先级: dsh.token > dsh.token_file > DSH_TOKEN / KINSHIP_BRIDGE_TOKEN。
+# token_file 内容为插件的裸 token（整文件 trim）；后端只与 bridge 已绑定的唯一
+# Kinship 会话通信；token 真实值只进 gitignored 配置或受限权限的 token 文件。
+dsh:
+  url: http://127.0.0.1:18765
+  token: ""
+  token_file: ""
+  timeout_seconds: 30
+
 # 旧版助手客户端兼容键：仅为既有配置校验保留，新部署保持关闭。
 # 公开文档不提供该客户端的安装或切换说明。
 opencode:

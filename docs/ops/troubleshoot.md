@@ -980,7 +980,7 @@ sudo ls -l /etc/kinship-qq-gateway/mcp.token
 | --- | --- |
 | 后端 HTTPS 8767（历史） | 后端 8768，HTTP/HTTPS 同端口 |
 | `http_port` 8768 未启用时曾回落 8769（已废弃，现统一 8768） | 8769 已退役，不再监听 |
-| 旧版助手服务 | Loom 5100 是唯一助手宿主 |
+| 旧版助手服务 | Loom 5100 是默认助手宿主；dsh 是可选路径 |
 | VPS nginx + frps 20077 | frpc 80/443 透传 + 本机 Caddy 443/8443 |
 | `start.bat` / `start.ps1` / PowerShell | systemd `axeuh-health` |
 | `C:\Kinship`、`%LOCALAPPDATA%` | `/opt/kinship`、`~/.cache/...` |
@@ -991,7 +991,7 @@ sudo ls -l /etc/kinship-qq-gateway/mcp.token
 
 ### H2 2026-10-20 旧版助手端点退役
 
-旧版助手端点曾由后端使用。退役后不再监听，任何助手路径不得引用旧端口。现行助手宿主只有 Loom（`127.0.0.1:5100`）；故障时不要把 `ai_backend` 切到其他后端，也不要把任何旧实例当作回退。
+旧版助手端点曾由后端使用。退役后不再监听，任何助手路径不得引用旧端口。现行默认助手宿主是 Loom（`127.0.0.1:5100`）；dsh 是可选路径，选择与接入见 [ai-runtimes.md](../dev/ai-runtimes.md)。故障时不要把任何旧实例当作回退。
 
 ### H3 2026-10-22 系统盘被 venv 占满
 

@@ -1,13 +1,13 @@
 # Kinship
 
 **技术栈**: Python 3.10+ (FastAPI) + Kotlin (Android/Compose) + TypeScript (Vue 3/Vite)
-**仓库模式**: 公开主仓 + 私有组件分离，10 个子系统（含 Windows 桌面端、音频内核、Loom agent harness、MOSS 影子管线、QQ 网关）共用同一后端平台
+**仓库模式**: 公开主仓 + 私有组件分离，11 个子系统（含 Windows 桌面端、音频内核、Loom agent harness、外部 harness 适配、MOSS 影子管线、QQ 网关）共用同一后端平台
 **生成时间**: 2026-07-19
-**上次更新**: 2026-10-29
+**上次更新**: 2026-11-15
 
 ## 概览
 
-AI 驱动的健康监测系统。Android App 采集传感器数据(心率/GPS/步数/音频等)，FastAPI 后端接收存储，Loom AI（生产）定时分析健康状态和行为模式。PC 感知采集器 (PC Sensor) 采集 Windows PC 状态（前台窗口、空闲、锁屏）并上报后端。Windows 桌面端（`desktop/`，Electron 45）是现有 SPA 的网页套壳，并把 PC 采集端作为子进程内置；服务器地址与证书在本机设置页配置。全部音频算法（ASR/VAD/声纹/KWS/场景/说话人切分/陌生人）由**独立闭源音频内核进程**（运行时 `<project>/kernel`，源码在私有 `kinship-kernel`，包名 `axeuh_kernel`）承载——后端运行时零 ML、零算法实现，只经 `kernel_client.py` / `kernel_job_client.py` / `segment_channel.py` 调用内核。另有 **MOSS 深度音频理解影子管线**（`tools/moss-shadow/`，1.6.0 起，观察期旁路）：独立 systemd 双单元（vLLM serve + watcher 文件订阅）对落盘 chunk 端到端深读（归因/场景/叙事），产物 `audio_deepdive.jsonl` 旁路文件——**perception.jsonl 一字不改，生产主链零依赖**。Python 环境：生产用 `/opt/kinship/.venv-health`，内核用 `/opt/kinship/.venv-kernel`，MOSS 用 `/opt/kinship/.venv-moss`。
+AI 驱动的健康监测系统。Android App 采集传感器数据(心率/GPS/步数/音频等)，FastAPI 后端接收存储，Loom AI（默认，完整工作流）定时分析健康状态和行为模式。PC 感知采集器 (PC Sensor) 采集 Windows PC 状态（前台窗口、空闲、锁屏）并上报后端。Windows 桌面端（`desktop/`，Electron 45）是现有 SPA 的网页套壳，并把 PC 采集端作为子进程内置；服务器地址与证书在本机设置页配置。全部音频算法（ASR/VAD/声纹/KWS/场景/说话人切分/陌生人）由**独立闭源音频内核进程**（运行时 `<project>/kernel`，源码在私有 `kinship-kernel`，包名 `axeuh_kernel`）承载——后端运行时零 ML、零算法实现，只经 `kernel_client.py` / `kernel_job_client.py` / `segment_channel.py` 调用内核。另有 **MOSS 深度音频理解影子管线**（`tools/moss-shadow/`，1.6.0 起，观察期旁路）：独立 systemd 双单元（vLLM serve + watcher 文件订阅）对落盘 chunk 端到端深读（归因/场景/叙事），产物 `audio_deepdive.jsonl` 旁路文件——**perception.jsonl 一字不改，生产主链零依赖**。Python 环境：生产用 `/opt/kinship/.venv-health`，内核用 `/opt/kinship/.venv-kernel`，MOSS 用 `/opt/kinship/.venv-moss`。AI 运行时默认是 Loom（一等、完整工作流）；`harness-plugins/` 提供可选的外部 harness 适配层，dsh 是其中的参考实现，已实现适配层与测试，不是默认路径；生产可用性按部署环境验证，其他 harness 按 `docs/dev/adapter-contract.md` 接入。运行时定位与选择见 `docs/dev/ai-runtimes.md`。
 
 **私有/单独交付**：`ai/`（运行时数据与记忆）、`kernel/`（闭源音频内核）、`tools/moss-shadow/`（MOSS 影子管线）不在本公开仓库发布；`docs/archive/` 与 `docs/dev/记忆-A方案-2026-10-20.md` 属于私有历史/设计文档，公开树不包含。
 
@@ -40,7 +40,7 @@ PC 采集器 ────┘   (对外 8768)      │  本地 HTTP :8769       p
 
 数据以**文件系统**为接口：后端写 JSONL/JSON，AI 读文件，两侧解耦。
 
-AI 处理遵循 **脚本层 → 子智能体层 → 主智能体层** 三层工作流；现行 Loom 架构以本文件与 `config.yaml` 为准，Loom 版架构文档待重写。历史架构快照保存在私有归档，不进入公开树。
+AI 处理遵循 **脚本层 → 子智能体层 → 主智能体层** 三层工作流；现行 Loom 架构以本文件与 `config.yaml` 为准，AI 运行时选择见 `docs/dev/ai-runtimes.md`。历史架构快照保存在私有归档，不进入公开树。
 
 ## 目录结构
 
@@ -54,8 +54,9 @@ AI 处理遵循 **脚本层 → 子智能体层 → 主智能体层** 三层工�
 | 音频内核      | `kernel/`（运行时安装位；源码在私有 `kinship-kernel`） | Python / FastAPI+uvicorn 独立进程 | `python -m axeuh_kernel`（外层 spawn，HTTP+WS 同端口 `127.0.0.1:{port}`，pull-first） | `docs/kernel-contract.md` |
 | Android App   | `app/`             | Kotlin / Jetpack Compose  | `MainActivity.kt`   | `app/AGENTS.md`             |
 | 前端 SPA      | `frontend/mobile/` | TypeScript / Vue 3 + Vite（v2-only 壳层） | `src/main.ts`       | `frontend/mobile/AGENTS.md` |
-| AI 分析       | `ai/`（私有，单独交付） | Python + Loom/OpenCode    | `data/tasks/*.yaml` | 私有侧文档              |
+| AI 分析       | `ai/`（私有，单独交付） | Python + Loom（默认）/ dsh（可选）/ OpenCode | `data/tasks/*.yaml` | 私有侧文档              |
 | Loom agent harness | `loom-harness/` | TypeScript / Node | `packages/server/dist/cli.js` | `loom-harness/docs/` |
+| 外部 harness 适配 | `harness-plugins/`（可选；dsh 为参考实现） | TypeScript / Node | `packages/kinship-bridge/src/server.ts` + `packages/kinship-plan/` + `packages/kinship-task-compat/` | `docs/dev/ai-runtimes.md` + `docs/dev/adapter-contract.md` |
 | PC 感知采集器 | `desktop/pc-sensor/`       | Python / FastAPI          | `pc_sensor_app.py`  | `desktop/pc-sensor/AGENTS.md`       |
 | Windows 桌面端 | `desktop/` | TypeScript / Electron 45 + Vue 3 | `src/main/main.ts` (Electron) | `desktop/AGENTS.md` |
 | MOSS 影子管线 | `tools/moss-shadow/`（私有，单独交付） | Python + vLLM（systemd `axeuh-moss`/`axeuh-moss-watch`，旁路观察期） | `watcher.py --loop` / `merge.py --date` | 私有侧部署说明 |

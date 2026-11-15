@@ -6,7 +6,7 @@
 
 > 状态：2026-10-30。中文是默认入口；英文 README 是摘要与镜像。完整文档见 `docs/`。
 
-自托管的 AI 个人数据助理。Android App 持续采集手机和手环传感器数据（心率、步数、GPS、环境音频、通知、屏幕状态等），上传到私有后端；Loom AI（生产）定时分析并生成理解、复盘、健康清单与通知。系统全部运行在你自己的服务器上。
+自托管的 AI 个人数据助理。Android App 持续采集手机和手环传感器数据（心率、步数、GPS、环境音频、通知、屏幕状态等），上传到私有后端；Loom AI（默认，完整工作流）定时分析并生成理解、复盘、健康清单与通知。系统全部运行在你自己的服务器上。
 
 ## 为什么是 Kinship
 
@@ -45,7 +45,7 @@ Kinship 分为三个位置，不是单一仓库：
 
 | 位置 | 内容 | 分发方式 |
 | --- | --- | --- |
-| `kinship`（本仓库） | 后端、Android App、前端、桌面端、Loom harness、文档、发行资产 | 公开源码树 |
+| `kinship`（本仓库） | 后端、Android App、前端、桌面端、Loom harness、可选外部 harness 适配、文档、发行资产 | 公开源码树 |
 | `kinship-kernel` | 闭源音频内核源码（`axeuh_kernel`） | 私有；PolyForm Noncommercial 1.0.0 |
 | `kinship-data` | `config.yaml`、证书、`backend/config/auth.json`、AI 运行时数据与上传文件 | 私有；不入 git |
 
@@ -81,7 +81,7 @@ Android App / PC Sensor
 Caddy 443/8443
   -> https://127.0.0.1:8768       (跳过上游证书校验)
 FastAPI 后端 8768（HTTP/HTTPS 同端口）
-  -> Loom 127.0.0.1:5100          (助手唯一宿主，由 axeuh-health 托管为子进程)
+  -> Loom 127.0.0.1:5100          (默认助手宿主，由 axeuh-health 托管为子进程)
   -> 音频内核 127.0.0.1:<动态>     (后端 spawn，闭源进程)
   -> MOSS 127.0.0.1:8100          (转正执行中，卡2)
 ```
@@ -136,7 +136,8 @@ sudo systemctl enable --now kinship
 
 ## 核心能力
 
-- **Loom 助手（生产）**：`127.0.0.1:5100`，由 `axeuh-health` 托管为子进程（独立 `axeuh-loom.service` 停用，仅回滚）；`ai_backend: loom`。
+- **Loom 助手（默认，完整工作流）**：`127.0.0.1:5100`，由 `axeuh-health` 托管为子进程（独立 `axeuh-loom.service` 停用，仅回滚）；`ai_backend: loom`。
+- **dsh 适配路径（可选）**：通过 `harness-plugins/` 接入自带 harness；需要自行安装、绑定 Kinship 会话并配置 token，不是开箱即用。Loom 仍是默认工作流。见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md)。
 - **三层工作流**：脚本层（`fact_extractor.py` / `check_coverage.py`）→ 子智能体层（data-check / reviewer）→ 主智能体层（派发、验收、自优化）。
 - **定时调度**：默认 7 个数据检查窗口（00/06/08/12/16/20/22），每日复盘 00:40，双周复盘 1/15 18:30，周报周一 03:00。
 - **记忆 A 方案**：主会话常驻 6 件（约 36.5 KB），批次/复盘 role 注入 5 件 core；`memory_write` / `memory_retrieve` / `memory_audit` / `memory_consolidate`；检索以 `grep` + `read` 为主。
@@ -164,6 +165,8 @@ sudo systemctl enable --now kinship
 | [docs/dev/PROJECT_MAP.md](docs/dev/PROJECT_MAP.md) | 目录结构与子系统地图 |
 | [docs/dev/AUDIO_PIPELINE.md](docs/dev/AUDIO_PIPELINE.md) | 环境音频上传、无缝流、WAV/FLAC |
 | [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) | AI 架构：Loom、任务、记忆、MOSS、QQ |
+| [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) | AI 运行时选择：Loom、dsh 与自带 harness |
+| [docs/dev/adapter-contract.md](docs/dev/adapter-contract.md) | AI 运行时适配器契约 |
 | [docs/dev/DATA_FORMAT.md](docs/dev/DATA_FORMAT.md) | 感知与健康数据格式 |
 | [docs/kernel-contract.md](docs/kernel-contract.md) | 闭源音频内核契约 |
 | [docs/kernel/README.md](docs/kernel/README.md) | 内核分发、数据边界、模型、运行时路径与许可 |

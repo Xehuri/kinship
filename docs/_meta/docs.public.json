@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-04",
+  "updated": "2026-11-15",
   "scope": "public-docs-only",
   "notes": "Only public documentation is listed. Internal, migration, production-topology, and research documents are intentionally absent.",
   "docs": [
@@ -121,6 +121,20 @@
       "title": "AI 系统架构",
       "audience": "contributor",
       "status": "rewrite",
+      "language": "zh"
+    },
+    {
+      "path": "dev/ai-runtimes.md",
+      "title": "AI 运行时选择",
+      "audience": "contributor",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "dev/adapter-contract.md",
+      "title": "AI 运行时适配器契约",
+      "audience": "contributor",
+      "status": "ready",
       "language": "zh"
     },
     {

@@ -29,20 +29,26 @@ The canonical key list is `config.example.yaml` (the committable template); the 
 | `ssl.cert` | str | `""` | Certificate file path |
 | `ssl.key` | str | `""` | Private key file path |
 
-### `ai_backend` / `loom` - Assistant host (Loom)
+### `ai_backend` / `loom` / `dsh` - AI runtime selection (Loom default)
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `ai_backend` | str | `loom` | Assistant host selector. The public template and onboarding set `loom` |
+| `ai_backend` | str | `loom` | AI runtime selector. The public template and onboarding set `loom`; `dsh` is an optional BYO-harness path |
 | `loom.url` | str | `http://127.0.0.1:5100` | Loom assistant host URL |
 | `loom.token` | str | `""` | Loom Bearer token. The `LOOM_TOKEN` environment variable is the fallback; Loom rejects empty tokens |
 | `loom.token_file` | path | `""` | Optional env-style file containing `LOOM_TOKEN=...`; relative paths resolve from the project root. Masked in config APIs |
 | `loom.credentials_file` | path | `""` | Optional Loom credentials env file used by onboarding token discovery. Masked in config APIs |
 | `loom.manage_config` | bool | `false` | Legacy flag; v4 onboarding always writes the managed `ai/.loom/config.yaml` after an explicit "start and apply" action |
+| `dsh.url` | str | `http://127.0.0.1:18765` | Optional dsh Kinship bridge URL |
+| `dsh.token` | str | `""` | Optional dsh bridge Bearer token; highest priority |
+| `dsh.token_file` | path | `""` | Optional raw token file; relative paths resolve from the project root. Masked in config APIs |
+| `dsh.timeout_seconds` | int | `30` | dsh bridge request timeout (seconds) |
 
 > Runtime mode is detected as `systemd` (unit present) > `child` (`node` plus `loom-harness/packages/server/dist/cli.js`) > `none`. v4 onboarding auto-provisions `loom.token_file`; the token is never returned by the API. The Loom model provider key is written inline as `providers[].apiKey` in the 0600 managed `ai/.loom/config.yaml`; `credentials: {provider: ${ENV_VAR}}` remains a fallback for non-onboarding installs. See [onboarding-v4-2026-10-27.md](../dev/onboarding-v4-2026-10-27.md).
 
 > Loom is the assistant host at `127.0.0.1:5100`. In the stable production topology the backend starts Loom as a managed child; systemd `axeuh-loom` is reserved for migration and rollback. `ai_backend: loom` is the template default and is written by the onboarding `loom` step.
+>
+> `dsh` is optional and is not part of the default install. It requires the `harness-plugins/` bridge, a bound Kinship session, and the same Bearer token on both sides. Token priority is `dsh.token` > `dsh.token_file` > `DSH_TOKEN` (alias `KINSHIP_BRIDGE_TOKEN`). See [AI runtimes](../dev/ai-runtimes.md) and [adapter contract](../dev/adapter-contract.md).
 
 ### `onboarding` — First-run downloads
 

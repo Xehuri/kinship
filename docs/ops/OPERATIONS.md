@@ -12,6 +12,11 @@
 - 载体切换：v1 不支持运行中切换，必须停进程、改环境变量、再启动。
 - staging：`python3 backend/scripts/qa_config_staging.py --smoke`，默认报告 `<TMP_DIR>/system-config/staging-report.md`（内容为 JSON）。脚本已用 `AXEUH_AUTH_STATE_DIR` / `AEUH_ONBOARDING_STATE` / `AXEUH_PROJECT_ROOT` 隔离 auth、引导状态与初始化动作目标目录；不要在 staging 中省略 `AXEUH_PROJECT_ROOT`，否则 `copy_ai_template` 会指向代码仓库的生产 `ai/`。
 
+## AI 运行时选择（2026-11-15）
+
+- 默认 `ai_backend: loom`，它是 Kinship 的完整工作流。`dsh` 是可选的自带 harness 接入路径，不是开箱即用：需要安装 `harness-plugins/`、启动 bridge、在 dsh 中创建并绑定 Kinship session，再配置后端 `dsh.url` 与同一个 Bearer token。
+- 运行时定位与选择见 [ai-runtimes.md](../dev/ai-runtimes.md)，适配端点与会话模型见 [adapter-contract.md](../dev/adapter-contract.md)。dsh 不在默认拓扑内；不改变 Loom 的默认启动链。
+
 ## HTTPS 与反代一致性（2026-10-26）
 
 - 生产 Caddy vhost 固定反代 `https://127.0.0.1:8768`。后端只有在 `ssl.enabled=true` 且证书、私钥都存在时才以 HTTPS 监听 `server.port`（8768）；`ssl.enabled` 缺失或为 false 时同一端口降级为 HTTP，协议不符会让 Caddy 返回 502。
@@ -129,14 +134,14 @@
 - `kernel/` 是**闭源分发物**：内核源码在私有仓开发维护，对外分发经 PyArmor 保护构建（`kernel/build_dist.py`）+ `kernel/EULA.md`；对外契约只认 `docs/kernel-contract.md`（设计稿 `docs/kernel-design.md` 只读）。`AXEUH_KERNEL_TOKEN` 经环境变量注入内核进程（无命令行参数），任何文档/提交不得写入真实 token 或密钥
 - `backend/models.py`（Pydantic 数据模型）与历史 ML 权重目录 `backend/models/`（Wave C3 已整体出库删除，权重归内核私有模型目录）同名易混，导入时注意前者才是现役模块
 - `app/` 目录是 Android 模块（Gradle），不是 FastAPI 的 app 包
-- 端口：后端 **8768**（HTTP 与 HTTPS 同端口，由 `ssl.enabled` 决定协议；本地与公网一致，frpc 8768→8768）、Loom 助手 **5100**（`127.0.0.1`，唯一助手宿主，`ai_backend: loom`；稳定态由后端作为受管子进程托管，systemd `axeuh-loom` 仅迁移与回滚）、PC 感知采集器 **18888**（本地 HTTP）、QQ 网关 **8770**（`127.0.0.1`，默认关闭；生产已启用）、Vite dev **5173**、音频内核 **127.0.0.1:动态端口**（`--port 0` spawn，实际端口记录在 `backend/data/kernel_state/kernel.pid` pidfile，非固定）、本地 LLM **8000**（`127.0.0.1`，systemd `vllm-27b`，Qwen3.8-27B-GPTQ-W4A16 TP=2 双 2080Ti，256K 上下文 turboquant_k8v4 KV，开机自启；运维 `docs/vram-3gpu-coexistence-20261018.md`）、MOSS serve **8100**（`127.0.0.1` 仅回环，systemd `axeuh-moss` 常驻**卡2（3060 Ti, x1 转接）fp8 量化**，`--max-num-seqs 1` 串行化；`axeuh-moss-watch` 唯一调用方；转正执行中，待两日回归 + 七天观察）、音频工作台 **8790**（`tools/audio-console/`，素材试听+人耳基线标注）
+- 端口：后端 **8768**（HTTP 与 HTTPS 同端口，由 `ssl.enabled` 决定协议；本地与公网一致，frpc 8768→8768）、Loom 助手 **5100**（`127.0.0.1`，默认助手宿主，`ai_backend: loom`；稳定态由后端作为受管子进程托管，systemd `axeuh-loom` 仅迁移与回滚；dsh 可选，走独立 bridge）、PC 感知采集器 **18888**（本地 HTTP）、QQ 网关 **8770**（`127.0.0.1`，默认关闭；生产已启用）、Vite dev **5173**、音频内核 **127.0.0.1:动态端口**（`--port 0` spawn，实际端口记录在 `backend/data/kernel_state/kernel.pid` pidfile，非固定）、本地 LLM **8000**（`127.0.0.1`，systemd `vllm-27b`，Qwen3.8-27B-GPTQ-W4A16 TP=2 双 2080Ti，256K 上下文 turboquant_k8v4 KV，开机自启；运维 `docs/vram-3gpu-coexistence-20261018.md`）、MOSS serve **8100**（`127.0.0.1` 仅回环，systemd `axeuh-moss` 常驻**卡2（3060 Ti, x1 转接）fp8 量化**，`--max-num-seqs 1` 串行化；`axeuh-moss-watch` 唯一调用方；转正执行中，待两日回归 + 七天观察）、音频工作台 **8790**（`tools/audio-console/`，素材试听+人耳基线标注）
 
 - MOSS 转正运维：`axeuh-moss`（serve）+ `axeuh-moss-watch`（watcher）+ `axeuh-moss-regression.timer`（每日 05:00，周日 full）+ `axeuh-moss-alert.timer`（hourly）；报告在 `tools/moss-shadow/state/regression/`，告警失败落 `state/alerts/failed.jsonl`；通知走后端 `POST /api/notification/send`。详见 `tools/moss-shadow/README.md` 与 `docs/moss-formalization-plan-2026-10-22.md`。
 - Loom 交互式 PTY（2026-10-19）：`pty_spawn/pty_write/pty_read/pty_list/pty_kill`（node-pty）。`notifyOnExit` 默认 true，退出通知经 `deliverWake` 作为 durable user 消息投回发起会话：空闲立即起唤醒轮，忙则当前轮收尾后起新轮；env 剥离 `LOOM_`/`AXEUH_` 等前缀，spawn cwd 限 workspace，权限/deny/net 走 D7 缝。
 - Loom 自动唤醒（2026-10-21）：主会话 converge 可选 `wake`（倒计时/带时区 ISO/本地时间/HH:MM/none），到点经 `deliverWake` 投 `【自动唤醒】` durable user 消息并起轮；sidecar `ai/.loom/state/session/wake/{sid}.json` 耐重启；`server.autoWakeEnabled` 缺省启用、显式 false 关闭需重启；侧会话/子智能体不可用。
 - Loom 压缩（2026-10-21）：生产走 worker `summaryMode:auto` + `summaryReasoningEffort:low`；旧 compactable toolResult 先投影清空、预算内单次摘要、超预算递归 depth≤2；2026-10-22 起 worker 默认 ops+chat 双视角、合成一条摘要注入，`summaryPerspectives:["ops"]` 可回退；详见 `../loom-harness/docs/06-Loom使用文档.md` §5.4.1。
 - Loom converge 回执简化（2026-10-21）：主会话只需 `status`（digest 自动派生、body 可省略）；侧会话 digest 亦内部派生。
-- Loom 是唯一助手宿主（`127.0.0.1:5100`），`ai_backend: loom`。稳定态由 `core.hot_server` 作为受管子进程托管；systemd `axeuh-loom` 仅迁移期与回滚使用。`launcher.py` 已退役，不再管理助手或后端编排。助手调用点经 `services/ai_client_factory.py`（`acquire_ai_client()`）按 `ai_backend` 选择客户端，公开模板与生产均走 Loom。
+- Loom 是默认助手宿主（`127.0.0.1:5100`），`ai_backend: loom`。稳定态由 `core.hot_server` 作为受管子进程托管；systemd `axeuh-loom` 仅迁移期与回滚使用。`launcher.py` 已退役，不再管理助手或后端编排。助手调用点经 `services/ai_client_factory.py`（`acquire_ai_client()`）按 `ai_backend` 选择客户端，公开模板与生产默认走 Loom；dsh 是可选路径。
 - P2P（实验，当前不可用）：仅保留实验代码与配置骨架，当前不具备可用性。保持 `p2p.enabled: false`；不要部署 `axeuh-signal`、不要安装 `backend/requirements-p2p.txt`，也不要把 P2P 端点列入正式连接方案。
 - Android 客户端网络（2026-10-25）：设置→网络维护有序连接层列表（网络地址 / P2P 占位），支持 AUTO_CHAIN / PINNED、测试并应用；仅 IOException 触发换层，401/4xx/5xx 不切；旧 `server_url` / `endpoint_candidates` / `transport_mode` 迁移后只读。桌面端仍按其自身配置模型。
 - 具体配置以 `config.example.yaml` 与 `docs/system-config-hot-reload.md` 为准；生产承载文件可能是 `config.yaml`、JSON 或 SQLite。

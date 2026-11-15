@@ -1,6 +1,6 @@
-# Kinship AI 系统（Loom 现行版）
+# Kinship AI 系统（Loom 默认版）
 
-> 状态：现行（2026-10-22 重写）。生产助手宿主 Loom 127.0.0.1:5100。
+> 状态：现行（2026-10-22 重写；2026-11-15 补充运行时选择说明）。Loom 仍是默认的完整工作流，生产助手宿主为 `127.0.0.1:5100`。dsh 是可选的外部 harness 适配路径，不是默认；运行时选择见 [ai-runtimes.md](ai-runtimes.md)。
 
 ---
 - [1. 架构概览](#1-架构概览)
@@ -50,7 +50,7 @@ AI 不采集数据，也不参与采集实现。后端负责接收、存储、�
 | 进程 | 绑定 | 说明 |
 |---|---|---|
 | 后端（HTTP 与 HTTPS 同端口） | `8768` | 对外入口与本地开发；`ssl.enabled` 决定协议 |
-| Loom 助手 | `127.0.0.1:5100` | 生产唯一助手宿主，systemd `axeuh-loom` |
+| Loom 助手 | `127.0.0.1:5100` | 默认助手宿主，systemd `axeuh-loom` |
 | 音频内核 | `127.0.0.1:<动态>` | 闭源 `axeuh_kernel`，后端按需 spawn，端口写入 pidfile |
 | MOSS serve | `127.0.0.1:8100` | vLLM，卡2 3060 Ti，fp8；转正执行中，loopback + `--max-num-seqs 1` |
 | QQ 网关 IPC | `127.0.0.1:8770` | HTTP + Bearer token，供 qq CLI 调用 |

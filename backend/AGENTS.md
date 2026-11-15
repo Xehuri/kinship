@@ -1,6 +1,6 @@
 # Backend - FastAPI 后端
 
-**更新时间**: 2026-10-22
+**更新时间**: 2026-11-15
 **框架**: FastAPI + Uvicorn
 **Python**: >=3.10
 
@@ -30,7 +30,7 @@ backend/
 ├── models.py            # Pydantic 数据模型（注意：历史 ML 权重目录 backend/models/ 已随 Wave C3 整体出库删除，权重归内核私有模型目录）
 ├── auth.py              # Token 认证系统
 ├── routers/             # API 路由 (25 个 + __init__；agents_remote/tasks/scripts 已随 P0-U1 裁除)
-├── services/            # 业务服务 (42 个；含 kernel_client.py / kernel_job_client.py / segment_channel.py 三条内核通道，health/ 多源健康包，单实现层 perception_reader.py / audio_codec.py / kernel_segment_session.py，AI 客户端 opencode_client.py + ai_client_factory.py 双通道工厂；**零算法实现**)
+├── services/            # 业务服务 (42 个；含 kernel_client.py / kernel_job_client.py / segment_channel.py 三条内核通道，health/ 多源健康包，单实现层 perception_reader.py / audio_codec.py / kernel_segment_session.py，AI 客户端 opencode_client.py / loom_client.py / dsh_client.py + ai_client_factory.py 多通道工厂；**零算法实现**)
 │   ├── scripts/         # context.py (脚本 stdout JSON 管道通信)
 │   ├── health/          # 多源健康包: store.py(分片存储；V9 起 export_legacy 派生视图双写退役，函数仅存历史迁移/懒引导种子读) / paths.py / models.py / devices.py / sources/{base,phone_push,cloud_pull}（V7 分组双胞胎合一至 phone_push.normalize；原 registry 死抽象已删，仅存 CLOUD_FETCH_KEYS 取数顺序常量）
 │   ├── kernel_client.py # 内核同步通道 (speakers/cohort/preview 评分、kws_encode、vp_speaker_count/vp_cohort_stats 探针，Bearer 调 127.0.0.1:{动态端口}；spawn+握手+pidfile 复用)
@@ -73,7 +73,7 @@ backend/
 | TTS 设备路由 | `services/device_channel_store.py` + `routers/tts.py` | 记录"最近发消息的设备"，TTS 定向回传（滑动 TTL，回退 `tts.fallback_client_types`） |
 | 上传音频无缝流 | `services/audio_ingest_session.py` + `audio_ingest_registry.py` + `segment_channel.py` + `routers/perception.py` | 按 `device_id` 把时间连续的上传分段当作一条虚拟连续流；逐帧静音切分**委托内核 WS `mode:"segment"` 通道**（C5），外层保留时间轴/水位/去重/holdback，通道故障该流降级逐段独立产出（降级基类 `kernel_segment_session.py` 与直播流共享，V17 起注册表 sweeper 经 lifespan 接线）（`audio.stream.stitch.*`，详见文末章节）；上传格式双档（WAV/FLAC）经 magic 嗅探统一解码 PCM 入流，chunk 按上传格式封装落盘（FLAC 重编码用 soundfile，属 IO 非算法，留外层） |
 | 定时任务 | `services/task_scheduler.py` | 自动调度 + 热加载；`register_builtin()` 内建回调任务（V13：builtin_audio_compressor_daily 每日 00:05 双桶 daily+stream、builtin_unknown_speaker_cleanup 每日 cleanup_hour），时间判定唯一走 ScheduleParser/next_run；ScriptRunner 常驻脚本语义独立保留 |
-| AI 双通道会话 | `services/ai_client_factory.py` + `services/loom_messages.py` | 通道随 config `ai_backend` 选 loom/opencode；移动端历史 `GET /session/{id}/messages` 默认 50 条、`before` 上翻，loom 页级转换的孤儿 toolResult 原位保留独立壳，规则见 `services/AGENTS.md`「Loom 历史消息转换」 |
+| AI 多通道会话 | `services/ai_client_factory.py` + `services/loom_messages.py` + `services/dsh_messages.py` | 通道随 config `ai_backend` 选 loom（默认）/opencode/dsh；dsh 走 `DshClient`，只与 bridge 唯一绑定会话通信；移动端历史 `GET /session/{id}/messages` 默认 50 条、`before` 上翻，loom 页级转换的孤儿 toolResult 原位保留独立壳，规则见 `services/AGENTS.md`「Loom 历史消息转换」 |
 
 ## 启动方式
 
