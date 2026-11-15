@@ -292,3 +292,15 @@ backend/config/.setup_token
 /ai/data/tasks/.night_checkin_state.json
 /ai/memory/self/chatlog_sessions.json
 /ai/memory/self/exec_log_tmp
+
+# 生产根内资产与运行数据（2026-11-15：生产改跑本检出，数据一律外置到 kinship-data）
+# 这些条目同时覆盖真实目录与指向树外的软链，防止 git add -A 把运行时数据带进仓库
+/kernel/
+/tools/moss-shadow/
+/ai
+/logs
+/backend/data
+/backend/logs
+/backend/config/auth.json
+/backend/config/.setup_token
+/.stratum/
