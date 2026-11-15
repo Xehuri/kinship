@@ -164,6 +164,32 @@ def _read_loom_token_file(path: str) -> str:
     return value
 
 
+def _read_dsh_token_file(path: str) -> str:
+    """读取 bridge token 文件：整文件 trim 后即裸 token（与 kinship-bridge 同口径）。
+
+    缓存与 Loom 共用 _LOOM_TOKEN_FILE_CACHE（键前缀 "dsh" 防串值）；mtime/size 变化
+    立即失效，令牌值不写日志。
+    """
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return ""
+    cache_key = ("dsh", path, stat.st_mtime_ns, stat.st_size)
+    with _LOOM_TOKEN_FILE_CACHE_LOCK:
+        cached = _LOOM_TOKEN_FILE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        value = Path(path).read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+    with _LOOM_TOKEN_FILE_CACHE_LOCK:
+        if len(_LOOM_TOKEN_FILE_CACHE) >= _LOOM_TOKEN_FILE_CACHE_LIMIT:
+            _LOOM_TOKEN_FILE_CACHE.clear()
+        _LOOM_TOKEN_FILE_CACHE[cache_key] = value
+    return value
+
+
 class Config:
     """配置访问门面：live 模式读 ConfigStore 快照，静态模式读注入文档。"""
 
@@ -470,6 +496,52 @@ class Config:
     def LOOM_MANAGE_CONFIG(self) -> bool:
         """是否允许后端托管写入 Loom 配置；默认关闭（只读）。"""
         return bool(self._section('loom').get('manage_config', False))
+
+    # ── dsh 桥接通道（kinship-bridge 插件，单一 Kinship 会话）─────
+
+    @property
+    def DSH_URL(self) -> str:
+        """dsh kinship-bridge 地址；缺省 loopback 18765（插件侧固定端口）。"""
+        return str(self._section('dsh').get('url') or 'http://127.0.0.1:18765')
+
+    @property
+    def DSH_TOKEN(self) -> str:
+        """dsh bridge Bearer 令牌。
+
+        优先级: config.yaml dsh.token > dsh.token_file > 环境变量 DSH_TOKEN
+        > KINSHIP_BRIDGE_TOKEN > 空。token_file 高于环境变量，与 kinship-bridge
+        插件自身的 tokenFile > tokenEnv 语义对齐（插件默认 tokenEnv 名为
+        KINSHIP_BRIDGE_TOKEN，DSH_TOKEN 为本后端约定的别名）。
+        空 token 不拦截：缺 token 的 401 由首次请求响亮暴露；令牌值永不写日志。
+        """
+        token = self._section('dsh').get('token') or ''
+        if token:
+            return str(token)
+        token_file = self.DSH_TOKEN_FILE
+        if token_file:
+            file_token = _read_dsh_token_file(token_file)
+            if file_token:
+                return file_token
+        for env_name in ("DSH_TOKEN", "KINSHIP_BRIDGE_TOKEN"):
+            env_token = os.environ.get(env_name) or ''
+            if env_token:
+                return env_token
+        return ''
+
+    @property
+    def DSH_TOKEN_FILE(self) -> str:
+        """dsh.token_file 绝对路径；空 = 未配置。相对路径按项目根解析。"""
+        raw = str(self._section('dsh').get('token_file') or '').strip()
+        if not raw:
+            return ''
+        if os.path.isabs(raw):
+            return raw
+        return str(_resolve_base() / raw)
+
+    @property
+    def DSH_TIMEOUT_SECONDS(self) -> int:
+        """dsh bridge 单次 HTTP 请求超时（秒）；缺省 30，非正/非法回落缺省。"""
+        return _to_positive_int(self._section('dsh').get('timeout_seconds'), default=30)
 
     # ── 功能开关 ─────────────────────────────────────
 

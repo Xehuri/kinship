@@ -71,6 +71,7 @@ from services import onboarding_service
 from services.bootstrap_runtime import BootstrapRuntime
 from services.startup_validation import MODE_VALIDATION, StartupValidation
 import services.loom_health as loom_health
+import services.dsh_health as dsh_health
 
 
 async def _unknown_speaker_cleanup_once() -> None:
@@ -181,7 +182,7 @@ def _register_builtin_tasks(cfg, scheduler, report: dict) -> None:
 
 
 async def _start_deferred_integrations(app: FastAPI, report: dict) -> None:
-    """Start health cloud, Loom probe, QQ gateway and P2P in the legacy order."""
+    """Start health cloud, Loom/dsh probes, QQ gateway and P2P in the legacy order."""
     app.state.deferred_integrations_started = True
 
     try:
@@ -200,6 +201,22 @@ async def _start_deferred_integrations(app: FastAPI, report: dict) -> None:
     except Exception as e:
         logger.warning(f"Loom 健康探针启动失败（不影响主系统）: {e}")
         _subsystem(report, "loom_health", "failed", str(e))
+
+    # dsh 探针只在当前 ai_backend=dsh 时启动；其余通道保持 /health 里的
+    # dsh.status="unknown"（不假装有结论）。getattr 兜底：启动校验的测试/降级
+    # 配置对象可能没有 AI_BACKEND 属性，缺省按"非 dsh"处理，不因此记为失败。
+    try:
+        ai_backend = str(getattr(get_config(), "AI_BACKEND", "") or "").strip().lower()
+        if ai_backend == "dsh":
+            dsh_health.start_dsh_health_probe()
+            logger.info("[DshHealth] 健康探针已启动")
+            _subsystem(report, "dsh_health", "ok")
+        else:
+            logger.info("[DshHealth] 当前 ai_backend=%s，跳过 dsh 健康探针", ai_backend or "unknown")
+            _subsystem(report, "dsh_health", "skipped")
+    except Exception as e:
+        logger.warning(f"dsh 健康探针启动失败（不影响主系统）: {e}")
+        _subsystem(report, "dsh_health", "failed", str(e))
 
     try:
         from services.qq_gateway.service import get_qq_gateway
@@ -489,7 +506,7 @@ async def _start_service_plane(
     _register_builtin_tasks(cfg, scheduler, report)
 
     if validation_mode:
-        for name in ("health_cloud", "loom_health", "qq_gateway", "p2p"):
+        for name in ("health_cloud", "loom_health", "dsh_health", "qq_gateway", "p2p"):
             _subsystem(report, name, "skipped")
         logger.info("[Bootstrap] validation 模式：延迟集成保持未启动")
     else:
@@ -612,6 +629,10 @@ async def _stop_service_plane(app: FastAPI) -> None:
             await loom_health.stop_loom_health_probe()
         except Exception as e:
             logger.error(f"Loom 健康探针停止失败: {e}")
+        try:
+            await dsh_health.stop_dsh_health_probe()
+        except Exception as e:
+            logger.error(f"dsh 健康探针停止失败: {e}")
         try:
             from services.health_cloud_service import get_health_cloud_service
             get_health_cloud_service().stop()
@@ -923,8 +944,12 @@ async def health_check():
     cfg = get_config()
     ai_backend = cfg.AI_BACKEND
     loom = loom_health.get_loom_health()
+    # dsh 键恒存在：探针未启动（ai_backend != "dsh"）或首探窗口内为 unknown。
+    dsh = dsh_health.get_dsh_health()
     status = "healthy"
     if ai_backend == "loom" and loom.get("status") == "offline" and loom.get("checked_at") is not None:
+        status = "degraded"
+    if ai_backend == "dsh" and dsh.get("status") == "offline" and dsh.get("checked_at") is not None:
         status = "degraded"
     try:
         config_status = {
@@ -939,6 +964,7 @@ async def health_check():
         "service": "kinship-health-monitor",
         "ai_backend": ai_backend,
         "loom": loom,
+        "dsh": dsh,
         "config": config_status,
     }
 

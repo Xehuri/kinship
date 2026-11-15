@@ -67,6 +67,8 @@ _SENSITIVE_PATHS: Final[frozenset[str]] = frozenset(
         "loom.token",
         "loom.token_file",
         "loom.credentials_file",
+        "dsh.token",
+        "dsh.token_file",
         "api.mimo_key",
         "api.dashscope_key",
         "api.baidu_map_ak",
@@ -85,6 +87,7 @@ _LIVE_APPLY_STRATEGY: Final[dict[str, ApplyStrategy]] = {
     "auth": "hot",
     "ai_backend": "hot",
     "loom": "hot",
+    "dsh": "hot",
     "opencode": "hot",
     "api": "hot",
     "tts": "hot",
@@ -278,7 +281,7 @@ CORE_FIELDS: Final[tuple[ConfigField, ...]] = (
     _core("onboarding.model_tiers", "list", ["required", "recommended"], "onboarding", "模型档位",
           "引导默认下载的模型档位列表。"),
     _core("ai_backend", "enum", "opencode", "ai", "AI 后端",
-          "助手通道：opencode 或 loom。", enum=("opencode", "loom")),
+          "助手通道：opencode、loom 或 dsh。", enum=("opencode", "loom", "dsh")),
     _core("opencode.enabled", "bool", True, "ai", "启用 OpenCode 启动",
           "仅控制 launcher 启动与 SSE hub，不切换 ai_backend。", apply_strategy="deployment"),
     _core("opencode.directory", "path", "", "ai", "OpenCode 工作目录",
@@ -387,6 +390,10 @@ _EXTRA_FIELDS: Final[tuple[ConfigField, ...]] = (
     _extra("loom.token_file", "path", "", "ai", "Loom Token 文件", sensitive=True),
     _extra("loom.credentials_file", "path", "", "ai", "Loom 凭据文件", sensitive=True),
     _extra("loom.manage_config", "bool", False, "ai", "托管 Loom 配置"),
+    _extra("dsh.url", "string", "http://127.0.0.1:18765", "ai", "dsh 桥接地址"),
+    _extra("dsh.token", "secret", "", "ai", "dsh Token", sensitive=True),
+    _extra("dsh.token_file", "path", "", "ai", "dsh Token 文件", sensitive=True),
+    _extra("dsh.timeout_seconds", "int", 30, "ai", "dsh 请求超时"),
     _extra("opencode.model_config_path", "path", "", "ai", "模型配置路径"),
     _extra("data.upload_dir", "path", "", "data", "上传目录"),
     _extra("data.health_cloud_state", "path", "", "data", "小米云状态文件"),
@@ -431,7 +438,7 @@ def _infer_type(path: str, value: ConfigValue) -> FieldType:
 
 def _category_for_path(path: str) -> str:
     top = path.split(".", 1)[0]
-    if top in {"ai_backend", "loom", "opencode"}:
+    if top in {"ai_backend", "loom", "opencode", "dsh"}:
         return "ai"
     if top == "models":
         return "data"
@@ -730,6 +737,10 @@ def _validate_cross_field(
                         "loom.token、LOOM_TOKEN 或 loom.token_file 必填",
                     )
                 )
+    elif backend == "dsh":
+        dsh_url = _effective_text(doc, "dsh.url")
+        if dsh_url is not None and not dsh_url.strip():
+            errors.append(SchemaError("dsh.url", "required_missing", "dsh.url 不能为空"))
     elif backend == "opencode":
         opencode_url = _effective_text(doc, "opencode.url")
         if opencode_url is not None and not opencode_url.strip():

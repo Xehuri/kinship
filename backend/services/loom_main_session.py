@@ -36,7 +36,7 @@ SOURCE_BINDING = "binding"
 
 
 class LoomMainClient(Protocol):
-    """解析器所需的最小客户端面（LoomClient 与测试桩均可满足）。"""
+    """解析器所需的最小客户端面（LoomClient / DshClient / 测试桩均可满足）。"""
 
     base_url: str
 
@@ -119,17 +119,20 @@ def _get_lock() -> asyncio.Lock:
     return _lock
 
 
-def _main_binding_key() -> str:
-    return web_agent_key(LOOM_MAIN_AGENT, "loom")
+def _main_binding_key(client: LoomMainClient) -> str:
+    """主会话绑定键：'<backend>:main-task'；无 backend_name 的客户端沿用 loom。"""
+    backend = str(getattr(client, "backend_name", "") or "loom")
+    return web_agent_key(LOOM_MAIN_AGENT, backend)
 
 
-def _get_binding(manager: STTSessionManager) -> Optional[str]:
-    return manager.get_agent_session(_main_binding_key())
+def _get_binding(manager: STTSessionManager, client: LoomMainClient) -> Optional[str]:
+    return manager.get_agent_session(_main_binding_key(client))
 
 
-def _persist_binding(manager: STTSessionManager, session_id: str) -> None:
-    """只写 ``loom:main-task``；裸 ``main-task``（语音/QQ）零触碰。"""
-    manager.set_agent_session(_main_binding_key(), session_id)
+def _persist_binding(manager: STTSessionManager, client: LoomMainClient,
+                     session_id: str) -> None:
+    """只写 '<backend>:main-task'；裸 main-task（语音/QQ）零触碰。"""
+    manager.set_agent_session(_main_binding_key(client), session_id)
 
 
 def _error_detail(result: Dict[str, Any], fallback: str) -> str:
@@ -168,7 +171,7 @@ async def _create_main_session(
         if not session_id:
             return LoomMainResolution(None, None, "Loom 创建主会话响应缺少 session_id")
 
-        _persist_binding(manager, session_id)
+        _persist_binding(manager, client, session_id)
         resolution = LoomMainResolution(session_id, SOURCE_CREATED, None)
         _cache_put(cache_key, resolution)
         logger.info("[LoomMain] 主会话缺失，已创建并绑定: %s", session_id)
@@ -180,11 +183,14 @@ async def resolve_loom_main_session(
     manager: STTSessionManager,
     allow_create: bool,
 ) -> LoomMainResolution:
-    """解析权威 Loom 主会话（main-first；404 可创建一次；故障降级绑定）。
+    """解析权威主会话（main-first；404 可创建一次；故障降级绑定）。
+
+    loom 与 dsh 共用本解析器（dsh 的 create_session 返回 bridge 已绑定会话，
+    绑定键按客户端 backend_name 落到 dsh:main-task）。
 
     Args:
-        client: Loom 客户端（需 ``get_main_session`` / ``create_session``）。
-        manager: 会话管理器（只读写 ``loom:main-task`` 命名键）。
+        client: 客户端（需 ``get_main_session`` / ``create_session``）。
+        manager: 会话管理器（只读写 ``<backend>:main-task`` 命名键）。
         allow_create: 404 时是否允许创建主会话。
 
     Returns:
@@ -205,7 +211,7 @@ async def resolve_loom_main_session(
         data = result.get("data")
         session_id = data.get("sessionID") if isinstance(data, dict) else None
         if session_id:
-            _persist_binding(manager, session_id)
+            _persist_binding(manager, client, session_id)
             resolution = LoomMainResolution(session_id, SOURCE_LOOM_MAIN, None)
             _cache_put(cache_key, resolution)
             logger.debug("[LoomMain] 权威主会话: %s", session_id)
@@ -219,7 +225,7 @@ async def resolve_loom_main_session(
             return LoomMainResolution(None, None, detail)
         return await _create_main_session(client, manager, cache_key)
 
-    binding = _get_binding(manager)
+    binding = _get_binding(manager, client)
     if binding:
         logger.warning("[LoomMain] 主会话解析降级为本地绑定 %s: %s", binding, detail)
         return LoomMainResolution(binding, SOURCE_BINDING, None)

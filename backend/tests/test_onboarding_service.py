@@ -378,6 +378,82 @@ def test_step_config_changes_loom_and_type_guards():
     }
 
 
+def test_step_config_changes_loom_channel_defaults_to_loom():
+    """回归保护：没有通道字段（或显式 loom）时语义与改造前逐键一致。"""
+    assert onboarding.step_config_changes(
+        "loom",
+        {
+            "port": 5100,
+            "provider": "deepseek",
+            "model": "deepseek-flash",
+            "context_window": 128000,
+        },
+        {},
+    ) == {
+        "ai_backend": "loom",
+        "loom.url": "http://127.0.0.1:5100",
+    }
+    assert onboarding.step_config_changes(
+        "loom", {"ai_backend": "loom", "url": "http://127.0.0.1:5200"}, {}
+    ) == {
+        "ai_backend": "loom",
+        "loom.url": "http://127.0.0.1:5200",
+    }
+    # 空串与非字符串不能被当成通道声明，仍按缺省 loom 处理。
+    for blank in ("", "   ", None, 123):
+        assert onboarding.step_config_changes(
+            "loom", {"ai_backend": blank, "port": 5100}, {}
+        ) == {
+            "ai_backend": "loom",
+            "loom.url": "http://127.0.0.1:5100",
+        }
+
+
+def test_step_config_changes_loom_channel_dsh_writes_only_dsh_keys():
+    """选 dsh 时写 ai_backend=dsh + dsh.url，且绝不写 loom.* 配置。"""
+    changes = onboarding.step_config_changes(
+        "loom",
+        {
+            "ai_backend": "dsh",
+            "url": "http://127.0.0.1:19000",
+            # Loom 专有字段与 dsh 通道同时出现时必须被忽略。
+            "port": 5100,
+            "provider": "deepseek",
+            "model": "deepseek-flash",
+            "context_window": 128000,
+        },
+        {},
+    )
+    assert changes == {
+        "ai_backend": "dsh",
+        "dsh.url": "http://127.0.0.1:19000",
+    }
+    assert [key for key in changes if key.startswith("loom.")] == []
+
+    # 通道值大小写/空白不敏感；缺省 url 用插件固定端口的 loopback 地址。
+    assert onboarding.step_config_changes(
+        "loom", {"ai_backend": " DSH ", "port": 5100}, {}
+    ) == {
+        "ai_backend": "dsh",
+        "dsh.url": "http://127.0.0.1:18765",
+    }
+    # 非法 url 回退到同一缺省值，不写坏值。
+    assert onboarding.step_config_changes(
+        "loom", {"ai_backend": "dsh", "url": "ftp://127.0.0.1:19000"}, {}
+    ) == {
+        "ai_backend": "dsh",
+        "dsh.url": "http://127.0.0.1:18765",
+    }
+
+
+def test_step_config_changes_loom_channel_unknown_writes_nothing():
+    """未知通道值不写任何键：既不写坏 ai_backend，也不打回 loom。"""
+    for unknown in ("opencode", "garbage", "dsh2", "LOOMX"):
+        assert onboarding.step_config_changes(
+            "loom", {"ai_backend": unknown, "port": 5100}, {}
+        ) == {}
+
+
 def test_gate_should_block_uses_completed_state(tmp_path, monkeypatch):
     path = tmp_path / "onboarding_state.json"
     monkeypatch.setenv("AEUH_ONBOARDING_STATE", str(path))

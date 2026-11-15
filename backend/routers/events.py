@@ -1,5 +1,6 @@
 """
-AI 后端事件代理 - SSE事件流（双通道：opencode 单上游扇出 / loom 多会话扇出）
+AI 后端事件代理 - SSE事件流（多通道：opencode 单上游扇出 / loom 多会话扇出 /
+dsh 单绑定会话扇出）
 将上游事件流转发给前端。
 
 BE-COR-M5：采用「单条上游 + 多客户端扇出」模型（opencode 通道）。
@@ -10,6 +11,8 @@ BE-COR-M5：采用「单条上游 + 多客户端扇出」模型（opencode 通�
 D33 修正一），本模块降级为其订阅者之一——LoomEventHub 为每个已发现会话保持
 一条 SSE 上游、合流后仍走同一条广播管线；帧信封 {payload:{type,properties}}
 两通道同构，_process_sse_line 与前端零改动。
+ai_backend=dsh 时改由 DshEventHub 单独接管（bridge 唯一绑定会话），
+不再连接 Loom/OpenCode；通道判别同样落在 properties.backend="dsh"。
 
 W44 双活：hub 注册表按通道分槽（_hubs），opencode/loom 两 hub 并存共活；
 /events/stream 一条订阅队列挂两 hub、交叠扇出双流帧，转发帧一律注入
@@ -35,6 +38,7 @@ router = APIRouter(tags=["events"])
 
 # OpenCode事件流地址 — 从统一配置读取
 from config.config import get_config
+from services.dsh_event_bridge import DshEventTranslator
 _cfg_ev = get_config()
 OPENCODE_EVENT_URL = f"{_cfg_ev.OPENCODE_URL}/global/event"
 
@@ -289,6 +293,7 @@ class EventHub:
 
 # W44：per-backend 双活 hub 注册表——opencode / loom 各自一槽，两 hub 并存共活
 # 是不变量；通道切换只改对话管线的路由，不再触碰任何 hub 的生命周期。
+# dsh 槽不预置：仅 ai_backend=dsh 的部署在 get_event_hub("dsh") 时懒追加。
 _hubs: Dict[str, Optional[EventHub]] = {"opencode": None, "loom": None}
 
 # loom 通道：本地 loom: 绑定发现轮询间隔（秒）。loom 列表面 GET /sessions 已废弃，
@@ -539,6 +544,36 @@ class LoomEventHub(EventHub):
             self._readers = {}
 
 
+class DshEventHub(EventHub):
+    """dsh 上游事件中心：唯一 Kinship 绑定会话的一条 SSE 流。
+
+    bridge 的 /v1/session/events 只服务已绑定会话，无全局流/多会话扇出；
+    主会话解析失败（未绑定/不可达）抛 ConnectionError 交父类 _run 退避重连，
+    绝不创建会话。单条流自然结束后同样由父类重建连接。
+    """
+
+    def __init__(self, client, **kwargs):
+        super().__init__(url=client.base_url, **kwargs)
+        self._client = client
+
+    async def _stream_upstream(self) -> None:
+        logger.debug("[EventProxy] Connecting to dsh event stream...")
+        session_id = await self._client.get_main_session_id()
+        self._broadcast(f"data: {json.dumps({'type': 'proxy.connected'})}\n\n")
+        logger.debug("[EventProxy] Connected to dsh session=%s", session_id)
+        # dsh 原生事件（Session 事件 + live assistant stream）由纯状态机翻译成
+        # 前端已认得的 opencode 词表，并注入 properties.sessionID/backend。
+        # 不走 _process_sse_line：它是 opencode/loom/dsh 三通道共用函数，只产
+        # 单帧且带 1MB 行上限，而 dsh 的一条事件要展开成多条前端帧（且
+        # assistant/message 内含完整 stream 记录，长回复会超限被整帧丢弃）。
+        translator = DshEventTranslator(session_id)
+        async for line in self._client.stream_session_events(session_id):
+            # bridge 首帧发 `retry: 3000`（SSE 控制字段，非 data 帧）；翻译器
+            # 自身会丢弃 `retry:` 与 `:` 注释行。
+            for frame in translator.translate_line(line):
+                self._broadcast(frame)
+
+
 def _stop_hub(hub: EventHub) -> None:
     """单 hub 关停原语（供 reset_event_hub / 测试 teardown 使用）：哨兵退场 + 取消后台任务。
 
@@ -577,7 +612,8 @@ def get_event_hub(backend: str) -> EventHub:
     opencode 槽：EventHub(OPENCODE_EVENT_URL)——OpenCode /global/event 全局流；
     loom 槽：LoomEventHub，客户端一律取 services.loom_client 模块单例
     （get_loom_client），绝不经 get_web_client()——hub 绑定通道本身而非 Web
-    开关取值，通道切换只改对话管线路由，双流 hub 恒并活。
+    开关取值，通道切换只改对话管线路由，双流 hub 恒并活；
+    dsh 槽：DshEventHub，客户端取 services.dsh_client 模块单例（单一绑定会话）。
     """
     hub = _hubs.get(backend)
     if hub is None:
@@ -586,6 +622,9 @@ def get_event_hub(backend: str) -> EventHub:
         elif backend == "loom":
             from services.loom_client import get_loom_client
             hub = LoomEventHub(get_loom_client())
+        elif backend == "dsh":
+            from services.dsh_client import get_dsh_client
+            hub = DshEventHub(get_dsh_client())
         else:
             raise ValueError(
                 f"未知事件通道: {backend!r}（合法: {'|'.join(_hubs)}）"
@@ -627,20 +666,31 @@ def _opencode_enabled() -> bool:
     return bool(get_config().OPENCODE_ENABLED)
 
 
+def _dsh_enabled() -> bool:
+    """dsh 通道接管 SSE：ai_backend=dsh 时只起 dsh 单会话 hub。"""
+    return str(get_config().AI_BACKEND or "").strip().lower() == "dsh"
+
+
 async def event_generator():
     """
     客户端 SSE 多路复用生成器（保持旧接口名以兼容调用方）。
 
     W44：双流都 ensure，一条共享订阅队列同时挂进两个 hub——opencode 与 loom
     的帧在同一队列交叠扇出，通道判别全靠帧内 properties.backend 标。
-    None 哨兵（任一 hub 关停投递）终结本响应流，finally 两 hub 一并退订，
+    ai_backend=dsh 时改挂唯一 dsh hub（bridge 单会话流），不再连 Loom/OpenCode。
+    None 哨兵（任一 hub 关停投递）终结本响应流，finally 已挂 hub 一并退订，
     绝不留孤儿队列挂在存活 hub 的订阅者集合上。
     """
-    hub_loom = get_event_hub("loom")
-    hub_opencode = get_event_hub("opencode") if _opencode_enabled() else None
-    queue = await hub_loom.subscribe()
-    if hub_opencode is not None:
-        await hub_opencode.subscribe(queue)
+    hubs: List[EventHub] = []
+    if _dsh_enabled():
+        hubs.append(get_event_hub("dsh"))
+    else:
+        hubs.append(get_event_hub("loom"))
+        if _opencode_enabled():
+            hubs.append(get_event_hub("opencode"))
+    queue = await hubs[0].subscribe()
+    for hub in hubs[1:]:
+        await hub.subscribe(queue)
     try:
         yield f"data: {json.dumps({'type': 'proxy.connected'})}\n\n"
         while True:
@@ -649,10 +699,9 @@ async def event_generator():
                 return
             yield item
     finally:
-        if hub_opencode is not None:
-            await hub_opencode.unsubscribe(queue)
-        await hub_loom.unsubscribe(queue)
-        logger.debug("[EventProxy] 客户端断开，已从两 hub 退订")
+        for hub in reversed(hubs):
+            await hub.unsubscribe(queue)
+        logger.debug("[EventProxy] 客户端断开，已从 %d 个 hub 退订", len(hubs))
 
 
 @router.get("/events/stream")

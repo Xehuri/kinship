@@ -1,16 +1,22 @@
-"""AI 后端统一入口工厂（双通道：loom 转正 + opencode 兜底热回退）。
+"""AI 后端统一入口工厂（loom 转正 + opencode 兜底热回退 + dsh bridge）。
 
 调用点只依赖本模块（acquire_ai_client / get_ai_client），具体通道由
 config.yaml 顶层 `ai_backend` 决定；切流=编排者手改配置并重启后端，
 把该键改回 opencode 即热回退（opencode 链路一行不删，随时可回）。
 
-两通道客户端 duck-type 同构（公共方法面/签名/信封逐键一致，
+三通道客户端 duck-type 同构（公共方法面/签名/信封逐键一致，
 契约真源 = services/opencode_client.py 的信封公共层）。
 """
 
 from typing import Union
 
 from config.config import get_config
+from services.dsh_client import (
+    DshClient,
+    acquire_dsh_client,
+    get_dsh_client,
+    _reset_dsh_client,
+)
 from services.loom_client import (
     LoomClient,
     acquire_loom_client,
@@ -24,8 +30,8 @@ from services.opencode_client import (
     _reset_opencode_client,
 )
 
-_VALID_BACKENDS = ("loom", "opencode")
-AiClient = Union[OpenCodeClient, LoomClient]
+_VALID_BACKENDS = ("loom", "opencode", "dsh")
+AiClient = Union[OpenCodeClient, LoomClient, DshClient]
 
 
 def get_ai_backend() -> str:
@@ -45,21 +51,27 @@ def get_ai_backend() -> str:
 def get_ai_client() -> AiClient:
     """同步获取当前通道客户端单例（阻塞上下文专用，事件循环内用 acquire_ai_client）。"""
     backend = get_ai_backend()
+    if backend == "dsh":
+        return get_dsh_client()
     if backend == "loom":
         return get_loom_client()
     return get_opencode_client()
 
 
 async def acquire_ai_client() -> AiClient:
-    """异步获取当前通道客户端单例（opencode 分支含线程池端口探测，loom 分支纯构造）。"""
+    """异步获取当前通道客户端单例（opencode 分支含线程池端口探测，其余纯构造）。"""
     backend = get_ai_backend()
+    if backend == "dsh":
+        client: AiClient = await acquire_dsh_client()
+        return client
     if backend == "loom":
-        client: AiClient = await acquire_loom_client()
+        client = await acquire_loom_client()
         return client
     return await acquire_opencode_client()
 
 
 def _reset_ai_client() -> None:
-    """重置两通道单例（仅测试用；生产切换配置走重启，不做运行期重置）。"""
+    """重置三通道单例（仅测试用；生产切换配置走重启，不做运行期重置）。"""
     _reset_loom_client()
     _reset_opencode_client()
+    _reset_dsh_client()

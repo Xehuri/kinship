@@ -393,8 +393,9 @@ def test_get_schema_exposes_core_advanced_and_apply_strategy(client):
     assert "opencode.enabled" not in fields
     assert "features.opencode_mock_enabled" not in fields
     assert "launcher.opencode_cmd" not in fields
-    assert fields["ai_backend"]["enum"] == ["loom"]
+    assert fields["ai_backend"]["enum"] == ["loom", "dsh"]
     assert fields["ai_backend"]["default"] == "loom"
+    assert "dsh" in fields["ai_backend"]["help"]
     assert fields["api.mimo_key"]["sensitive"] is True
 
     advanced = [item for item in payload["fields"] if item["advanced"]]
@@ -660,6 +661,30 @@ def test_put_dry_run_validates_without_save(
     assert payload["applied"] == []
     assert payload["failed"] == {}
     assert payload["dry_run"] is True
+    assert store.save_calls == []
+    assert store.apply_calls == []
+
+
+def test_put_accepts_ai_backend_dsh_declared_by_config(client, monkeypatch):
+    """ai_backend=dsh 可经配置面落盘（UI 选项见 schema 用例；无运行时切换按钮）。"""
+    store = FakeStore(revision="rev-1")
+    _install_store(monkeypatch, store)
+
+    response = client.put(
+        CONFIG_URL,
+        json={
+            "revision": "rev-1",
+            "changes": {"ai_backend": "dsh"},
+            "dry_run": True,
+        },
+        headers={"X-Test-User": "alice"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["changed"] == ["ai_backend"]
+    assert payload["failed"] == {}
     assert store.save_calls == []
     assert store.apply_calls == []
 

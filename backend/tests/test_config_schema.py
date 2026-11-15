@@ -37,6 +37,8 @@ EXPECTED_SENSITIVE = {
     "loom.token",
     "loom.token_file",
     "loom.credentials_file",
+    "dsh.token",
+    "dsh.token_file",
     "api.mimo_key",
     "api.dashscope_key",
     "api.baidu_map_ak",

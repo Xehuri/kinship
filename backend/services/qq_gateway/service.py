@@ -177,14 +177,27 @@ class QQGatewayService:
         return f"[QQ请求] {request_type} user={user_id}{suffix} flag={flag}"
 
     async def _send_to_loom(self, row: dict[str, Any]) -> bool:
+        from services.ai_client_factory import get_ai_client
+
+        client = get_ai_client()
         session_id = self.session_id or self._resolve_session_id()
+        if not session_id:
+            session_id = await self._resolve_client_session(client)
         if not session_id:
             self.log.warning("qq-gateway session not resolved; holding delivery")
             return False
-        from services.loom_client import LoomClient
-
-        result = await LoomClient().send_message(session_id, str(row.get("text") or ""))
+        result = await client.send_message(session_id, str(row.get("text") or ""))
         return bool(result.get("ok"))
+
+    @staticmethod
+    async def _resolve_client_session(client: Any) -> str:
+        """dsh 通道无本地绑定表：向 bridge 取唯一绑定会话；其余通道保持旧语义。"""
+        if getattr(client, "backend_name", "") != "dsh":
+            return ""
+        try:
+            return str(await client.get_main_session_id() or "")
+        except ConnectionError:
+            return ""
 
     def _resolve_session_id(self) -> str:
         try:

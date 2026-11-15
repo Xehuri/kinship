@@ -224,9 +224,13 @@ def _visible_config_field(field: ConfigField) -> bool:
 def _public_field_payload(field: ConfigField) -> dict[str, Any]:
     payload = _field_payload(field)
     if field.path == "ai_backend":
-        payload["enum"] = ["loom"]
+        # 公开 UI 不广告 opencode 通道（内部仍完整支持，配置文件可声明）；
+        # dsh 必须可选，供自备 dsh + kinship-bridge 插件的部署声明。
+        payload["enum"] = ["loom", "dsh"]
         payload["default"] = "loom"
-        payload["help"] = "助手通道：loom。"
+        payload["help"] = (
+            "助手通道：loom（默认）或 dsh（需自备 dsh 与插件）。"
+        )
     return payload
 
 

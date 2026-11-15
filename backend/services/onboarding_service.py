@@ -139,7 +139,7 @@ STEPS: tuple[OnboardingStep, ...] = (
     OnboardingStep(
         "loom",
         "AI 助手",
-        "配置 Loom 助手连接、渠道与模型，或跳过",
+        "配置 Loom 助手连接、渠道与模型，或声明可选 dsh（BYO harness）通道，或跳过",
         "hot",
         required=True,
         skippable=True,
@@ -1038,6 +1038,19 @@ def _step_config_section(snapshot: Optional[dict], name: str) -> dict:
     return section if isinstance(section, dict) else {}
 
 
+# AI 助手（loom 步骤）声明的通道：缺省 loom（既有语义），可选 dsh（BYO harness）。
+# dsh 的 bridge 缺省端口由插件侧固定，与 config_schema 的 dsh.url 默认值同源。
+_DSH_DEFAULT_URL = "http://127.0.0.1:18765"
+
+
+def _http_url_value(value: Any) -> Optional[str]:
+    """只接受 http(s) 地址；其余（含空值）返回 None，由调用方决定回退。"""
+    text = _text_value(value)
+    if text is None:
+        return None
+    return text if text.lower().startswith(("http://", "https://")) else None
+
+
 def step_config_changes(
     step_id: str,
     data: Optional[dict],
@@ -1050,6 +1063,12 @@ def step_config_changes(
     token / 密码等敏感值仍由各步骤专用端点落独立密钥文件，绝不进入草稿。
     ``snapshot`` 是当前生效配置（``ConfigStore.snapshot()``），moss 用它补齐
     未在步骤数据里重复提交的三个键。
+
+    ``loom`` 步骤的通道声明：``payload["ai_backend"]`` 取 ``loom``（缺省；
+    非字符串或空串视同缺省）或 ``dsh``。选 loom 时写 ``ai_backend`` 与
+    ``loom.url``（既有语义）；选 dsh 时只写 ``ai_backend="dsh"`` 与
+    ``dsh.url``（``payload["url"]``，缺省 ``_DSH_DEFAULT_URL``），绝不写
+    loom 配置；其他字符串值不写任何键，避免把已配好的通道改坏。
     """
     payload = data if isinstance(data, dict) else {}
     changes: dict[str, Any] = {}
@@ -1110,14 +1129,24 @@ def step_config_changes(
             if value:
                 changes[f"moss.{field}"] = value
     elif step_id == "loom":
-        # 只有完成了 Loom 步骤才把通道切到 loom；跳过的步骤不改 ai_backend。
-        changes["ai_backend"] = "loom"
-        url = _text_value(payload.get("url"))
-        port = payload.get("port")
-        if url:
-            changes["loom.url"] = url
-        elif isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535:
-            changes["loom.url"] = f"http://127.0.0.1:{port}"
+        # AI 助手步骤同时托管 Loom 与 dsh（BYO harness）两条通道的声明：
+        # 通道由 payload["ai_backend"] 显式选择，缺省 loom 保持既有流程语义。
+        # 选 dsh 时不写 loom.url / loom.manage_config——用户自备 bridge，
+        # 也不该被 onboarding 打回 loom；未知通道值一律不写，绝不写坏值。
+        channel = (_text_value(payload.get("ai_backend")) or "loom").lower()
+        if channel == "dsh":
+            changes["ai_backend"] = "dsh"
+            changes["dsh.url"] = (
+                _http_url_value(payload.get("url")) or _DSH_DEFAULT_URL
+            )
+        elif channel == "loom":
+            changes["ai_backend"] = "loom"
+            url = _text_value(payload.get("url"))
+            port = payload.get("port")
+            if url:
+                changes["loom.url"] = url
+            elif isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535:
+                changes["loom.url"] = f"http://127.0.0.1:{port}"
     return changes
 
 
@@ -2506,7 +2535,7 @@ def _check_loom(document: Optional[dict]) -> dict:
                 "Loom 步骤已跳过（AI 助手不可用）",
                 "重新进入 Loom 步骤完成 token 与渠道配置",
             )
-        return _check_result("loom", "pass", "Loom 已跳过（当前 AI 后端 opencode）")
+        return _check_result("loom", "pass", f"Loom 已跳过（当前 AI 后端 {backend}）")
 
     try:
         info = _inspect_loom_for_preflight()
@@ -2531,7 +2560,7 @@ def _check_loom(document: Optional[dict]) -> dict:
                 "在 Loom 步骤自动发现或填写 token",
             )
         return _check_result(
-            "loom", "pass", f"Loom 未配置（当前 AI 后端 opencode）；{token_detail}"
+            "loom", "pass", f"Loom 未配置（当前 AI 后端 {backend}）；{token_detail}"
         )
     if info.get("online"):
         return _check_result("loom", "pass", f"Loom 在线；{token_detail}")
@@ -2565,7 +2594,7 @@ def _check_ai_backend(document: Optional[dict]) -> dict:
             "ai_backend",
             "warn",
             "配置缺失，AI 后端尚未配置（降级运行）",
-            "在设置向导中选择 opencode 或 loom 并补齐连接参数",
+            "在设置向导中选择 opencode、loom 或 dsh 并补齐连接参数",
         )
     backend = _backend_name(document)
     if backend == "loom":
@@ -2594,6 +2623,21 @@ def _check_ai_backend(document: Optional[dict]) -> dict:
         return _check_result(
             "ai_backend", "pass", "AI 后端 loom：URL 与 token 已配置"
         )
+    if backend == "dsh":
+        section = _section(document, "dsh")
+        url = str(section.get("url") or "").strip()
+        if not url:
+            return _check_result(
+                "ai_backend",
+                "warn",
+                "ai_backend=dsh 但未配置 dsh.url（降级运行）",
+                "在设置向导中设置 dsh.url（如 http://127.0.0.1:18765）",
+            )
+        return _check_result(
+            "ai_backend",
+            "pass",
+            "AI 后端 dsh：bridge URL 已配置（token 可留空或经 DSH_TOKEN 注入）",
+        )
     if backend == "opencode":
         section = _section(document, "opencode")
         missing = _opencode_missing_keys(document)
@@ -2616,7 +2660,7 @@ def _check_ai_backend(document: Optional[dict]) -> dict:
         "ai_backend",
         "fail",
         f"未知的 ai_backend 值: {backend}",
-        "ai_backend 仅支持 opencode 或 loom",
+        "ai_backend 仅支持 opencode、loom 或 dsh",
     )
 
 

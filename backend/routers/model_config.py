@@ -104,6 +104,27 @@ async def get_model_config():
     providers = await _fetch_providers()
     providers_map = _build_providers_map(providers)
 
+    if get_web_backend() == "dsh":
+        # dsh 的模型由 preset / dsh 配置决定，Kinship 侧只读展示 bridge 上报的
+        # 当前路由；拿不到时回退默认标签，绝不伪造选择。
+        model_row: Any = None
+        try:
+            client = await acquire_web_client()
+            resolver = getattr(client, "get_active_model_context_window", None)
+            if resolver is not None:
+                model_row = await resolver()
+        except Exception as e:
+            logger.debug(f"dsh 当前模型读取失败（降级默认标签）: {e}")
+        row = model_row if isinstance(model_row, dict) else {}
+        current_model = row.get("model") or OPENCODE_DEFAULT_MODEL
+        current_provider = row.get("provider") or OPENCODE_DEFAULT_PROVIDER
+        current_out = {"model": current_model, "provider": current_provider}
+        return {
+            "success": True,
+            "current": current_out,
+            "providers": list(_build_providers_map(providers).values()),
+        }
+
     current_cfg = opencode_client.load_model_config()
     # 注意：load_model_config() 文件不存在时返回 {}，而 {} 也是 dict，会走进前半支并 .get() 出 None。
     # 因此兜底必须放在 or 之后，否则 current.model 为 None，撞上响应模型的必填 str 会抛 ResponseValidationError(500)。
@@ -150,6 +171,14 @@ async def get_model_context_window():
 
 @router.post("/model", response_model=GetModelResponse, tags=["model_config"])
 async def set_model_config(req: SetModelRequest):
+    if get_web_backend() == "dsh":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "dsh 运行时的模型由 kinship preset / dsh 配置决定，"
+                "不支持在 Kinship 侧运行时切换；请修改 preset 或 dsh 配置后重启 dsh。"
+            ),
+        )
     # 校验传入的模型与提供商是否存在于当前可用模型中
     providers = await _fetch_providers()
     valid = False

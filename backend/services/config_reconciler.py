@@ -451,9 +451,41 @@ async def apply_staged(
 # ── AI 通道 ────────────────────────────────────────────────
 
 
+def _ai_backend_of(document: Mapping[str, Any]) -> str | None:
+    """从变更前后配置文档取 ai_backend；缺失/空 = 缺省 opencode，无文档返回 None。"""
+    if not isinstance(document, Mapping):
+        return None
+    value = document.get("ai_backend")
+    if value is None:
+        return None
+    return str(value).strip().lower() or "opencode"
+
+
+def _ai_backend_switches_dsh(change: ConfigChange) -> bool:
+    """ai_backend 变更是否涉及 dsh 通道（切换前后任一侧为 dsh）。"""
+    if not _touched(change, "ai_backend"):
+        return False
+    return "dsh" in (_ai_backend_of(change.old), _ai_backend_of(change.new))
+
+
 async def apply_ai(change: ConfigChange) -> None:
-    """重新快照 AI 客户端静态配置；URL 变更时重建事件 hub。"""
-    if not _touched(change, "ai_backend", "opencode", "loom"):
+    """重新快照 AI 客户端静态配置；URL 变更时重建事件 hub。
+
+    dsh（kinship-bridge 插件）没有模块级静态快照：``DshClient`` 在构造期捕获
+    ``dsh.url`` / ``dsh.timeout_seconds``，因此任一 ``dsh.*`` 变更或 ai_backend
+    切换一律重置客户端单例（token 本就每请求现读，重置是无害兜底）。
+    dsh 事件 hub 在构造期绑定客户端实例与其 URL，故只有 ``dsh.url`` 变更与
+    切入/切出 dsh 需要重建 hub；``dsh.timeout_seconds`` 不重建——SSE 上游自带
+    固定超时（``stream_session_events`` 显式 `total=None, connect=30`），与配置
+    无关，新值由下一次请求的快照生效，在飞 hub 重连后自然吃到。
+    """
+    dsh_changed = _touched(change, "dsh")
+    backend_changed = _touched(change, "ai_backend")
+    if not (
+        dsh_changed
+        or backend_changed
+        or _touched(change, "opencode", "loom")
+    ):
         return
 
     from services import loom_client, opencode_client
@@ -461,12 +493,25 @@ async def apply_ai(change: ConfigChange) -> None:
     opencode_client.reload_static_config()
     loom_client.reload_static_config()
 
+    if dsh_changed or backend_changed:
+        from services import dsh_client
+
+        dsh_client._reset_dsh_client()
+
     if _touched(change, "opencode.url", "loom.url"):
         from routers import events
 
         await events.reload_event_hubs()
+    elif _touched(change, "dsh.url") or _ai_backend_switches_dsh(change):
+        # events 只公开 teardown-all 的 reset_event_hub()，没有单槽重建原语：
+        # dsh.url 变更必须让 hub 重绑新地址，代价是 opencode/loom 两槽在飞的
+        # SSE 流收到 None 哨兵后优雅收尾、前端重连时按新配置懒重建（两槽 hub
+        # 本就只在有订阅者时存活）。dsh.url / 通道切换属部署级低频改动，可接受。
+        from routers import events
 
-    if _touched(change, "ai_backend"):
+        await events.reset_event_hub()
+
+    if backend_changed:
         from services import ai_client_factory
 
         ai_client_factory._reset_ai_client()

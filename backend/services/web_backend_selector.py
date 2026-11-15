@@ -24,12 +24,15 @@ from config.config import get_config
 # 直接引两通道客户端的 acquire/get 原语（与 ai_client_factory 同款路由），
 # 不 import routers——依赖方向恒为 routers -> services，杜绝环。
 from services.ai_client_factory import AiClient, _VALID_BACKENDS, get_ai_backend
+from services.dsh_client import acquire_dsh_client, get_dsh_client
 from services.loom_client import acquire_loom_client, get_loom_client
 from services.opencode_client import acquire_opencode_client, get_opencode_client
 
 logger = logging.getLogger(__name__)
 
-# GET/POST /api/screen/backend 契约固定项：前端按此清单渲染开关（勿改顺序语义）
+# GET/POST /api/screen/backend 契约固定项：前端按此清单渲染开关（勿改顺序语义）。
+# dsh 不在清单内（本部署无前端切换按钮）：选择器/状态文件仍接受 dsh，
+# 供 ai_backend=dsh 的部署把 Web 对话管线落到 bridge。
 WEB_BACKEND_OPTIONS: tuple[str, ...] = ("opencode", "loom")
 
 
@@ -77,15 +80,21 @@ def set_web_backend(backend: str) -> str:
 
 
 async def acquire_web_client() -> AiClient:
-    """异步获取 Web 通道客户端单例（事件循环内用；与 acquire_ai_client 对称，仅后端来源不同）。"""
-    if get_web_backend() == "loom":
+    """异步获取 Web 通道客户端单例（事件循环内用；与 acquire_ai_client 对称）。"""
+    backend = get_web_backend()
+    if backend == "dsh":
+        return await acquire_dsh_client()
+    if backend == "loom":
         return await acquire_loom_client()
     return await acquire_opencode_client()
 
 
 def get_web_client() -> AiClient:
     """同步获取 Web 通道客户端单例（阻塞上下文专用；events hub 构造走此缝）。"""
-    if get_web_backend() == "loom":
+    backend = get_web_backend()
+    if backend == "dsh":
+        return get_dsh_client()
+    if backend == "loom":
         return get_loom_client()
     return get_opencode_client()
 

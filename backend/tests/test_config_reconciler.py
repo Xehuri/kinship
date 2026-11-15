@@ -214,6 +214,7 @@ def test_ai_applier_reloads_both_channels_and_awaits_event_hubs(monkeypatch) -> 
 def test_ai_applier_resets_factory_only_when_backend_changes(monkeypatch) -> None:
     import routers.events as events
     import services.ai_client_factory as factory
+    import services.dsh_client as dsh_client
     import services.loom_client as loom_client
     import services.opencode_client as opencode_client
 
@@ -224,16 +225,178 @@ def test_ai_applier_resets_factory_only_when_backend_changes(monkeypatch) -> Non
     monkeypatch.setattr(
         loom_client, "reload_static_config", lambda: calls.append("loom")
     )
+    monkeypatch.setattr(
+        dsh_client, "_reset_dsh_client", lambda: calls.append("dsh")
+    )
     monkeypatch.setattr(factory, "_reset_ai_client", lambda: calls.append("reset"))
 
     async def _reload_hubs() -> None:
         calls.append("hubs")
 
-    monkeypatch.setattr(events, "reload_event_hubs", _reload_hubs)
+    async def _reset_hub() -> None:
+        calls.append("reset_hub")
 
+    monkeypatch.setattr(events, "reload_event_hubs", _reload_hubs)
+    monkeypatch.setattr(events, "reset_event_hub", _reset_hub)
+
+    # 空 old/new（无法判定切换两侧通道）时只重置单例，不重建 hub。
     asyncio.run(apply_ai(_change("ai_backend")))
 
-    assert calls == ["opencode", "loom", "reset"]
+    assert calls == ["opencode", "loom", "dsh", "reset"]
+
+
+def test_ai_applier_resets_dsh_client_on_dsh_url_change(monkeypatch) -> None:
+    import routers.events as events
+    import services.ai_client_factory as factory
+    import services.dsh_client as dsh_client
+    import services.loom_client as loom_client
+    import services.opencode_client as opencode_client
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        opencode_client, "reload_static_config", lambda: calls.append("opencode")
+    )
+    monkeypatch.setattr(
+        loom_client, "reload_static_config", lambda: calls.append("loom")
+    )
+    monkeypatch.setattr(
+        dsh_client, "_reset_dsh_client", lambda: calls.append("dsh")
+    )
+    monkeypatch.setattr(factory, "_reset_ai_client", lambda: calls.append("factory"))
+
+    async def _reload_hubs() -> None:
+        calls.append("hubs")
+
+    async def _reset_hub() -> None:
+        calls.append("reset_hub")
+
+    monkeypatch.setattr(events, "reload_event_hubs", _reload_hubs)
+    monkeypatch.setattr(events, "reset_event_hub", _reset_hub)
+
+    asyncio.run(apply_ai(_change("dsh.url")))
+
+    # dsh 单例重置 + dsh hub 重建；loom/opencode 的按 URL 重建路径不被误触发。
+    assert calls == ["opencode", "loom", "dsh", "reset_hub"]
+    assert "hubs" not in calls
+
+
+def test_ai_applier_resets_dsh_client_on_token_change_without_hub_rebuild(
+    monkeypatch,
+) -> None:
+    import routers.events as events
+    import services.ai_client_factory as factory
+    import services.dsh_client as dsh_client
+    import services.loom_client as loom_client
+    import services.opencode_client as opencode_client
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        opencode_client, "reload_static_config", lambda: calls.append("opencode")
+    )
+    monkeypatch.setattr(
+        loom_client, "reload_static_config", lambda: calls.append("loom")
+    )
+    monkeypatch.setattr(
+        dsh_client, "_reset_dsh_client", lambda: calls.append("dsh")
+    )
+    monkeypatch.setattr(factory, "_reset_ai_client", lambda: calls.append("factory"))
+
+    async def _reload_hubs() -> None:
+        calls.append("hubs")
+
+    async def _reset_hub() -> None:
+        calls.append("reset_hub")
+
+    monkeypatch.setattr(events, "reload_event_hubs", _reload_hubs)
+    monkeypatch.setattr(events, "reset_event_hub", _reset_hub)
+
+    asyncio.run(apply_ai(_change("dsh.token")))
+
+    # token 每请求现读；重置单例只是无害兜底，不需要动 hub。
+    assert calls == ["opencode", "loom", "dsh"]
+
+
+def test_ai_applier_switching_ai_backend_to_dsh_resets_client_and_hub(
+    monkeypatch,
+) -> None:
+    import routers.events as events
+    import services.ai_client_factory as factory
+    import services.dsh_client as dsh_client
+    import services.loom_client as loom_client
+    import services.opencode_client as opencode_client
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        opencode_client, "reload_static_config", lambda: calls.append("opencode")
+    )
+    monkeypatch.setattr(
+        loom_client, "reload_static_config", lambda: calls.append("loom")
+    )
+    monkeypatch.setattr(
+        dsh_client, "_reset_dsh_client", lambda: calls.append("dsh")
+    )
+    monkeypatch.setattr(factory, "_reset_ai_client", lambda: calls.append("factory"))
+
+    async def _reload_hubs() -> None:
+        calls.append("hubs")
+
+    async def _reset_hub() -> None:
+        calls.append("reset_hub")
+
+    monkeypatch.setattr(events, "reload_event_hubs", _reload_hubs)
+    monkeypatch.setattr(events, "reset_event_hub", _reset_hub)
+
+    change = ConfigChange(
+        old={"ai_backend": "loom"},
+        new={"ai_backend": "dsh"},
+        changed_paths=("ai_backend",),
+    )
+    asyncio.run(apply_ai(change))
+
+    assert calls == ["opencode", "loom", "dsh", "reset_hub", "factory"]
+
+
+def test_ai_applier_loom_opencode_switch_keeps_event_hubs(
+    monkeypatch,
+) -> None:
+    import routers.events as events
+    import services.ai_client_factory as factory
+    import services.dsh_client as dsh_client
+    import services.loom_client as loom_client
+    import services.opencode_client as opencode_client
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        opencode_client, "reload_static_config", lambda: calls.append("opencode")
+    )
+    monkeypatch.setattr(
+        loom_client, "reload_static_config", lambda: calls.append("loom")
+    )
+    monkeypatch.setattr(
+        dsh_client, "_reset_dsh_client", lambda: calls.append("dsh")
+    )
+    monkeypatch.setattr(factory, "_reset_ai_client", lambda: calls.append("factory"))
+
+    async def _reload_hubs() -> None:
+        calls.append("hubs")
+
+    async def _reset_hub() -> None:
+        calls.append("reset_hub")
+
+    monkeypatch.setattr(events, "reload_event_hubs", _reload_hubs)
+    monkeypatch.setattr(events, "reset_event_hub", _reset_hub)
+
+    change = ConfigChange(
+        old={"ai_backend": "loom"},
+        new={"ai_backend": "opencode"},
+        changed_paths=("ai_backend",),
+    )
+    asyncio.run(apply_ai(change))
+
+    # W44 不变量：loom/opencode 之间切换不碰 SSE hub。
+    assert calls == ["opencode", "loom", "dsh", "factory"]
+    assert "hubs" not in calls
+    assert "reset_hub" not in calls
 
 
 def test_ai_applier_ignores_unrelated_change(monkeypatch) -> None:

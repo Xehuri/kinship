@@ -819,7 +819,7 @@ async def get_session_messages(
     # 不改存储、不触 opencode；置于游标块之后：分隔线永不复活空页游标（W50 语义优先）。
     effective_backend = requested_backend or get_web_backend()
     if messages:
-        if effective_backend == "loom":
+        if effective_backend in ("loom", "dsh"):
             messages = await _maybe_splice_compaction(session_id, client, messages)
         elif effective_backend == "opencode":
             messages = await _maybe_splice_opencode_compaction(
@@ -868,11 +868,24 @@ async def summarize_session(session_id: str, request: SummarizeSessionRequest):
         client = await _acquire_client_by_backend(requested_backend)
     else:
         client = await acquire_web_client()
-    _unwrap_envelope(await client.summarize_session(
+    result = await client.summarize_session(
         session_id=session_id,
         model_id=request.model_id,
         provider_id=request.provider_id,
-    ))
+    )
+    if getattr(client, "backend_name", "") == "dsh":
+        # dsh bridge 用机器码表达压缩失败（409 busy / 500 unavailable），
+        # 保留原状态码与文案，别折叠成 500 INTERNAL_ERROR。
+        if not result.get("ok"):
+            error = result.get("error") or {}
+            code = int(error.get("code") or 500)
+            detail = error.get("detail") or "会话压缩失败"
+            raise HTTPException(
+                status_code=code if 400 <= code <= 599 else 500,
+                detail=detail,
+            )
+    else:
+        _unwrap_envelope(result)
     return {
         "status": "compacting",
         "session_id": session_id,
