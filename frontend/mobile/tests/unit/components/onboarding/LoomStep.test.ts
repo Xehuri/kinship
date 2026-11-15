@@ -164,7 +164,8 @@ describe('LoomStep', () => {
       wrapper.get('[data-skip-consequence-step="loom"]').text(),
     ).toContain('跳过会怎样')
     expect(wrapper.get('[data-onboarding-step-why]').text()).toContain('为什么需要')
-    expect(wrapper.get('[data-onboarding-step-why]').text()).toContain('Loom 负责对话')
+    expect(wrapper.get('[data-onboarding-step-why]').text()).toContain('AI 助手负责对话')
+    expect(wrapper.get('[data-onboarding-step-why]').text()).toContain('dsh')
     expect(wrapper.get('[data-onboarding-step-why-detected]').text()).toContain(
       '主模型',
     )
@@ -435,5 +436,101 @@ describe('LoomStep', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-onboarding-long-task]').exists()).toBe(false)
+  })
+
+  it('renders the AI channel choices and keeps loom as the default', async () => {
+    const wrapper = mountStep()
+    await flushPromises()
+
+    expect(
+      wrapper.get('[data-onboarding-loom-channel]').attributes('role'),
+    ).toBe('radiogroup')
+    const loomChoice = wrapper.get(
+      '[data-onboarding-loom-channel-choice="loom"]',
+    )
+    expect((loomChoice.element as HTMLInputElement).checked).toBe(true)
+    expect(
+      wrapper.find('[data-onboarding-loom-channel-choice="dsh"]').exists(),
+    ).toBe(true)
+    expect(wrapper.find('[data-onboarding-loom-setup]').exists()).toBe(true)
+    expect(wrapper.find('[data-onboarding-loom-dsh-url]').exists()).toBe(false)
+    expect(wrapper.find('[data-onboarding-loom-dsh-note]').exists()).toBe(false)
+  })
+
+  it('shows only the bridge url after switching to the dsh channel', async () => {
+    const wrapper = mountStep()
+    await flushPromises()
+
+    await wrapper
+      .get('[data-onboarding-loom-channel-choice="dsh"]')
+      .setValue(true)
+
+    expect(wrapper.get('[data-onboarding-loom-dsh-note]').text()).toContain(
+      'dsh',
+    )
+    expect(wrapper.get('[data-onboarding-loom-dsh-note]').text()).toContain(
+      '插件',
+    )
+    const urlInput = wrapper.get('[data-onboarding-loom-dsh-url]')
+      .element as HTMLInputElement
+    expect(urlInput.value).toBe('http://127.0.0.1:18765')
+    // 不显示 Loom 的安装/启动按钮组与模型渠道表单。
+    expect(wrapper.find('[data-onboarding-loom-setup]').exists()).toBe(false)
+    expect(wrapper.find('[data-onboarding-loom-port]').exists()).toBe(false)
+    expect(wrapper.find('[data-onboarding-loom-provider]').exists()).toBe(false)
+    expect(wrapper.find('[data-onboarding-loom-base-url]').exists()).toBe(false)
+    expect(wrapper.find('[data-onboarding-loom-api-key]').exists()).toBe(false)
+    expect(wrapper.find('[data-onboarding-loom-dsh-save]').exists()).toBe(true)
+    expect(wrapper.find('[data-onboarding-loom-skip]').exists()).toBe(true)
+
+    await wrapper
+      .get('[data-onboarding-loom-channel-choice="loom"]')
+      .setValue(true)
+
+    expect(wrapper.find('[data-onboarding-loom-setup]').exists()).toBe(true)
+    expect(wrapper.find('[data-onboarding-loom-dsh-url]').exists()).toBe(false)
+  })
+
+  it('records the dsh channel without calling loom setup', async () => {
+    const wrapper = mountStep({ currentPassword: 'pw-123' })
+    await flushPromises()
+
+    await wrapper
+      .get('[data-onboarding-loom-channel-choice="dsh"]')
+      .setValue(true)
+    await wrapper
+      .get('[data-onboarding-loom-dsh-url]')
+      .setValue('http://127.0.0.1:19000')
+    await wrapper.get('[data-onboarding-loom-dsh-save]').trigger('click')
+    await flushPromises()
+
+    expect(mock.setupLoom).not.toHaveBeenCalled()
+    expect(mock.recordStep).toHaveBeenCalledWith('loom', 'completed', {
+      ai_backend: 'dsh',
+      url: 'http://127.0.0.1:19000',
+    })
+    expect(mock.refresh).toHaveBeenCalledTimes(1)
+    expect(wrapper.emitted('next')).toHaveLength(1)
+  })
+
+  it('rejects an invalid dsh bridge url without recording', async () => {
+    const wrapper = mountStep()
+    await flushPromises()
+
+    await wrapper
+      .get('[data-onboarding-loom-channel-choice="dsh"]')
+      .setValue(true)
+    await wrapper
+      .get('[data-onboarding-loom-dsh-url]')
+      .setValue('ftp://127.0.0.1:19000')
+    await wrapper.get('[data-onboarding-loom-dsh-save]').trigger('click')
+    await flushPromises()
+
+    expect(mock.recordStep).not.toHaveBeenCalled()
+    expect(mock.refresh).not.toHaveBeenCalled()
+    expect(wrapper.emitted('next')).toBeUndefined()
+    expect(wrapper.get('[data-onboarding-loom-error]').text()).toContain(
+      'Bridge 地址',
+    )
   })
 })

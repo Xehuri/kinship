@@ -160,12 +160,12 @@ const VISUALS: Record<string, OnboardingStepVisual> = {
     icon: 'Brain',
     component: 'LoomStep',
     fallbackTitle: 'AI 助手',
-    fallbackDescription: '设置 Loom 端口、模型提供商并启动应用',
+    fallbackDescription: '选择 AI 通道（Loom 或自备 dsh）并完成对应配置',
     phase: 2,
     milestone: false,
-    why: 'Loom 负责对话、报告与自动化；不启动它，系统只能采集和保存数据。',
+    why: 'AI 助手负责对话、报告与自动化；Loom 是默认运行时，也可以声明你自备的 dsh（需先安装 kinship 插件）。',
     skip_consequence:
-      '跳过 AI 助手：不会启动 Loom，对话、定时分析与报告都不可用；可稍后在设置里配置。',
+      '跳过 AI 助手：Loom 不会启动、dsh 也不会声明，对话、定时分析与报告都不可用；可稍后在设置里配置。',
   },
   clients: {
     icon: 'DeviceMobile',

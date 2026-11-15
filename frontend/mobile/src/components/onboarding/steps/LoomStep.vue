@@ -3,13 +3,40 @@
     <header class="onboarding-panel__head">
       <h3 class="onboarding-panel__title">AI 助手</h3>
       <p class="onboarding-panel__desc">
-        Loom 负责对话、报告与自动化。填写模型渠道后，后端会写入配置、启动 Loom 并完成健康检查。
+        选择 AI 通道：Loom 由本向导写入模型渠道并启动服务；dsh 是自备的 harness（BYO），本向导只声明 bridge 地址。
       </p>
     </header>
 
     <StepWhy step-id="loom" :detected="detected" />
 
-    <div class="onboarding-fields">
+    <div
+      class="loom-channels"
+      role="radiogroup"
+      aria-label="AI 通道"
+      data-onboarding-loom-channel
+    >
+      <label
+        v-for="option in CHANNEL_OPTIONS"
+        :key="option.value"
+        class="loom-channel"
+        :data-selected="channel === option.value ? 'true' : undefined"
+      >
+        <input
+          v-model="channel"
+          type="radio"
+          name="onboarding-loom-channel"
+          :value="option.value"
+          :disabled="busy"
+          :data-onboarding-loom-channel-choice="option.value"
+        />
+        <span class="loom-channel__body">
+          <strong>{{ option.label }}</strong>
+          <span>{{ option.description }}</span>
+        </span>
+      </label>
+    </div>
+
+    <div v-if="channel === 'loom'" class="onboarding-fields">
       <FormField
         field-id="onboarding-loom-port"
         label="端口"
@@ -137,7 +164,7 @@
     </div>
 
     <p
-      v-if="keyConfigured"
+      v-if="channel === 'loom' && keyConfigured"
       class="onboarding-hint"
       data-onboarding-loom-key-note
     >
@@ -145,7 +172,7 @@
     </p>
 
     <p
-      v-if="result"
+      v-if="channel === 'loom' && result"
       class="onboarding-alert"
       :class="result.ok ? 'onboarding-alert--success' : 'onboarding-alert--error'"
       :data-state="result.ok ? 'ok' : 'failed'"
@@ -155,6 +182,40 @@
       <AppIcon :name="result.ok ? 'CheckCircle' : 'WarningCircle'" :size="14" />
       <span>{{ result.ok ? successSummary : failureSummary }}</span>
     </p>
+
+    <div
+      v-if="channel === 'dsh'"
+      class="loom-dsh"
+      data-onboarding-loom-dsh
+    >
+      <p class="onboarding-hint loom-dsh-note" data-onboarding-loom-dsh-note>
+        走 dsh 通道时本向导只声明通道与 bridge 地址：不安装、不启动服务，跳过 Loom 的安装引导。
+        请先自备 dsh 与 kinship 插件；token 在系统配置的 dsh.token（或环境变量 DSH_TOKEN）里配置，可留空。
+      </p>
+
+      <div class="onboarding-fields">
+        <FormField
+          field-id="onboarding-loom-dsh-url"
+          label="Bridge 地址"
+          hint="dsh kinship-bridge 的本地监听地址，默认 http://127.0.0.1:18765。"
+          required
+        >
+          <template #default="{ fieldId, describedBy }">
+            <input
+              :id="fieldId"
+              v-model="dshUrl"
+              class="onboarding-input"
+              type="url"
+              inputmode="url"
+              autocomplete="off"
+              placeholder="http://127.0.0.1:18765"
+              :aria-describedby="describedBy"
+              data-onboarding-loom-dsh-url
+            />
+          </template>
+        </FormField>
+      </div>
+    </div>
 
     <p
       v-if="displayError"
@@ -173,6 +234,7 @@
 
     <div class="onboarding-panel__actions">
       <button
+        v-if="channel === 'loom'"
         class="onboarding-button onboarding-button--primary"
         type="button"
         data-onboarding-loom-setup
@@ -186,6 +248,22 @@
           :class="busy ? 'onboarding-spinner' : undefined"
         />
         <span>{{ setupLabel }}</span>
+      </button>
+      <button
+        v-else
+        class="onboarding-button onboarding-button--primary"
+        type="button"
+        data-onboarding-loom-dsh-save
+        :data-busy="pendingAction === 'dsh' ? 'true' : undefined"
+        :disabled="busy"
+        @click="handleDshSave"
+      >
+        <AppIcon
+          :name="pendingAction === 'dsh' ? 'CircleNotch' : 'CheckCircle'"
+          :size="14"
+          :class="pendingAction === 'dsh' ? 'onboarding-spinner' : undefined"
+        />
+        <span>{{ dshSaveLabel }}</span>
       </button>
       <button
         class="onboarding-button"
@@ -209,7 +287,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import AppIcon from '@/components/common/AppIcon.vue'
 import FormField from '@/components/settings/form/FormField.vue'
 import LongTaskProgress from '@/components/onboarding/LongTaskProgress.vue'
@@ -249,6 +327,32 @@ const DEFAULT_PORT = '5100'
 const DEFAULT_CONTEXT_WINDOW = '128000'
 const MIN_CONTEXT_WINDOW = 1024
 const MAX_CONTEXT_WINDOW = 10_000_000
+const DEFAULT_DSH_URL = 'http://127.0.0.1:18765'
+
+/** AI 通道声明：缺省 loom（既有流程），dsh = 自备 harness（BYO）只声明 bridge。 */
+type AiChannel = 'loom' | 'dsh'
+
+interface ChannelOption {
+  value: AiChannel
+  label: string
+  description: string
+}
+
+const CHANNEL_OPTIONS: readonly ChannelOption[] = [
+  {
+    value: 'loom',
+    label: 'Loom（默认）',
+    description: '由本向导写入模型渠道、启动 Loom 并完成健康检查。',
+  },
+  {
+    value: 'dsh',
+    label: 'dsh（BYO harness）',
+    description: '自备 dsh 与 kinship 插件；这里只声明 bridge 地址，不安装不启动。',
+  },
+]
+
+const channel = ref<AiChannel>('loom')
+const dshUrl = ref(DEFAULT_DSH_URL)
 
 const port = ref<string | number>(DEFAULT_PORT)
 const provider = ref('')
@@ -256,7 +360,7 @@ const baseUrl = ref('')
 const model = ref('')
 const contextWindow = ref<string | number>(DEFAULT_CONTEXT_WINDOW)
 const apiKey = ref('')
-type PendingAction = '' | 'setup' | 'skip'
+type PendingAction = '' | 'setup' | 'skip' | 'dsh'
 const pendingAction = ref<PendingAction>('')
 const busy = computed(() => pendingAction.value !== '')
 const localError = ref('')
@@ -270,10 +374,16 @@ const displayError = computed(
 const setupLabel = computed(() =>
   pendingAction.value === 'setup' ? '正在启动并应用…' : '启动并应用',
 )
+const dshSaveLabel = computed(() =>
+  pendingAction.value === 'dsh' ? '正在保存…' : '保存 dsh 通道并继续',
+)
 const skipLabel = computed(() =>
   pendingAction.value === 'skip' ? '正在跳过…' : '跳过 AI 助手',
 )
 const detected = computed<StepWhyDetectedItem[]>(() => {
+  if (channel.value === 'dsh') {
+    return [{ label: 'dsh bridge', value: dshUrl.value.trim() || '未填写' }]
+  }
   const status = loomStatus.value
   if (!status) return []
   const items: StepWhyDetectedItem[] = [
@@ -287,6 +397,12 @@ const detected = computed<StepWhyDetectedItem[]>(() => {
 const keyConfigured = computed(
   () => (loomStatus.value?.credentials.length ?? 0) > 0,
 )
+
+// 切换通道时清掉上一通道的提交结果与错误，避免把 Loom 的失败横幅留在 dsh 表单下。
+watch(channel, () => {
+  localError.value = ''
+  result.value = null
+})
 
 const successSummary = computed(() => {
   const info = result.value?.loom
@@ -353,6 +469,16 @@ interface LoomLimits {
   contextWindow: number
 }
 
+function isHttpUrl(value: string): boolean {
+  if (!value) return false
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 function validate(): LoomLimits | null {
   const rawPort = String(port.value ?? '').trim()
   const portNumber = Number(rawPort)
@@ -374,12 +500,7 @@ function validate(): LoomLimits | null {
     localError.value = '请填写 Base URL。'
     return null
   }
-  try {
-    const parsed = new URL(url)
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error('unsupported protocol')
-    }
-  } catch {
+  if (!isHttpUrl(url)) {
     localError.value = 'Base URL 必须是有效的 http:// 或 https:// 地址。'
     return null
   }
@@ -455,6 +576,40 @@ async function handleSetup(): Promise<void> {
   }
 }
 
+async function handleDshSave(): Promise<void> {
+  if (busy.value) return
+  localError.value = ''
+  result.value = null
+  const url = dshUrl.value.trim()
+  if (!isHttpUrl(url)) {
+    localError.value = 'Bridge 地址必须是有效的 http:// 或 https:// 地址。'
+    return
+  }
+  pendingAction.value = 'dsh'
+  try {
+    // 只声明通道：后端按 ai_backend=dsh 写 ai_backend + dsh.url，不写 loom.*，
+    // 也不触发 Loom 的 setup/启动动作。
+    const recorded = await recordStep('loom', 'completed', {
+      ai_backend: 'dsh',
+      url,
+    })
+    if (!recorded) {
+      localError.value =
+        onboardingError.value?.message || '记录 dsh 通道失败，请稍后重试。'
+      return
+    }
+    await refresh()
+    emit('next')
+  } catch (error) {
+    localError.value =
+      error instanceof Error && error.message
+        ? error.message
+        : '记录 dsh 通道失败，请稍后重试。'
+  } finally {
+    pendingAction.value = ''
+  }
+}
+
 async function handleSkip(): Promise<void> {
   if (busy.value) return
   localError.value = ''
@@ -481,3 +636,62 @@ async function handleSkip(): Promise<void> {
   }
 }
 </script>
+
+<style scoped>
+.loom-channels {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.loom-channel {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.loom-channel[data-selected='true'] {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--hairline));
+  background: var(--accent-soft);
+}
+
+.loom-channel input {
+  flex: none;
+  inline-size: 16px;
+  block-size: 16px;
+  margin-block-start: 2px;
+  accent-color: var(--accent);
+}
+
+.loom-channel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.loom-channel__body strong {
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.loom-dsh {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.loom-dsh-note {
+  padding-inline-start: var(--space-2);
+  border-inline-start: 2px solid var(--hairline);
+}
+</style>
