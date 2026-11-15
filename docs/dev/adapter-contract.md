@@ -37,6 +37,14 @@
 
 绑定状态持久化在运行时自己的状态目录，使用原子写。绑定对象必须是 root 会话并运行 Kinship preset；子会话和其他 preset 的会话不能绑定。绑定变化时，事件流应结束当前连接，让客户端重新订阅。
 
+### 3.1.1 冷启动恢复
+
+适配器进程重启后，registry 里的 live agent 为空，持久化绑定指向的会话在那一瞬间“不存活”是**正常状态**，不是绑定失效。适配器必须自己把它恢复成可投递的活会话：dsh 参考实现经 `sessionController.resolveAgent` 恢复（与在 UI 打开会话同一条路径，包含 persona/preset 的作用域装配），并在恢复成功前把相关请求视为短暂不可用，**绝不能要求人工先在 UI 里打开一次会话**。
+
+- 恢复成功：清掉 `bound_session_missing` 标记，后续请求直接命中活会话。
+- 恢复失败（会话已被删除、preset 已移除、写入方冲突、不支持恢复的组合）：返回 409 `bound_session_unavailable`，与“会话确实不存在”的 `bound_session_missing` 区分。
+- `rebindOnMissing` 只在恢复失败后作为回退（改绑另一个 live 的 Kinship 会话），不能当成恢复的替代品。
+
 ### 3.2 错误码
 
 | HTTP | code | 含义 |
@@ -44,7 +52,8 @@
 | 401 | `unauthorized` | 缺少或错误的 Bearer token |
 | 404 | `session_not_found` | 请求绑定的会话 id 不存在 |
 | 409 | `no_kinship_session` | 当前没有可绑定的 root Kinship 会话 |
-| 409 | `bound_session_missing` | 已持久化的绑定指向一个不再存活的会话 |
+| 409 | `bound_session_missing` | 已持久化的绑定指向一个不再存活、且无法自动恢复的会话 |
+| 409 | `bound_session_unavailable` | 持久化会话存在但本次恢复失败（preset 被移除、写入方冲突、组合无恢复能力）；与“会话不存在”区分，需人工/配置介入而不是重试 |
 | 409 | `invalid_session` | 请求绑定的会话不是 root，或没有运行 Kinship preset；参考实现细分为 `not_root_session` 与 `not_kinship_session` |
 | 413 | `body_too_large` | 请求体超过上限 |
 | 422 | `invalid_body` / `missing_<field>` | 字段缺失或格式错误 |

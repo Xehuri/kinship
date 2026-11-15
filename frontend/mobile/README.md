@@ -51,7 +51,7 @@ frontend/mobile/
 ├── src/
 │   ├── api/                    # API 客户端层 (14 个模块)
 │   │   ├── client.ts           # HTTP 客户端 (原生 fetch 封装, 自动注入 auth, 401 触发登录层)
-│   │   ├── backend.ts          # 对话后端热切换 (GET/POST /api/screen/backend)
+│   │   ├── backend.ts          # AI 后端只读回显 (GET /api/screen/backend；POST 已退役 410)
 │   │   ├── health.ts           # 健康数据 API (/api/mobile/dashboard + /api/health/query, 供报告摘要/声纹使用)
 │   │   ├── healthCloud.ts      # 小米健康云 API (/api/health/cloud/*, 状态/扫码/同步)
 │   │   ├── notifications.ts    # 通知历史 API (/api/notification/history)

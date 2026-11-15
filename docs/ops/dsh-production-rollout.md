@@ -74,6 +74,9 @@
 | 20:24 | 收尾重启 | `systemctl restart axeuh-health`（新 PID 2209503，启动约 4s）：`[DshHealth] 健康探针已启动` → `/health.dsh=online`；`[Orchestrator] loom -> blocked (disabled)`，Loom 子进程消失、`/health.loom=offline`；重启后 DshClient 只读自检仍 online/bound/idle/1M |
 | 20:29 | 修 W30 | 发现 `kinship-data/ai/data/cache/web_backend.json` 仍是 10 月遗留的 `loom`：Web 对话管线（`routers/session.py`、`model_config.py` 走 `acquire_web_client()`）按它选 Loom，而 SSE 按全局 `ai_backend` 选 dsh → 前端表现为"没绑定"、发送报 5100。备份 `web_backend.json.bak-kinship-20261115-202919` 后原子写 `dsh`；`get_web_backend()=dsh`、`acquire_web_client()=DshClient`、旧 id `ses_6320…` 的历史请求被归一到绑定会话 |
 | 20:36 | 修会话面 | 仅改 W30 状态文件还不够：`/session/list` 没有 dsh 腿、且把带 `loom:main-task` 绑定的旧会话标 `backend:"loom"`，前端于是把 `backend=loom` 显式塞进发送请求 → 直调已停用的 Loom（日志 `[LOOM-CLIENT] session=ses_6320…` + 5100）。代码修复（W52）：`/session/list` 增 dsh 聚合腿（bridge 绑定会话）、`current_session` 取该 id、dsh 模式下本地条目一律归 dsh、全局 dsh 时忽略显式 loom/opencode、Loom 腿不探活；4 条新测试先红后绿（stash 实现验证），相关 105 条全绿；重启后端（PID 2218881）后实测 `current_session=session-2f8b68aa…`、`partial=[]`、dsh 行首位 |
+| 21:02 | 冷会话 E2E | 测试栈：起 dsh 建会话 A → 按 PID 停 → `KEEP_BINDING=1` 重启（**不打开任何 dsh UI 会话**）→ `/v1/health` 直接 `status:"bound"`（session A）、`/v1/session` 与 `/v1/session/messages` 均 200；同启动的 probe 新会话 B 未被改绑；主仓后端连测试栈发消息收到回复（`只回复一个字：好` → `好`） |
+| 21:05 | W53 热切换实测 | 测试栈（主仓后端）：`PUT /api/system/config` 切 `loom` → `applied` 含 `ai_surface`、Loom 探针启动、dsh 探针停（unknown）；切回 `dsh` → 反向成立，`/session/list` `current_session` 仍为绑定会话、`partial=[]` |
+| 21:06 | 部署 W53+W54 | 生产 profile 插件备份 `/mnt/d/tmp-opencode/dsh-web-plugins-bak/web-plugins-20261115-210605.tgz` → `sync-profile.sh web` 同步 resume 版 bridge；后端热重启（新 PID 2258115）：`[AiSurface] ai_backend=dsh：健康探针已按生效通道对齐`、`[WebBackend] 旧状态文件已归档 …（legacy=dsh, effective=dsh）`、`[Config] 热应用器已注册: ai, ai_surface, audio, …`；`/health` dsh online / loom `unknown`、`/api/screen/backend` 返回 3 个选项、POST 410；21:06 起 LoomHealth WARN 计数 0。dsh 进程需重启才加载 resume 版 bridge（本页第 4 节） |
 
 ## 4. B 段：重启 dsh（已完成 20:15）
 
@@ -152,29 +155,28 @@ PUT /api/system/config
 - Kinship Web UI：发一条消息看流式渲染；历史分页；手动压缩；手动触发一个定时任务确认
   调度链路走 DshClient。
 
-### 7.1 Web 对话管线（W30）也要指到 dsh
+### 7.1 后端选择已收敛为单一真源（W53，2026-11-15 21:06 部署）
 
-后端有**两层**后端选择，切全局 `ai_backend` 只覆盖了第一层：
+W30 曾给 Web 对话管线单开一个状态文件 `web_backend.json`，于是同一部署有**两层**判据（全局 `ai_backend` 与状态文件），20:29/20:36 两次事故都是它们不同步造成的。W53 起只有一层：
 
 | 层 | 选择来源 | 影响 |
 |---|---|---|
-| 全局 | `config.yaml` 的 `ai_backend` | 定时任务、脚本、语音、`/api/events` SSE hub、`/health` |
-| Web 对话管线（W30） | `data.sessions` 同目录的 `web_backend.json`（缺省 `<AI_ROOT>/data/cache/web_backend.json`），每次请求现读，缺失/损坏才回落全局 | `/api/session/*` 的 Web 端点、`routers/model_config.py` 的 Web 端点 |
+| 全部 | `config.yaml` 顶层 `ai_backend` | 聊天端点、SSE hub、健康探针、编排器 Loom 期望态、`/health`、`/api/screen/backend` |
 
-所以切到 dsh 后还要确认：
+- `get_web_backend()` 恒等于 `get_ai_backend()`；切换入口只有配置（设置页 / `PUT /api/system/config`，写操作需密码二次校验）。
+- 旧状态文件不再参与判定：启动时归档为 `web_backend.json.deprecated-<stamp>`（生产已归档 `...-20261115-210626`）。
+- `POST /api/screen/backend` 返回 410（避免绕过配置写入的密码校验）；`GET` 保留为只读回显。
+- 切换即时生效：`ai_backend` 是 hot 策略——`apply_ai` 重建客户端/事件 hub，`apply_ai_surface` 起停健康探针并对齐编排器的 Loom 期望态（切入 loom 会拉起 Loom，切走会停 Loom）。**不需要重启后端**。
+
+验证：
 
 ```bash
-cat <AI_ROOT>/data/cache/web_backend.json     # 期望 {"backend": "dsh", ...}
+curl -sk https://127.0.0.1:8768/health | jq '{ai_backend, loom: .loom.status, dsh: .dsh.status}'
+curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/backend
+# => {"ok":true,"backend":"dsh","options":["opencode","loom","dsh"]}
 ```
 
-- 若仍是 `loom`/`opencode`：Web 聊天、历史、主会话解析仍走旧通道（Loom 已停会报
-  `Cannot connect to host 127.0.0.1:5100`，前端表现为"没绑定"；而 `/health` 显示 dsh online，
-  很容易误判）。
-- 写入口：`POST /api/screen/backend`（需鉴权，`WEB_BACKEND_OPTIONS` 只列 opencode/loom，
-  但状态文件本身接受 `dsh`）；没有凭据时可直接原子写状态文件（reader 每次现读，无需重启）。
-- 反向注意：前端若还有 opencode/loom 切换按钮，点一下就又把 Web 管线切走；切回 dsh 需要
-  同样的写入。
-- **会话面（W52，2026-11-15 20:36 起）**：`/session/list` 现在有 dsh 聚合腿——`current_session`
+- **会话面（W52，2026-11-15 20:36 起）**：`/session/list` 有 dsh 聚合腿——`current_session`
   取 bridge 绑定会话，`sessions` 首位是该会话（`backend:"dsh"`），本地历史条目在 dsh 模式下
   一律归 dsh；前端对 `dsh` 标签不发送显式 backend，于是落回 Web 通道。
   另外全局 `ai_backend=dsh` 时，后端会忽略请求里的显式 `backend: "loom"|"opencode"`
@@ -182,11 +184,17 @@ cat <AI_ROOT>/data/cache/web_backend.json     # 期望 {"backend": "dsh", ...}
   因此不再需要前端清缓存或删旧会话。
 - `usersessions.json` 里旧的 `ses_…` 主会话 id 不用清理：`DshClient` 一律把调用方传入的
   session id 归一到 bridge 绑定会话（历史/发送/状态同语义）。
+- **冷会话（W54，2026-11-15 21:06 代码部署）**：dsh 重启后 bridge 启动预热 + 请求期懒恢复
+  （`ensureBoundSession` → `sessionController.resolveAgent`，与 UI 打开会话同一条路径），
+  不需要人工打开 Kinship 会话；测试栈实测见 3.1 表 21:02 行。
 
 ## 8. E 段：回滚
 
-- 回滚：把 `ai_backend` 改回 `loom`（热生效）后**重启一次后端**（编排器在启动时按 gate 拉起
-  Loom），或手动走 Loom 启动端点；核对 `/health` 的 `loom.online` 与 `status=healthy`。
+- 回滚：把 `ai_backend` 改回 `loom`（热生效）——`apply_ai_surface` 会在同一次应用里按新期望态
+  拉起 Loom（`orchestrator.start("loom")`，只碰 loom 单服务），**不需要重启后端**；核对
+  `/health` 的 `loom.online` 与 `status=healthy`。切回 `dsh` 同样即时停 Loom。
+  仅当编排器处于 `off` 模式（`AXEUH_ORCHESTRATOR=off`）时不会自动拉起，需要手动起 Loom 或
+  恢复编排器模式。
 - `dsh.*` 可保留（不影响 loom 路径）；dsh 侧的 bundle/preset 也可保留（bridge 空闲监听无害）。
 - 彻底撤销 dsh 侧：从 profile `package.json` 的 `dsh.profile.bundles` 移除
   `kinship-harness-plugins`，删除 profile `node_modules/kinship-*`，重启 dsh；
@@ -194,25 +202,27 @@ cat <AI_ROOT>/data/cache/web_backend.json     # 期望 {"backend": "dsh", ...}
 
 ## 9. 已知限制与注意
 
-- **`/health` 的 dsh 探针**只在后端启动时按 `ai_backend` 启动（`apply_ai` 不管理探针生命周期）。
-  2026-11-15 20:24 的后端重启后它已在线；以后再热切换通道，需要重启一次后端才能让探针跟上。
-- **Loom 编排 gate**只在服务启动时判定：热切换当天 Loom 一直跑到 20:24 的后端重启才被
-  判 blocked 并停用。现在 Loom 处于停止状态（`/health.loom=offline`）。
-- **回滚到 loom**：现在需要 `PUT ai_backend=loom` **再重启一次后端**（或手动走 Loom 启动
-  端点），编排器才会在启动时拉起 Loom；只热改配置不会把 Loom 拉起来。
-- **两层选择器是这次踩坑点**：全局 `ai_backend` 与 W30 `web_backend.json` 互不联动（设计如此）。
-  只切全局会出现"`/health` 显示 dsh、Web 聊天还在打 Loom"的分裂状态，见第 7.1 节。
-- **一个启动期 Loom 噪声**：20:24:43 出现过一次 "获取会话消息分页失败: Cannot connect to
-  127.0.0.1:5100"，来自某条仍直连 Loom 的启动路径（非 factory）。仅一次、不影响 dsh 链路，
-  后续可把该路径改走 `ai_client_factory`。
-
-- **冷会话**：bridge 只认 live agent；dsh 重启后需要打开一次 Kinship 会话（见第 6 节）。
+- **探针生命周期跟随后端（W53 起）**：`apply_ai_surface` 在启动与热切换共用一份实现——dsh 探针
+  只在 `ai_backend=dsh` 时跑、Loom 探针只在 `loom` 时跑，非当前通道保持 `unknown`（不再刷
+  假离线告警）；停止探针时缓存归 unknown，不把停止观测前的最后一帧当结论。
+- **Loom gate 仍只在服务启动时判定**，但热切换已由 applier 主动对齐（只 `stop/start loom`，
+  不重启 kernel/moss/qq）；编排器 `off` 模式下不动作。
+- **两层选择器已不存在**：`web_backend.json` 退役归档、`POST /api/screen/backend` 410；
+  唯一的切换入口是配置（写操作需密码），详见第 7.1 节。
+- **冷会话已自动恢复（W54）**：bridge 启动预热 + 请求期懒恢复；只有运行时明确回答
+  `session/not-found` 才回落到 `bound_session_missing`，其它恢复失败是 409
+  `bound_session_unavailable`（需要人/配置介入，不是瞬时重试）。没有 web 组合
+  （headless profile，无 `sessionController`）时 bridge 不预热，行为与改动前一致。
+- **启动期 Loom 噪声已消除**：20:24:43 那条来自仍直连 Loom 的启动路径；dsh 模式下 Loom 探针
+  现在不启动，21:06 之后 LoomHealth WARN 为 0。
+- **chatlog 的单会话语义**：`query_chatlog.py` 经 `/api/screen/session/chatlog` 走全局
+  `ai_backend`，在 dsh 下 `DshClient` 会把传入的 `session_id` 归一到绑定会话——内容能查，
+  但旧会话 id 会被静默替换（含 `--include-children` 退化），见遗留项。
 - **令牌来源**：当前用插件生成的文件，可在面板显示/轮换；若改成环境变量来源，面板会拒绝轮换
   （409 `token_env_managed`）。
 - **面板保存语义**：从面板保存桥接配置会写 profile 的完整覆盖，bundle patch 里 env 驱动的字段
   会被固定成保存值；长期用 env 管理就不要点保存。
 - **bridge 不出网**：不要把它挂到 Caddy/frps；公网只暴露 dsh UI。
-- **Loom 停用**：切到 dsh 后 Loom gate 变 blocked（已接受），回滚需要重新拉起。
 - **插件组合**：Kinship 会话的插件面由 preset 决定；profile 里的 auto-memory/login/market 等
   根级插件不进入该会话的工具面，但它们自己的 prompt 注入是否影响要看各自实现（当前没有
   额外 AGENTS.md 类注入）。

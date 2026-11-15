@@ -49,7 +49,7 @@
 1. `cp -a /etc/systemd/system/axeuh-loom.service <同路径>.bak-<ts>`；unit 内 `LOOM_INSTANCE` 由 fixture-workspace 翻为 `.../axeuh-health-monitor/ai`（fixture 旧值注释保留，秒回切）
 2. `daemon-reload` → `restart axeuh-loom` → 影子三门复验式活体：journal `persona bound`（file 指向 **ai/**agents/main.md）+ `memory roster count=11` + `sandbox policy{off,allow,10}`；`/context/full` 验 systemPrompt=main-task 正文版
 3. hm：`cp -a config.yaml config.yaml.bak-<ts>` → `ai_backend: loom` → `systemctl restart axeuh-health`（launcher 会拉起 opencode 但 loom_client 不再被 web 用；5096 活着）
-4. web 热开关切 loom（`POST /api/screen/backend`），浏览器聊天冒烟（persona/回复/SSE id 累积）
+4. web 热开关切 loom（`POST /api/screen/backend`）——**2026-11-15 W53 起该端点已退役 410**，切换统一改 `config.yaml` 顶层 `ai_backend`（热应用）；浏览器聊天冒烟（persona/回复/SSE id 累积）
 5. **真流量观察窗**（对齐偶数小时 data-check 点）：投递→主分级→派 data-checker→读 perception→写理解 md→`git commit`（生产 hm 仓！deny 面放行 commit 拦 push）→reminder 唤醒→验收；语音唤醒一次实测 tts 出声
 6. 全程 journal+ledger 留痕；异常即 §4 回滚，**不带病调试**
 

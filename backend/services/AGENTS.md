@@ -1,13 +1,13 @@
 # Services - 业务服务层
 
-**更新时间**: 2026-10-25（QQ 操作迁移到 ai/skills/qq-cli；新增 health_cloud_service.py / reminders_store.py / loom_health.py / phi4_client.py / qq_mcp_server.py 与 qq_gateway/ 包；W30 新增 web_backend_selector.py + stt_session_manager 绑定迁移；此前 P0 死件裁剪 + P1/P2/P3 波次收敛 V2~V19，详见 `../../docs/archive/audit/2026-10-08/`）
+**更新时间**: 2026-11-15（W53 harness 切换入口收敛：WebBackendSelector 去掉第二真源、`web_backend.json` 退役归档、`ai_backend` 热应用补派生面 applier `ai_surface`；此前 2026-10-25 QQ 操作迁移到 ai/skills/qq-cli；新增 health_cloud_service.py / reminders_store.py / loom_health.py / phi4_client.py / qq_mcp_server.py 与 qq_gateway/ 包；W30 新增 web_backend_selector.py + stt_session_manager 绑定迁移；此前 P0 死件裁剪 + P1/P2/P3 波次收敛 V2~V19，详见 `../../docs/archive/audit/2026-10-08/`）
 **文件数**: 42 个顶层 Python 文件（`ls backend/services/*.py | wc -l` 实数，含 `__init__.py`；另有 `health/`、`scripts/`、`qq_gateway/` 子目录，`storage/` 已随 P0-U6 死件裁剪删除）
 **模式**: 全局单例 + 工厂函数
 **边界**: **零音频算法实现、零 ML import**（Wave C1-C5 物理删除 17 个算法文件 + 本地切分器；一切音频计算经三条内核通道 `kernel_client.py` / `kernel_job_client.py` / `segment_channel.py` 调用闭源内核 `kernel/`；内核不可达=降级不回退）
 
 ## 概述
 
-业务逻辑层，包含核心服务、AI 双通道客户端（opencode/loom）、定时任务系统、感知读写分层、健康存储。声纹外层注册库镜像已随 V10 整文件退役（唯一事实源在内核）。所有服务使用单例模式管理。
+业务逻辑层，包含核心服务、AI 多通道客户端（opencode/loom/dsh，由 `ai_backend` 单一真源择路）、定时任务系统、感知读写分层、健康存储。声纹外层注册库镜像已随 V10 整文件退役（唯一事实源在内核）。所有服务使用单例模式管理。
 
 ## 服务分类
 
@@ -60,8 +60,8 @@
 
 | 服务 | 文件 | 职责 |
 |------|------|------|
-| AIClientFactory | `ai_client_factory.py` | AI 后端统一入口工厂：调用点只依赖 `acquire_ai_client`/`get_ai_client`，通道由 config.yaml 顶层 `ai_backend` 键选择（生产=loom；代码/模板缺省=opencode。切流=手改配置并重启后端，无运行时热切换路径；opencode.enabled=false 仅关 launcher 启动与 SSE hub，不切换 ai_backend、不阻断客户端构造；opencode 链路保留但非现网、非回退开关）；两通道客户端 duck-type 同构，信封契约真源 = `opencode_client.py` 公共层 |
-| WebBackendSelector | `web_backend_selector.py` | Web 通道热切换（W30）：`get_web_backend` 每次现读状态文件 `config.WEB_BACKEND_STATE_PATH`（web_backend.json，缺失/损坏回落全局 `get_ai_backend`，绝不让 web 崩溃）；`set_web_backend` 校验 `_VALID_BACKENDS` + tmp/`os.replace` 原子写；`acquire_web_client`/`get_web_client` 按状态值路由 loom/opencode 原语（后台链路不经此模块）；`web_agent_key` = 绑定命名空间键形制单源（`"<backend>:<agent>"`）；生产固定 loom；opencode 分支保留但不作 Web 助手回退（本部署 5096 已退役；4097 是独立自有会话实例） |
+| AIClientFactory | `ai_client_factory.py` | AI 后端统一入口工厂：调用点只依赖 `acquire_ai_client`/`get_ai_client`，通道由 config.yaml 顶层 `ai_backend` 键选择（生产=dsh；代码/模板缺省=opencode。W53 起 `ai_backend` 是 hot 策略：PUT 配置即热应用——客户端单例重置、dsh 事件 hub 按需重建，无需重启后端；opencode.enabled=false 仅关 launcher 启动与 SSE hub，不切换 ai_backend、不阻断客户端构造；opencode 链路保留但非现网、非回退开关）；三通道客户端 duck-type 同构，信封契约真源 = `opencode_client.py` 公共层 |
+| WebBackendSelector | `web_backend_selector.py` | Web 对话管线择路（W30 立项，W53 收敛为**无第二真源**）：`get_web_backend` 恒等于 `get_ai_backend()`（顶层 `ai_backend`，每次现读配置快照，非法值 fail-fast）；旧的独立状态文件 `web_backend.json` 已退役，`deprecate_legacy_state()` 在启动时把它改名归档为 `.deprecated-<时间戳>` 留证；`acquire_web_client`/`get_web_client` 按该唯一值路由 opencode/loom/dsh 原语（后台链路仍直接经 `ai_client_factory`）；`web_agent_key` = 绑定命名空间键形制单源（`"<backend>:<agent>"`）；W53 起不再提供写入面（切换统一走 `/api/system/config`，写操作受 `require_config_write` 密码校验约束） |
 | OpenCodeClient | `opencode_client.py` | OpenCode API 客户端（V6 起含信封公共层，原 OpenCodeGateway 已退役拍扁；裸传输改 `_raw_*`，mock/默认模型注入下沉同名方法） |
 | LoomClient | `loom_client.py` + `loom_messages.py` | Loom harness 通道客户端与**页级**消息形状转换（与 opencode 信封逐键同构）：toolResult 按 `toolCallId` 并回同页 assistant toolCall part，同页无宿主的孤儿原位保留独立壳（规则见下节） |
 

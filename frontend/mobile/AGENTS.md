@@ -92,7 +92,7 @@ npm run qa:shots:check -- <dir> 24
 - 本目录是主前端目录；另有 `frontend/preview/` 与 `frontend/vaudit/`（原 `../refactor/` 测试沙箱已于 2026-09-10 合并删除）；开发直接改 `src/`，`npm run dev` 起带 proxy 的本地开发服务器
 - **FontAwesome 残留**：`@fortawesome/fontawesome-free` 仍被 `LoginOverlay` / `SetupOverlay` / `DetailOverlay` 的 `fa-` 类使用；这三处迁移到 AppIcon 前不得移除依赖。其余新 UI 只用 `@phosphor-icons/vue`。
 - **WS 日志**：`useWsLog.ts` 是模块级单例，App 注册 WS 处理器，设置→调试→「WS 日志」打开 `WsLogDrawer`；不再有浮动按钮。TTS 音频块不写入日志。
-- 设置页不再提供「Web 对话通道」开关；默认通道仍由后端 `web_backend.json` 决定，`useChat` 只 GET 种植、绝不 POST；已有会话按 sid→backend map 路由；SSE 恒 loom+opencode 双流多路复用，帧归属按 `payload.properties.backend` 判别；子智能体返父走 `switchSession(parent.sessionId)`
+- 设置页不提供「Web 对话通道」开关；默认通道由后端 `config.yaml` 的 `ai_backend` 决定（W53 起唯一真源，`useChat` 只 GET `/api/screen/backend` 种植、绝不 POST——该 POST 已退役 410），取值含 `opencode/loom/dsh`；已有会话按 sid→backend map 路由；SSE 帧归属按 `payload.properties.backend` 判别；子智能体返父走 `switchSession(parent.sessionId)`
 - **报告与代码面**：`/api/mobile/reports` 只返回 health/daily/weekly/review 四类；报告页按类别分组，不渲染标签 chip。文件与 Markdown fence 共用 `components/code/CodeSurface.vue`（行号、横向滚动、JSON 美化），Markdown 表格用 `.table-scroll` 横滚。
 - **文件树状态**：选中文件必须用 `FileTreeRow.path`；目录导航成功后才写 `currentPath`，失败保留旧树并内联重试；`FileTree` 只在无行时显示骨架。
 - **历史分页**：首屏 `loadChatHistory` 不带 `limit`（后端默认 `limit=50`），响应 `next_cursor` 存入 `nextCursor`；`loadMoreHistory` 以它为 `before` 拉更早一页，`prependChatMessages` 前插并按 id 去重（加载更早页不显示骨架屏，见 `useChat.ts`）

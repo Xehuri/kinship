@@ -95,9 +95,14 @@ dsh 或其他 harness 的接入不是点一个开关。至少需要：
 - 安装并维护 harness 版本，以及 Kinship 的插件包。
 - 准备 AI 根、计划根和 preset 需要的环境变量。
 - 在 harness 里创建一个 root 会话，让它运行 Kinship preset 并完成绑定。
-- 配置后端的 `ai_backend: dsh`、`dsh.url` 和 Bearer token（配置文件声明，或在设置页的
-  AI 后端字段选择 dsh；没有运行时切换按钮），然后按配置加载规则让后端生效。dsh 里的
-  Kinship 面板会显示这三项的确切取值，可直接复制。
+- 配置后端的 `ai_backend: dsh`、`dsh.url` 和 Bearer token。**唯一入口是配置**（`config.yaml`，
+  或在设置页的 AI 后端字段选择 dsh）：`ai_backend` 是热配置，保存即生效，聊天端点、SSE、
+  健康探针和编排器 Loom 期望态都跟随同一个值；`GET /api/screen/backend` 只是只读回显，
+  旧的 `POST` 已退役（410，避免绕开配置写入的密码校验）。dsh 里的 Kinship 面板会显示这
+  三项的确切取值，可直接复制。
+- 重启 dsh 后不需要人工打开 Kinship 会话：bridge 会在启动时按持久化 binding 自动恢复它
+  （经 `sessionController.resolveAgent`，与 UI 打开同一条路径），首个后端请求直接命中
+  活会话；agent 契约见 [adapter-contract.md](adapter-contract.md) §3.1.1。
 - 自己检查 bridge 日志、SSE 事件、会话状态和子会话目录。
 
 出问题时，Kinship 只对适配契约内的行为负责，不替用户维护 harness 本身。如果你只想稳定使用 Kinship，选 Loom。如果你已经有自己的 harness，接入值得做，但请把它当成一次集成工作。
