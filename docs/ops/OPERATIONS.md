@@ -14,7 +14,7 @@
 
 ## AI 运行时选择（2026-11-15）
 
-- 默认 `ai_backend: loom`，它是 Kinship 的完整工作流。`dsh` 是可选的自带 harness 接入路径，不是开箱即用：需要安装 `harness-plugins/`、启动 bridge、在 dsh 中创建并绑定 Kinship session，再配置后端 `dsh.url` 与同一个 Bearer token。
+- 默认 `ai_backend: loom`，它是 Kinship 的完整工作流。`dsh` 是可选的自带 harness 接入路径，不是开箱即用：需要安装 `harness-plugins/`、启动 bridge、在 dsh 中创建并绑定 Kinship session，再配置后端 `dsh.url` 与同一个 Bearer token。dsh 侧栏的 **Kinship** 面板会显示该 URL、token 与待粘贴的 `config.yaml` 片段，也能改桥接配置和绑定会话。
 - 运行时定位与选择见 [ai-runtimes.md](../dev/ai-runtimes.md)，适配端点与会话模型见 [adapter-contract.md](../dev/adapter-contract.md)。dsh 不在默认拓扑内；不改变 Loom 的默认启动链。
 
 ## HTTPS 与反代一致性（2026-10-26）
@@ -141,7 +141,7 @@
 - Loom 自动唤醒（2026-10-21）：主会话 converge 可选 `wake`（倒计时/带时区 ISO/本地时间/HH:MM/none），到点经 `deliverWake` 投 `【自动唤醒】` durable user 消息并起轮；sidecar `ai/.loom/state/session/wake/{sid}.json` 耐重启；`server.autoWakeEnabled` 缺省启用、显式 false 关闭需重启；侧会话/子智能体不可用。
 - Loom 压缩（2026-10-21）：生产走 worker `summaryMode:auto` + `summaryReasoningEffort:low`；旧 compactable toolResult 先投影清空、预算内单次摘要、超预算递归 depth≤2；2026-10-22 起 worker 默认 ops+chat 双视角、合成一条摘要注入，`summaryPerspectives:["ops"]` 可回退；详见 `../loom-harness/docs/06-Loom使用文档.md` §5.4.1。
 - Loom converge 回执简化（2026-10-21）：主会话只需 `status`（digest 自动派生、body 可省略）；侧会话 digest 亦内部派生。
-- Loom 是默认助手宿主（`127.0.0.1:5100`），`ai_backend: loom`。稳定态由 `core.hot_server` 作为受管子进程托管；systemd `axeuh-loom` 仅迁移期与回滚使用。`launcher.py` 已退役，不再管理助手或后端编排。助手调用点经 `services/ai_client_factory.py`（`acquire_ai_client()`）按 `ai_backend` 选择客户端，公开模板与生产默认走 Loom；dsh 是可选路径。
+- Loom 是默认助手宿主（`127.0.0.1:5100`），`ai_backend: loom`。稳定态由 `core.hot_server` 作为受管子进程托管；systemd `axeuh-loom` 仅迁移期与回滚使用。`launcher.py` 已退役，不再管理助手或后端编排。助手调用点经 `services/ai_client_factory.py`（`acquire_ai_client()`）按 `ai_backend` 选择客户端，公开模板与生产默认走 Loom；dsh 是可选路径，其接入参数在 dsh 自己的 Kinship 面板里维护。
 - P2P（实验，当前不可用）：仅保留实验代码与配置骨架，当前不具备可用性。保持 `p2p.enabled: false`；不要部署 `axeuh-signal`、不要安装 `backend/requirements-p2p.txt`，也不要把 P2P 端点列入正式连接方案。
 - Android 客户端网络（2026-10-25）：设置→网络维护有序连接层列表（网络地址 / P2P 占位），支持 AUTO_CHAIN / PINNED、测试并应用；仅 IOException 触发换层，401/4xx/5xx 不切；旧 `server_url` / `endpoint_candidates` / `transport_mode` 迁移后只读。桌面端仍按其自身配置模型。
 - 具体配置以 `config.example.yaml` 与 `docs/system-config-hot-reload.md` 为准；生产承载文件可能是 `config.yaml`、JSON 或 SQLite。

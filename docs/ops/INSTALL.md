@@ -10,7 +10,7 @@ Work through this checklist before you begin. Items tagged **(core)** are requir
 
 - [ ] A machine that can run **Python 3.10+**. Windows and Linux are both tested (production runs on Linux); macOS is untested. See [Prerequisites](#prerequisites).
 - [ ] The bundled **Loom** assistant host (`loom-harness/`) and a Node.js runtime. Loom is the documented default (`ai_backend: loom`); onboarding starts it and writes `ai/.loom/config.yaml`.
-- [ ] *(optional)* A **dsh** installation and the `harness-plugins/` adapter if you want the BYO-harness path. This is not part of the default install and requires manual binding and token setup; see [AI runtimes](../dev/ai-runtimes.md).
+- [ ] *(optional)* A **dsh** installation and the `harness-plugins/` adapter if you want the BYO-harness path. This is not part of the default install and requires manual binding and token setup; once the adapter is enabled, the **Kinship** panel in the dsh Web sidebar shows the bridge URL, token and `config.yaml` snippet to copy. See [AI runtimes](../dev/ai-runtimes.md).
 
 **Python dependencies**
 

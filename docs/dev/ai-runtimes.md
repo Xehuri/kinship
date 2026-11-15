@@ -84,6 +84,7 @@ dsh 只是一个参考实现，不是唯一答案。`harness-plugins/` 展示了
 | 工作流 | 完整：任务、调度、复盘、通知、收件箱按 Kinship 节拍实现 | 由 dsh preset 与插件组合决定；实时流式、手动压缩、模型目录、上下文窗口、`/health` 探针已由适配层补齐 | 由实现方决定，契约只约束会话与消息面 |
 | 计划 | 内置 plan 工具、master/overlay 与 coverage 检查点 | `kinship-plan` 提供 plan 工具与每日计划 | 需自行实现或适配 |
 | 工具 | 自带工具面，按 Kinship 数据格式调优 | dsh 工具面加 Kinship 兼容工具，模型选择在 preset | 由实现方决定 |
+| 配置界面 | Kinship 设置页（AI 后端字段与端点配置） | dsh Web 左侧栏的 **Kinship** 面板：桥接状态、token 显示/轮换、桥接配置与绑定会话 | 由实现方决定；契约推荐在 harness 自己的 UI 里做，不要在 loopback 端口另开写接口 |
 | 维护 | Kinship 主路径，随版本更新 | 用户自持 dsh 与插件版本，Kinship 维护适配层 | 用户自持 |
 | 目标用户 | 想直接使用完整系统的人 | 已有 dsh、愿意动手接入的人 | 想深度定制自己 harness 的开发者 |
 

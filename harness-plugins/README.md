@@ -40,7 +40,7 @@ export PATH=/mnt/d/tools/node-v24.22.3-linux-x64/bin:$PATH
 cd harness-plugins
 npm install
 npm run link:dsh   # 把安装机的 @deepseek-ai/* 链到本 workspace node_modules
-npm run verify     # typecheck + build + 78 tests
+npm run verify     # typecheck + build + 82 tests
 ```
 
 `link:dsh` 默认读取
@@ -52,12 +52,19 @@ DSH_HOME。
 `dsh --profile kinship-test --dump-config`；测试结束删除临时目录。生产
 `dsh-home`、systemd、正在运行的 dsh 都不会被访问。
 
+装进真实 profile 后，启动 `dsh web`，左侧栏会出现 **Kinship** 页：桥接地址、
+token（显示/复制/轮换）、桥接配置、绑定会话和待粘贴的 `config.yaml` 片段都在
+那里，不需要手改 profile 文件。本 README 后面的表格是面板背后的字段与端点细节。
+
 ## kinship-bridge
 
 Host 级插件，own `http.createServer`，默认 `127.0.0.1:18765`。只允许
 `127.0.0.1` 或 `::1`，拒绝其他 bind 地址。
 
 ### 配置
+
+这些字段属于 dsh profile 的插件配置，可在 dsh Web 侧栏的 **Kinship** 面板里直接改
+（保存后写入 profile 并重载本行），也可以直接改 profile 的 `cordis.patch.yml`。
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
@@ -76,7 +83,12 @@ token 或请求体。
 
 后端需要拿到同一个 token：把自动生成的 token 文件路径配置到后端的
 `dsh.token_file`，或给 bridge 与后端设置同一个 `KINSHIP_BRIDGE_TOKEN`。
-否则后端请求会收到 401。
+否则后端请求会收到 401。最省事的方式是在面板上点「显示令牌」并复制，
+同时复制页面底部的 `config.yaml` 片段。
+
+面板还可以轮换 token：写回同一个文件（0600）并立即对运行中的 bridge 生效，
+不需要重启。环境变量来源的 token 属于部署方，轮换请求会被拒绝（409
+`token_env_managed`）。
 
 ### 绑定
 
@@ -413,4 +425,11 @@ profile 使用方式：profile 的 `dsh.profile.bundles` 加
 - 没有实现 `letter_dispatch` 的 send_letter/inbox letter 语义。
 - 没有加 `time-context` 行；若需要当前时间/时区运行时上下文，可后续在 preset
   加 `@deepseek-ai/dsh-time-context`。
-- 没有提交 git；`harness-plugins/` 是新增未跟踪目录。
+- 面板绑定限制：只接受 live 的 root `kinship` 会话；绑定切换会关闭已打开的事件流。
+- 面板写配置是**完整覆盖**：bundle patch 里由环境变量驱动的字段在保存后会被固定成保存值
+  写进 profile，不再跟随环境变量。
+- 环境变量来源的 token 不能在面板里轮换（文件来源可以，已单测覆盖）。
+- 本 bundle 若作为 profile 的 `dsh.profile.bundles`（组合根）安装，dsh 插件页不会把它
+  列成"已安装插件"，bundle/插件行的标题、描述、图标与详情文档只对普通插件安装的
+  profile 显示；面板与 bridge 本身不受影响。
+- 面板的"未绑定 / 没有 kinship 会话"状态只有单测覆盖，未在浏览器里实测。

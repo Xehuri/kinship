@@ -299,6 +299,8 @@ See [desktop/README.md](desktop/README.md) for architecture, first-run setup, TL
 | [docs/dev/PROJECT_MAP.md](docs/dev/PROJECT_MAP.md) | Directory structure and subsystem map |
 | [docs/dev/AUDIO_PIPELINE.md](docs/dev/AUDIO_PIPELINE.md) | Ambient audio upload, seamless stream, FLAC/WAV |
 | [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) | AI architecture: Loom, tasks, memory, MOSS, QQ |
+| [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) | AI runtime choice: Loom (default), optional dsh, bring-your-own harness |
+| [docs/dev/adapter-contract.md](docs/dev/adapter-contract.md) | Adapter contract for external harnesses (backend boundary and the optional adapter UI convention) |
 | [docs/dev/DATA_FORMAT.md](docs/dev/DATA_FORMAT.md) | Perception and health data format |
 | [docs/kernel-contract.md](docs/kernel-contract.md) | Closed-source audio kernel contract |
 | [docs/kernel/README.md](docs/kernel/README.md) | Kernel distribution, data boundary, models, runtime path, and licenses |

@@ -50,6 +50,8 @@ The canonical key list is `config.example.yaml` (the committable template); the 
 >
 > `dsh` is optional and is not part of the default install. It requires the `harness-plugins/` bridge, a bound Kinship session, and the same Bearer token on both sides. Token priority is `dsh.token` > `dsh.token_file` > `DSH_TOKEN` (alias `KINSHIP_BRIDGE_TOKEN`). See [AI runtimes](../dev/ai-runtimes.md) and [adapter contract](../dev/adapter-contract.md).
 
+On the dsh side, the adapter's own settings live in the profile's plugin configuration and can be inspected or changed from the **Kinship** panel in the dsh Web sidebar: it shows the bridge URL the backend should use, reveals or rotates the bearer token (a token supplied by an environment variable cannot be rotated), edits the bridge listener and binding policy, and binds a live `kinship` Session. Saving from that panel writes the active dsh profile's plugin configuration and reloads the bridge; the written configuration is a complete override, so values the bundle patch derives from environment variables are pinned at save time.
+
 ### `onboarding` — First-run downloads
 
 | Key | Type | Default | Description |

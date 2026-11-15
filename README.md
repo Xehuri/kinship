@@ -137,7 +137,7 @@ sudo systemctl enable --now kinship
 ## 核心能力
 
 - **Loom 助手（默认，完整工作流）**：`127.0.0.1:5100`，由 `axeuh-health` 托管为子进程（独立 `axeuh-loom.service` 停用，仅回滚）；`ai_backend: loom`。
-- **dsh 适配路径（可选）**：通过 `harness-plugins/` 接入自带 harness；需要自行安装、绑定 Kinship 会话并配置 token，不是开箱即用。Loom 仍是默认工作流。见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md)。
+- **dsh 适配路径（可选）**：通过 `harness-plugins/` 接入自带 harness；需要自行安装、绑定 Kinship 会话并配置 token，不是开箱即用。安装后可在 dsh Web 左侧栏的 **Kinship** 面板查看桥接状态、显示/轮换 token、改桥接配置并绑定会话。Loom 仍是默认工作流。见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md)。
 - **三层工作流**：脚本层（`fact_extractor.py` / `check_coverage.py`）→ 子智能体层（data-check / reviewer）→ 主智能体层（派发、验收、自优化）。
 - **定时调度**：默认 7 个数据检查窗口（00/06/08/12/16/20/22），每日复盘 00:40，双周复盘 1/15 18:30，周报周一 03:00。
 - **记忆 A 方案**：主会话常驻 6 件（约 36.5 KB），批次/复盘 role 注入 5 件 core；`memory_write` / `memory_retrieve` / `memory_audit` / `memory_consolidate`；检索以 `grep` + `read` 为主。

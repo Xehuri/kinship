@@ -40,7 +40,7 @@
 | [dev/AUDIO_PIPELINE.md](dev/AUDIO_PIPELINE.md) | 音频采集、分段与上传链路 |
 | [dev/AI_SYSTEM.md](dev/AI_SYSTEM.md) | AI 系统架构与三层工作流 |
 | [dev/ai-runtimes.md](dev/ai-runtimes.md) | AI 运行时选择：Loom、dsh 与自带 harness |
-| [dev/adapter-contract.md](dev/adapter-contract.md) | AI 运行时适配器契约（后端侧边界） |
+| [dev/adapter-contract.md](dev/adapter-contract.md) | AI 运行时适配器契约（后端侧边界 + 适配器自身配置界面的可选约定） |
 | [dev/plugin-host-p0.md](dev/plugin-host-p0.md) | Loom 插件系统：[P0](dev/plugin-host-p0.md) / [P2a trusted](dev/plugin-host-p2a.md) / [P2b 沙箱设计](dev/plugin-host-p2b.md)（暂缓） |
 | [dev/loom-think-playbook-2026-10-30.md](dev/loom-think-playbook-2026-10-30.md) | Loom think/锦囊机制研究（公开脱敏版） |
 | [dev/think-playbook-experiment-2026-10-30.md](dev/think-playbook-experiment-2026-10-30.md) | Think/Playbook 主会话实验报告（公开脱敏版） |
