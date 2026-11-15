@@ -28,6 +28,7 @@
 | [ops/troubleshoot.md](ops/troubleshoot.md) | 故障排查手册 |
 | [ops/backup-restore.md](ops/backup-restore.md) | 备份对象、恢复顺序与校验 |
 | [ops/system-config-hot-reload.md](ops/system-config-hot-reload.md) | 配置热更新与回滚 |
+| [ops/dsh-production-rollout.md](ops/dsh-production-rollout.md) | 把 Kinship 的 AI 切到生产 dsh：准备、重启、绑定、切流、回滚 |
 
 ### 开发者
 

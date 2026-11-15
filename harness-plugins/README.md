@@ -52,6 +52,17 @@ DSH_HOME。
 `dsh --profile kinship-test --dump-config`；测试结束删除临时目录。生产
 `dsh-home`、systemd、正在运行的 dsh 都不会被访问。
 
+真实 profile 的安装/更新用 `scripts/sync-profile.sh`（构建产物 → `$DSH_HOME/profiles/<name>/node_modules/`，
+不碰 profile 配置）：
+
+```bash
+npm run build
+DSH_HOME=/path/to/dsh-home bash scripts/sync-profile.sh web
+```
+
+生产切换的完整步骤（环境变量、bundle 选择、重启、绑定会话、热切 `ai_backend`、回滚）见
+[docs/ops/dsh-production-rollout.md](../docs/ops/dsh-production-rollout.md)。
+
 装进真实 profile 后，启动 `dsh web`，左侧栏会出现 **Kinship** 页：桥接地址、
 token（显示/复制/轮换）、桥接配置、绑定会话和待粘贴的 `config.yaml` 片段都在
 那里，不需要手改 profile 文件。本 README 后面的表格是面板背后的字段与端点细节。

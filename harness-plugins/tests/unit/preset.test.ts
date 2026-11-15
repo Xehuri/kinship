@@ -50,6 +50,16 @@ describe('kinship preset patch', () => {
     expect(source).not.toContain('id: kinship-qq')
   })
 
+  it('keeps Kinship sessions out of the AGENTS.md instruction chain', () => {
+    // dsh-web-app disables the base `agent-instructions` row and lets each Web
+    // preset mount it; a preset that omits it receives no user-global, agents-home
+    // or project AGENTS.md text. Kinship's persona is the whole instruction set, so
+    // production dsh-home/AGENTS.md must not leak into these Sessions.
+    expect(source).not.toContain('id: agent-instructions')
+    const bundlePatch = readFileSync(join(ROOT, 'cordis.patch.yml'), 'utf8')
+    expect(bundlePatch).not.toContain('id: agent-instructions')
+  })
+
   it('orders todo before the compatibility alias and plan before compat', () => {
     expect(source.indexOf('id: tool-todo')).toBeLessThan(source.indexOf('id: kinship-task-compat'))
     expect(source.indexOf('id: kinship-plan')).toBeLessThan(source.indexOf('id: kinship-task-compat'))

@@ -82,6 +82,13 @@
       "language": "zh"
     },
     {
+      "path": "ops/dsh-production-rollout.md",
+      "title": "dsh 生产接入手册",
+      "audience": "operator",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
       "path": "dev/PROJECT_MAP.md",
       "title": "项目地图",
       "audience": "contributor",
