@@ -21,8 +21,9 @@ the profile with four cooperating pieces:
   shows live bridge state, edits the bridge configuration through the same
   authenticated channel the GUI uses, and carries the **Plan schedule** card.
 
-`kinship-plan` and `kinship-task-compat` carry the planning store and the Loom
-compatibility tools the preset exposes to the model.
+`kinship-plan`, `kinship-compact` and `kinship-task-compat` carry the planning
+store, the model-callable compaction tool and the Loom compatibility tools the
+preset exposes to the model.
 
 ## Use
 
@@ -61,12 +62,34 @@ master file (through the plan card's edits), its own scheduler state under
   restart keep the layout without asking the owner to repeat paths.
 - The wake text injected through `kinshipBridge.deliver` is a plain user message:
   `【计划唤醒·<action>】HH:MM · <title>`, the entry instruction, `条目：<entry
-  id>`, a trailing hint that names **no** write-back tool (neither `plan done`
-  nor `plan note` can reach a master id), and the fixed line
-  `不发用户通知，除非条目要求。`.
+  id>`, Loom's trailing `完成后执行 plan done（date=…, id=…）` (the coalesced
+  catch-up entry lists every slot id; `plan.build` / `plan.review` keep "only
+  write the day's plan"), and the fixed line `不发用户通知，除非条目要求。`.
+- Completion facts have a destination again: `kinship-plan`'s `plan_note` /
+  `plan_done` fall back to the day overlay (`plan-{date}.overlay.json`, created
+  over `plan/master.json` with the master anchor ids as coverage checkpoints)
+  when the v1 truth file is missing, closed or lacks the id, and
+  `plan_overlay_read` lists the reachable ids and the overlay version. The wake
+  hint can therefore name `plan done` for a master id again. The fallback needs a
+  master with at least one anchor entry, and v1 conflicts stay conflicts.
 - Edits ride the owner-only `/api/kinship/ui/plan*` routes and are versioned: a
   stale `expectedVersion` is refused with `master_conflict` instead of
   overwriting another writer.
+
+## Compaction
+
+The preset's `compaction` group isolates the `compaction` and `toolResultPruner`
+services and mounts `compaction-basic` (automatic), `command-compact` (the human
+`/compact`), `tool-result-pruner`, and `compact-context` - the row of
+`kinship-compact`, which registers the model-callable `compact_context` tool.
+
+dsh's `compactNow` only runs on an idle Session, so the tool records the request
+and answers `Compaction scheduled: it runs when this turn ends.`; a
+plugin-owned poll compacts once after the turn. An idle call compacts
+immediately (`Compaction finished (~N history items).`), and a Session with
+nothing to compact answers `No compactable history yet.`. Config:
+`pollIntervalMs` 500 ms, `maxWaitMs` 600000 ms, `maxAttempts` 600. Design and
+limits: [`packages/kinship-compact/docs/DETAIL.md`](../packages/kinship-compact/docs/DETAIL.md).
 
 ## Limits
 
@@ -84,3 +107,11 @@ master file (through the plan card's edits), its own scheduler state under
 - The wake queue belongs to the bound Session id, so a manual rebind starts an
   empty queue; pending entries in the previous Session's file are not migrated.
 - A crash between claiming a wake and delivering it loses that one wake.
+- The overlay write-back needs a master with at least one anchor entry; without
+  one the plan tools refuse instead of inventing files. Once a day has an
+  overlay, the scheduler reads that date as the merged master+overlay view and
+  no longer merges the day's v1 legacy items. There is no coverage verifier yet.
+- `compact_context` compacts after the turn, not in the middle of it. A
+  scheduled request can still be dropped by `maxWaitMs` / `maxAttempts` after
+  the tool has already answered "scheduled", and a Session with nothing to
+  compact answers `No compactable history yet.`

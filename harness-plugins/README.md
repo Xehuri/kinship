@@ -1,6 +1,6 @@
 # harness-plugins
 
-Kinship 的 dsh 侧集成。五个独立插件包加一个 preset patch，全部是普通 Cordis
+Kinship 的 dsh 侧集成。六个独立插件包加一个 preset patch，全部是普通 Cordis
 插件，不改 dsh 主循环，不写 `backend/`、`frontend/`、`kinship-data/` 或生产
 `dsh-home`。
 
@@ -20,8 +20,9 @@ harness-plugins/
   packages/
     kinship-bridge/         # 本机 HTTP API + 单 Session 绑定 + 面板 JSON API
     kinship-ui/             # Web 侧栏 Kinship 面板（浏览器模块 + 无 host 行为）
-    kinship-plan/           # daily plan JSON/md/ledger + CAS
+    kinship-plan/           # daily plan JSON/md/ledger + CAS，v1 不可服务时写当日覆盖层
     kinship-plan-scheduler/ # Loom 计划调度器的 dsh 移植：母版/覆盖层 + 唤醒队列
+    kinship-compact/        # compact_context：模型可调用的手动压缩（回合结束后执行）
     kinship-task-compat/    # task / todowrite / MCP aliases
   tests/
     unit/
@@ -41,7 +42,7 @@ export PATH=/mnt/d/tools/node-v24.22.3-linux-x64/bin:$PATH
 cd harness-plugins
 npm install
 npm run link:dsh   # 把安装机的 @deepseek-ai/* 链到本 workspace node_modules
-npm run verify     # typecheck + build + tests（249 unit + 8 integration）
+npm run verify     # typecheck + build + tests（313 个用例，28 个文件）
 ```
 
 `link:dsh` 默认读取
@@ -49,7 +50,7 @@ npm run verify     # typecheck + build + tests（249 unit + 8 integration）
 可用 `DSH_PACKAGES_DIR` 覆盖。它只写本 workspace 的 `node_modules`，不碰任何
 DSH_HOME。
 
-集成测试会创建临时 `DSH_HOME`，复制五个包和 bundle patch，运行
+集成测试会创建临时 `DSH_HOME`，复制六个包和 bundle patch，运行
 `dsh --profile kinship-test --dump-config`；测试结束删除临时目录。生产
 `dsh-home`、systemd、正在运行的 dsh 都不会被访问。
 
@@ -246,6 +247,9 @@ data: {"seq":12.001,"payload":{"type":"kinship/assistant-stream",
 的 `shadowedSeqs` 数量与摘要文本、紧随其后的替换 `user/message` 作为锚点），
 无压缩时 `status:"none"`。
 
+模型侧的手动压缩是另一个入口：`kinship-compact` 行的 `compact_context` 工具（回合
+结束后执行），见下面的 [kinship-compact](#kinship-compact) 一节。
+
 ## kinship-ui（Web 面板）
 
 `kinship-ui` 是 dsh Web 左侧栏里的 **Kinship** 面板：桥接状态、Bearer token、桥接
@@ -284,7 +288,9 @@ Bearer token，Kinship 后端也不调用它们。
 
 ## kinship-plan
 
-简化日计划工具。真源只有 JSON；markdown 是派生视图；ledger 只追加。
+简化日计划工具。真源只有 JSON；markdown 是派生视图；ledger 只追加。v1 truth
+不可服务时（`plan-{date}.json` 缺失 / 已 closed / 不含目标 id），`plan_note` 与
+`plan_done` 改写真源旁边的当日覆盖层 `plan-{date}.overlay.json`。
 
 ### Root
 
@@ -300,9 +306,11 @@ realpath 越界检查。
 ### 文件
 
 ```
-{root}/daily/{date}/plan-{date}.json      真源
-{root}/daily/{date}/计划-{date}.md        人读视图
-{root}/daily/{date}/plan-ledger.jsonl     审计，只追加
+{root}/daily/{date}/plan-{date}.json          真源（v1，CAS）
+{root}/daily/{date}/计划-{date}.md            人读视图
+{root}/daily/{date}/plan-ledger.jsonl         审计，只追加
+{root}/daily/{date}/plan-{date}.overlay.json  当日覆盖层（仅写回回退路径）
+{root}/plan/master.json                       母版，只读（覆盖层的 base）
 ```
 
 JSON 先写（同目录 temp + fsync + rename），成功后写 md。md 写失败不回滚 JSON，
@@ -316,25 +324,31 @@ JSON 先写（同目录 temp + fsync + rename），成功后写 md。md 写失�
 
 ### CAS
 
-每个 mutation 都必须带 `expected_version`：
+CAS 版本口径：`plan_commit` / `plan_close` 必须带 `expected_version`；`plan_note` /
+`plan_done` 在当日 v1 账缺失或 closed 时可省略（写当日覆盖层），v1 仍 open 时仍要带它
+（否则返回带当前版本的校验错误）：
 
 - `0` = 创建（仅 commit 合法）
 - 其他值必须等于磁盘当前 `version`
-- 不匹配抛 `plan_conflict`，文件不变
-- `closed` 计划拒绝 commit/note/done；`close` 用当前 version 重试是幂等的
+- 不匹配抛 `plan_conflict`，文件不变（回退路径不吞 conflict）
+- `closed` 计划拒绝 commit；note/done 在 closed 时改走当日覆盖层
+- `close` 用当前 version 重试是幂等的
 
-同进程内按 date 串行化；跨进程是"读 version 后比较再写"，不是文件锁。
+同进程内按 date 串行化；跨进程是"读 version 后比较再写"，不是文件锁。覆盖层写入
+另一套：母版/覆盖层 store 走 `daily/{date}/.plan.lock` 文件锁 + 原子写，CAS 是覆盖层
+自己的 `version`。
 
 ### Tools
 
 | 工具 | 作用 |
 |---|---|
 | `plan_read` | 读一天；缺失返回 `found:false`，不报错 |
+| `plan_overlay_read` | 读生效计划（母版 + 当日覆盖层 diff）：`source`、覆盖层 `version`/`status`、条目 id/status；无覆盖层时 `source=master` |
 | `plan_commit` | 创建或整表替换 items/notes；保留未知字段；不管理 coverage |
-| `plan_note` | 追加一条 note，items 不变 |
-| `plan_done` | 改一个 item 的 status（默认 done），可写 evidence/note；done 时写 `done_at` |
+| `plan_note` | 追加一条 note，items 不变；v1 缺失/closed 时写当日覆盖层（此时可省略 `expected_version`） |
+| `plan_done` | 改一个 item 的 status（默认 done），可写 evidence/note；done 时写 `done_at`；v1 缺失/closed/无该 id 时写当日覆盖层（此时可省略 `expected_version`） |
 | `plan_close` | status=closed；未完成项转 carried；写 `carry_over`；写 ledger |
-| `plan` | Loom 兼容别名：`read/commit/revise/diff/note/done/close`；revise/diff 是整表 commit |
+| `plan` | Loom 兼容别名：`read/commit/revise/diff/note/done/close`；revise/diff 是整表 commit；note/done 与同名工具同一回退路径 |
 
 `plan_close` 的 `carry_over` 形状：
 
@@ -349,6 +363,29 @@ JSON 先写（同目录 temp + fsync + rename），成功后写 md。md 写失�
 ```
 
 `plan-read` 返回的 `plan` 是文件形状（不是内部 `extra` 结构）。
+
+### 覆盖层写回（W59）
+
+- 触发：`plan_note` 在 v1 缺失 / closed 时落当日覆盖层（v1 存在且未关闭时仍必须带
+  `expected_version`，缺版本报校验错误而不是悄悄改道）；`plan_done` 在 v1 缺失 /
+  closed / 不含目标 id 时落覆盖层。`plan` 别名的 note/done 走同一处理器与同一回退。
+- 创建：`base_version` = 母版 `version`，`ops: []`，`status: "draft"`，
+  `coverage = {profile: "merged_7", checkpoints: 母版 anchor id 排序列表, debt: []}`；
+  首条 note 随创建一起写入（不额外升版本）。并发创建撞车时采纳已存在的覆盖层。
+  需要母版且至少一个 `anchor` 条目，否则拒绝（`master plan is required` /
+  覆盖层校验）；计划工具从不创建母版。
+- done patch：`{status, evidence?, done_at}`，`done_at` 只在 `status=done` 时写
+  ISO 时间；同一 id 只保留一个 op（已有 `add` 就地 patch、已有 `update` 合并、被
+  `remove` 的 id 拒绝）；`expected_version >= 1` 时作为覆盖层 CAS 期望值（`0` 只表示
+  "没有 v1 计划"，不参与 CAS）。note 走 `notes_append` 的 CAS 修订。
+- ledger：两种写回各追加一行 `source: "plan"` 的事实行——note 带 `event`/`version`/
+  `reason`，done 带 `event`/`entry_id`/`status`/`version`。
+- 返回：回退写入的 mutation view 带 `source: "overlay"`，`version` 是覆盖层版本，
+  `json_path` 指向 `.overlay.json`。
+- 不回退：v1 的 `plan_conflict` 仍是 conflict；`plan_commit` / `plan_close` 只写 v1；
+  `plan` 系列从不写母版；`verify=coverage` 在 dsh 未实现（覆盖层里的 coverage 块只是
+  排班检查点清单，没有覆盖校验器）。
+- 设计与逐条规则见 [packages/kinship-plan/docs/DETAIL.md](packages/kinship-plan/docs/DETAIL.md)。
 
 ## kinship-plan-scheduler
 
@@ -432,10 +469,13 @@ payload 上。
 - 投递失败重试一次（`now + 30s`），再失败归档 `failed`；`plan` 条目保留 48h，
   已投递归档保留最近 500 条。
 - 唤醒行固定为 `【计划唤醒·<action>】HH:MM · <title>` + 指令 + `条目：<id>` +
-  尾行 + `不发用户通知，除非条目要求。`；dsh 下尾行**不指派任何回写工具**
-  （`plan done` 对母版 id 必然 item-not-found，`plan note` 在 v1 账 closed/版本
-  对不上时同样失败——2026-11-15 生产实测），改为「完成后无需回写计划…如需留痕，
-  在回复里说明」。
+  尾行 + `不发用户通知，除非条目要求。`；W59 起尾行恢复 Loom 的
+  `完成后执行 plan done（date=…, id=…）`（合并补做条目逐条列 slot id），因为
+  `kinship-plan` 的 note/done 在 v1 不可服务时会写当日覆盖层
+  （见 [packages/kinship-plan/docs/DETAIL.md](packages/kinship-plan/docs/DETAIL.md)）。`plan.build` / `plan.review` 仍写
+  「完成后只写当日计划，不需要 plan done。」。普通唤醒的 `条目：` 行是母版 id，
+  可直接作为 `plan done` 的 `id`；合并补做条目的 `条目：` 行是它自己的队列 id，
+  要标的是尾行列出的 slot id。模型可用 `plan_overlay_read` 先看生效计划里的 id。
 - 只做 `source: "plan"`：flow / special / inbox 三个来源没有生产者，队列与渲染器
   仍然认识它们（`source` 字段与保留期分档保留），但本插件不会产生这类条目。
 
@@ -443,13 +483,38 @@ payload 上。
 
 - 当日存在 v1 `plan-{date}.json` 时仍排母版条目（Loom 会用旧计划整体替换当日视图）；
   旧计划条目按 overlay 的 add 语义追加、无唤醒时刻，撞 id 只记 `legacy_collision:<id>`。
-- 尾行不指派回写工具：dsh 的 v1 plan 工具只读写当日 `plan-{date}.json`，看不到母版
-  id，`plan done`/`plan note` 都可能失败；等 overlay 写入工具移植后再恢复完成回写。
+- 唤醒尾行恢复 `plan done`：母版 id 自 W59 起可经当日覆盖层标 done/留 note，但要求
+  当日 `plan/master.json` 至少有一个 `anchor` 条目（覆盖层的 coverage 检查点不能为空），
+  且 `plan done` 仍需 `expected_version`（没有 v1 计划时传 `0`）。
+- 一旦某天有覆盖层，调度器对那天读的是母版 + 覆盖层的合并视图，不再叠加当日 v1
+  legacy 条目；覆盖层出现前写入的 v1 条目在排班上会被跳过。
+- 尚无覆盖校验器：覆盖层的 `coverage` 块只是 `merged_7` 的检查点清单，dsh 侧不校验
+  覆盖债、也不标记检查点已验证。
 - 状态根默认 `$DSH_HOME/kinship/state`（Loom 由宿主传 `stateRoot`）。
 - 需要 `kinship-bridge` 行和绑定会话，否则对账一律 `deferred_no_session`；
   手动改绑会换成新会话的队列文件，旧队列里未投递的条目不迁移。
-- master 条目暂时无法从 dsh 的 v1 plan 工具标 done；待办是移植 overlay 写入工具。
 - 认领后、投递前进程崩溃会丢那一条唤醒（认领先落盘，与 Loom 同口径）。
+
+## kinship-compact
+
+preset 级的 `compact_context`：模型可调用的手动压缩。Loom 主会话有这个工具，dsh 的
+Kinship 会话原先只有自动压缩和人类 `/compact`，04:00 的 `session.compact` 唤醒会让
+模型无事可做。
+
+dsh 的 `CompactionEngine.compactNow` 是 idle 会话操作（回合内调用返回 `busy` 的
+`ManualCompactionError`），而工具总在回合内执行，所以工具只登记请求立即返回，由插件
+自己的轮询在回合结束后压一次：
+
+| 调用时的会话状态 | 返回文本 |
+|---|---|
+| idle，压出摘要 | `Compaction finished (~N history items).` |
+| idle，没有可压区间 | `No compactable history yet.` |
+| running（或在调用瞬间开始跑） | `Compaction scheduled: it runs when this turn ends.` |
+
+配置（`presets/kinship.patch.yml` 不设值，用默认）：`pollIntervalMs=500`、
+`maxWaitMs=600000`、`maxAttempts=600`。请求按 session id 去重（后一次调用替换前一次）、
+`busy` 每次轮询重试、超时 / 超次丢弃并告警、插件卸载清空待办；没有待办时不挂定时器。
+详见 [packages/kinship-compact/docs/DETAIL.md](packages/kinship-compact/docs/DETAIL.md)。
 
 ## kinship-task-compat
 
@@ -514,16 +579,20 @@ mcp__<serverName>__<rawName>
 - persona 只从 `$KINSHIP_AI_ROOT/agents/main.md` 读 prefix，`complete: false`
 - 不挂 `agent-instructions`，不改 AGENTS.md，不建全局 prompt
 - 工具：bash/pwsh（按平台）、fs、fs-search、todo、ask-user、
-  subagent/subagent_fork/subagent_control、compaction 组、`kinship-plan`、
-  `kinship-task-compat`
+  subagent/subagent_fork/subagent_control、compaction 组（`compaction-basic`、
+  `command-compact`、`compact-context`（= `kinship-compact` 的 `compact_context`）、
+  `tool-result-pruner`；该组 `isolate` 了 `compaction` 与 `toolResultPruner`，
+  所以工具拿到的是本会话自己的压缩服务）、`kinship-plan`、`kinship-task-compat`
 - 不挂 `kinship-memory`、`kinship-context-watch`、`kinship-qq`
 
 现有 shipped presets（standard=1、ptc=2、minimal=3、cordis=4）不变。
 
 profile 使用方式：profile 的 `dsh.profile.bundles` 加
-`kinship-harness-plugins`，并让 bundle 引用的五个包在 profile 的 `node_modules`
+`kinship-harness-plugins`，并让 bundle 引用的六个包在 profile 的 `node_modules`
 可解析（`scripts/sync-profile.sh` 会一次拷全）。`--dump-config` 会显示 host 的
-`kinship-bridge`、`kinship-ui`、`kinship-plan-scheduler` 三行和 `preset-kinship` 行。
+`kinship-bridge`、`kinship-ui`、`kinship-plan-scheduler` 三行和 `preset-kinship` 行
+（preset 展开后含 `compaction-basic` / `command-compact` / `compact-context` /
+`tool-result-pruner` 等子行）。
 `--dump-config-schema` 对 preset 子行会报 "unrecognized Loader tree carrier"：
 这是该 dsh 版本对所有 preset（包括 shipped 的 standard/ptc/minimal/cordis）
 的 schema dump 限制，不代表 preset 不能加载。
@@ -538,7 +607,8 @@ profile 使用方式：profile 的 `dsh.profile.bundles` 加
 - 模型目录取决于宿主 `llm` 服务；没有配置任何 provider 时 `providers` 为空数组。
 - `GET /v1/session` 的 `status` 是绑定状态 `bound`；agent 的
   `idle/running` 在 `GET /v1/session/status`。
-- `plan` CAS 是进程内串行 + version 比较，不是跨进程文件锁。
+- v1 `plan` CAS 是进程内串行 + version 比较，不是跨进程文件锁；覆盖层写入是
+  `daily/{date}/.plan.lock` 文件锁 + 覆盖层自己的 `version` CAS。
 - `plan-ledger.jsonl` 里 `source: "plan"` 的行事件名是 `commit|note|done|close`；
   `source: "scheduler"` 的行是调度器事实行（`deferred_no_session` / `master_error` /
   `master_fallback` / `overlay_error` / `skipped_debt` / `queue_error`，部分带
@@ -560,8 +630,9 @@ profile 使用方式：profile 的 `dsh.profile.bundles` 加
   profile 显示；面板与 bridge 本身不受影响。
 - 面板的"未绑定 / 没有 kinship 会话"状态只有单测覆盖，未在浏览器里实测。
 - 计划调度器的移植差异与限制集中在 `## kinship-plan-scheduler` 的「已知差异 / 限制」：
-  legacy 当日仍排母版、唤醒尾行不指派回写工具、只实现 `plan` 来源、需要 bridge 行
-  与绑定会话、master id 暂时不能 `plan done`（overlay 写入工具是待办）。
+  legacy 当日仍排母版、只实现 `plan` 来源、需要 bridge 行与绑定会话、有覆盖层的那天
+  改读合并视图、尚无覆盖校验器；唤醒尾行自 W59 起恢复 `plan done`（写回要求母版带
+  anchor 条目，且 `plan done` 仍需 `expected_version`）。
 - 路径由 Kinship 后端推送这一点同样只影响计划调度：bridge 新增
   `POST/GET /v1/kinship/paths`（落 `$DSH_HOME/kinship/paths.json`），后端在启动/
   data_paths/ai_surface/health 上线四个时机推一次；其它行不依赖它。

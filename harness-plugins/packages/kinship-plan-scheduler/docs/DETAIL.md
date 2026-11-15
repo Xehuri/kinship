@@ -2,7 +2,8 @@
 
 Restores Loom's plan wake scheduling inside the Harness. A Host-level row that
 keeps one schedule truth across runtimes: it reads the same
-`plan/master.json` and `plan-{date}.overlay.json` files Loom writes, turns them
+`plan/master.json` and `plan-{date}.overlay.json` files Loom writes (the day's
+overlay is also written by the `kinship-plan` write-back), turns them
 into timed wakes, and delivers each wake as a plain user message into the bound
 Kinship Session. The Kinship panel's **Plan schedule** card edits the same
 master file through the owner-only channel.
@@ -37,7 +38,7 @@ note. `plan/legacy.ts` is the dsh-specific adaptation; see
 | `kinship-plan-scheduler` | this package | master/overlay read, reconcile, wake queue, delivery, plan panel routes |
 | `kinship-bridge` | sibling row | binds the Session, exposes `kinshipBridge.deliver(text)` |
 | `kinship-ui` | sibling row | renders the **Plan schedule** card and calls the plan routes |
-| `kinship-plan` | preset tool row | writes the v1 `plan-{date}.json` the legacy adapter reads |
+| `kinship-plan` | preset tool row | writes the v1 `plan-{date}.json` the legacy adapter reads, and the day overlay when that file cannot serve |
 
 Engine modules (`src/`): `config.ts` roots and schema, `defaults.ts` the seed
 schedule, `delivery.ts` the bridge adapter, `queue-registry.ts` the
@@ -229,8 +230,11 @@ Wake line contract (built by `plan/wake-render.ts`, verbatim):
 - The instruction is the entry's `instruction`, else (coverage entries without
   one) the generated `按 data-check 流程执行 ... （窗口 ...，目标日 ...）` line;
   the line is omitted when there is nothing to say.
-- `条目：<id>` uses `payload.entry_id` (the master id), not the queue id.
-- The done hint is the dsh variant, see difference (b) below.
+- `条目：<id>` uses `payload.entry_id` (the master id), not the queue id; the
+  coalesced catch-up entry carries `entry_id: "catchup"` and therefore shows its
+  queue id there.
+- The done hint names `plan done` again (the overlay write-back of
+  `kinship-plan` can reach a master id); see difference (b) below.
 - The last line is the fixed boundary: a wake does not notify the user.
 
 ## Files and directories
@@ -244,7 +248,7 @@ state root (`$DSH_HOME/kinship/state` by default).
 | `{planRoot}/plan/master.md` | master store | derived human view |
 | `{planRoot}/plan/master.last-good.json` | master store | last successful write, read on corruption |
 | `{planRoot}/plan/.master.lock` | master store | write lock (stale 10 s, wait 2 s) |
-| `{planRoot}/daily/{date}/plan-{date}.overlay.json` | Loom | day diff over the master, read-only here |
+| `{planRoot}/daily/{date}/plan-{date}.overlay.json` | Loom / `kinship-plan` write-back | day diff over the master, read-only here |
 | `{planRoot}/daily/{date}/计划-{date}.md` | overlay store | derived human view of the overlay |
 | `{planRoot}/daily/{date}/.plan.lock` | overlay store | overlay write lock |
 | `{planRoot}/daily/{date}/plan-{date}.json` | `kinship-plan` (v1) | legacy day plan, read-only here |
@@ -418,19 +422,31 @@ dsh-written shape (no coverage, `carry_over`, items without `title`/`at`) is
 coerced and flagged with a `legacy_coerced` warning. Both tiers failing degrades
 to the master instead of throwing away the day.
 
-(b) **The done hint no longer says `plan done` for non-build/review actions.**
+(b) **The done hint is back to Loom's `plan done` wording.**
 Loom's hint told the model to mark the entry done, and Loom's plan store held
 those ids. dsh's v1 plan tools read and write `plan-{date}.json`, which does not
-contain master ids, so `plan done` would answer item-not-found. The rendered
-wake therefore says, for `plan.build` / `plan.review`,
-`完成后只写当日计划，不需要 plan done。`, and for everything else
-`完成后无需回写计划（母版条目不在当日 v1 账里）；如需留痕，在回复里说明。`
-The `条目：` line is still the master id, so the model can quote it in its reply.
-The first version of this port said `plan note` instead; the 2026-11-15
-production wake showed that path also fails (the day's v1 file was a closed test
-leftover and the model passed the overlay version, so `plan note` answered
-`expected version 20, actual 4`). Naming no tool is the honest hint until the
-overlay write path is ported (see Known limits).
+contain master ids, so W58 removed the tool name from the wake: `plan done`
+answered item-not-found and `plan note` failed on the closed / version-mismatched
+v1 file the 2026-11-15 production wake hit. W59 ported the overlay write-back
+into `kinship-plan` (`plan_note` / `plan_done` fall back to
+`plan-{date}.overlay.json`, with `plan_overlay_read` to list the reachable ids),
+so the master id is writable again and the rendered wake says, for every action
+except `plan.build` / `plan.review`:
+
+```
+完成后执行 plan done（date=2026-10-28, id=cov-08）。
+```
+
+The coalesced catch-up entry lists every slot id instead
+(`完成后分别执行 plan done（date=…, id=cov-a / cov-b）。`), and
+`plan.build` / `plan.review` keep `完成后只写当日计划，不需要 plan done。`
+because those wakes create the day's plan rather than finish a master entry.
+The `条目：` line is the master id for a normal wake, so the quoted id is the one
+to pass to `plan done`; the coalesced catch-up entry shows its queue id there,
+and the ids to mark are the slot ids in the done list.
+See the write-back section of
+[`kinship-plan/docs/DETAIL.md`](../../kinship-plan/docs/DETAIL.md) for the
+fallback rules.
 
 (c) **Only the `plan` wake source is implemented.** Loom also scheduled `flow`,
 `special` and `inbox` wakes; dsh has no flow engine, no automatic wake command
@@ -457,17 +473,29 @@ kept out of the plan root so switching runtimes does not mix state formats.
   stay there and are not migrated.
 - A crash between claim and delivery loses that one wake: the claim is persisted
   before the text is handed to the Session. Loom behaves the same way.
-- Master ids cannot be marked done from dsh's v1 plan tools. Follow-up: port the
-  day-overlay write tool (the overlay store is already mounted, but no tool
-  exposes it), which would let the model write `update` ops against master ids.
+- Master ids are writable now through the overlay write-back, not through the
+  v1 file: `plan_note` / `plan_done` in `kinship-plan` fall back to
+  `plan-{date}.overlay.json` when the v1 day file cannot serve. That fallback
+  needs `plan/master.json` with at least one `anchor` entry (the overlay's
+  coverage checkpoint list cannot be empty). `expected_version` may be omitted
+  while the day's v1 file is missing or closed; an open v1 file still requires
+  its version, and the tool answers with that version instead of writing the
+  overlay.
+- Once a day has an overlay, this scheduler reads that date as the merged
+  master+overlay view and no longer merges the day's v1 legacy items, so a v1
+  item written before the overlay appeared stops being scheduled for that date.
+- No coverage verifier yet: the overlay's `coverage` block is the `merged_7`
+  checkpoint list produced on creation; nothing in dsh validates a day's
+  coverage debt or marks checkpoints verified.
 - Coverage entries without an explicit `instruction` get the ported generated
-  line, which ends after the task/window sentence; no wake names a write-back
-  tool. Two earlier variants were wrong in production: Loom's
-  `完成后 plan done。` (item-not-found on a master id) and the first port's
-  `plan note` (closed v1 account / version conflict). Completion facts stay in
-  the session reply until the overlay write tool exists.
-- All master edits go through the panel routes. The Kinship model's own plan
-  tools keep writing the v1 day file, which the scheduler then reads as legacy.
+  line, which ends after the task/window sentence; the done hint below it names
+  `plan done` (W59). Earlier wordings were wrong in production: Loom's
+  `完成后 plan done。` was item-not-found before the write-back existed, the
+  W58 stopgap named no tool at all, and the first port's `plan note` failed on a
+  closed v1 account / version conflict.
+- All master edits go through the panel routes. The Kinship model's plan tools
+  write the v1 day file and, when that file cannot serve, the day overlay; this
+  row only reads both.
 - `mode: "shadow"` never mounts a queue, so the panel's queue section is empty
   and the reconcile route returns zero counts.
 - A wake is a chat message in the bound Session; it does not notify the user.

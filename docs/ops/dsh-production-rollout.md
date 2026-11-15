@@ -24,7 +24,7 @@
 
 | 项 | 位置 |
 |---|---|
-| 插件包源码与构建 | `server/kinship/harness-plugins`（`packages/{kinship-bridge,kinship-ui,kinship-plan,kinship-plan-scheduler,kinship-task-compat}` + `presets/kinship.patch.yml`） |
+| 插件包源码与构建 | `server/kinship/harness-plugins`（`packages/{kinship-bridge,kinship-ui,kinship-plan,kinship-plan-scheduler,kinship-compact,kinship-task-compat}` + `presets/kinship.patch.yml`） |
 | 同步脚本 | `harness-plugins/scripts/sync-profile.sh`（构建产物 → 目标 profile 的 `node_modules/`） |
 | dsh profile | `dsh-home/profiles/web/`（`package.json` 的 `dsh.profile.bundles` 含 `kinship-harness-plugins`） |
 | dsh 环境变量 | `/etc/axeuh-dsh/env`（systemd `EnvironmentFile`） |
@@ -199,13 +199,13 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
 ### 8.1 步骤
 
 1. 构建（Node 24）：`cd harness-plugins && npm run verify`（typecheck + build +
-   249 unit + 8 integration）。
-2. 同步进 profile（`sync-profile.sh` 现在拷五个包 + bundle patch）：
+   313 个用例 / 28 个文件）。
+2. 同步进 profile（`sync-profile.sh` 现在拷六个包 + bundle patch）：
 
    ```bash
    DSH_HOME=/mnt/d/Users/Axeuh/Desktop/Axeuh-server/dsh-home \
      bash harness-plugins/scripts/sync-profile.sh web
-   # 期望输出 5 行 [sync] <package> 加 [sync] kinship-harness-plugins / [sync] profile: …
+   # 期望输出 6 行 [sync] <package> 加 [sync] kinship-harness-plugins / [sync] profile: …
    ```
 
 3. bundle 行：`cordis.patch.yml` 已新增 `id: kinship-plan-scheduler`（带
@@ -280,8 +280,8 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
 - 文案修复时差：2026-11-15 23:05 这次重启加载的是 22:48 同步的构建，coverage 唤醒里
   仍带旧的「完成后 plan done。」一句；`7aa542f` 先修掉与尾部提示重复的那句，W58
   （路径推送）又按生产实测把尾行改成**不指派回写工具**（`plan note` 在 v1 账 closed /
-  版本冲突时同样失败）。两笔修复都已重新同步进 profile，**下一次 dsh 重启后生效**——
-  纯文案，不影响排程与投递。overlay 写入工具移植后才会恢复完成回写。
+  版本冲突时同样失败）。两笔修复都已重新同步进 profile。W59 起 overlay 写回落地，
+  尾行恢复 Loom 的 `完成后执行 plan done（date=…, id=…）`，见 §8.6。
 - 出问题时看**面板**的降级提示（`scheduler.degraded` / `lastError`）与
   `{planRoot}/daily/{date}/plan-ledger.jsonl` 里 `source: scheduler` 的行
   （`deferred_no_session`、`master_error`、`overlay_error`、queue_error 等）；
@@ -340,6 +340,47 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
 - 回滚：删 `<dsh-home>/kinship/paths.json` 并重启 dsh，即回到 env/默认回落；
   后端推送钩子是加法件，不推送也不影响既有路径解析。
 
+### 8.6 W59（2026-11-16）：覆盖层写回 + `compact_context` + QQ 入站修复
+
+这一段只动 dsh 侧的插件包与数据侧脚本，**后端配置与 `ai_backend` 不变、后端不重启**。
+
+1. 构建与同步：`cd harness-plugins && npm run verify`（typecheck + build + 313 个用例
+   / 28 个文件）→ `DSH_HOME=<dsh-home> bash harness-plugins/scripts/sync-profile.sh web`
+   （现在拷六个包，新增 `kinship-compact`）。
+2. 重启 dsh：`sudo systemctl restart axeuh-dsh`。`/etc/axeuh-dsh/env` 不用改；
+   `presets/kinship.patch.yml` 的 compaction 组里新行 `compact-context` 随 profile
+   patch 生效，`--dump-config` 的 preset 展开里能看到它。
+3. 验证 A（计划写回）：在绑定会话里对母版条目执行 `plan done` 与 `plan note`。
+   `plan done` / `plan note` 在当日 v1 账缺失或 closed 时可省略 `expected_version`；
+   若当日有未关闭的 v1 账，先 `plan_read` 拿它的当前版本再传（缺参数或版本不匹配
+   会返回带当前版本的校验错误，不会悄悄写覆盖层）。判据：
+   - `daily/{date}/plan-{date}.overlay.json` 出现/递增：`base_version` 等于
+     `plan/master.json` 的 `version`，`coverage.profile` 为 `merged_7`、
+     `coverage.checkpoints` 是母版 anchor id，`ops` 里是目标 id 的
+     `update` patch（`status` / `evidence` / `done_at`）；
+   - `daily/{date}/plan-ledger.jsonl` 多出 `source: "plan"` 的两行（`event: "done"`
+     带 `entry_id`/`status`/`version`，`event: "note"` 带 `reason`/`version`）；
+   - `plan_overlay_read` 返回 `source: "overlay"` 与新版本号、条目状态为 `done`。
+   2026-11-16 隔离栈（真实模型）实测：`plan done` 建出当天 overlay **v2**
+   （`update` op + evidence + `done_at`），`plan note` 升到 **v3** 并追加 note，
+   ledger 两行齐全。
+4. 验证 B（压缩）：主会话调用 `compact_context` 应返回
+   `Compaction scheduled: it runs when this turn ends.`；回合结束后
+   `GET /v1/session/compaction` 变 `status: "active"`、`covered_count=50`、
+   摘要文本非空（隔离栈实测）。
+5. 验证 C（QQ 入站，同一时间修复）：私聊中继 `ai/data/tasks/qq_private_relay.py`
+   改为投递到 `config.yaml` 当前选中的运行时（dsh 走 bridge
+   `POST /v1/session/messages`，loom 走 `:5100 /sessions/{id}/messages`），不再固定
+   发 Loom；仓库根 `qq` wrapper 改用 `QQ_CLI_PYTHON`（缺省用已安装 venv），不再 exec
+   已不存在的 `/opt/kinship/.venv-health/bin/python`。判据：中继热加载日志出现
+   `投递目标: dsh`，积压提醒与下一条消息进入绑定会话，模型回复经 `qq send` 发出。
+6. 提交：`5ed8ec8`（overlay 写回 + 唤醒尾行恢复）、`88f6460`（`compact_context`）、
+   `c9e88ff`（`qq` wrapper）。中继脚本属于数据侧，不入公开仓。
+7. 回滚：从 `presets/kinship.patch.yml` 去掉 `compact-context` 行并重新
+   `sync-profile.sh web` + 重启 dsh，即回到"只有自动压缩与 `/compact`"；覆盖层只是
+   note/done 的回退目的地，v1 真源不动，回滚也不会改已写出的 overlay 文件。
+   整体软关排班仍是 `KINSHIP_PLAN_MODE=off`（§8.4）。
+
 ## 9. E 段：回滚
 
 - 回滚：把 `ai_backend` 改回 `loom`（热生效）——`apply_ai_surface` 会在同一次应用里按新期望态
@@ -393,6 +434,8 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
 
 - [harness-plugins/README.md](../../harness-plugins/README.md)：插件、面板 API、测试
 - [harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)：计划调度器设计、配置表与移植差异
+- [harness-plugins/packages/kinship-plan/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan/docs/DETAIL.md)：日计划工具与覆盖层写回（`plan_note` / `plan_done` / `plan_overlay_read`）
+- [harness-plugins/packages/kinship-compact/docs/DETAIL.md](../../harness-plugins/packages/kinship-compact/docs/DETAIL.md)：`compact_context` 工具、延迟触发与配置
 - [docs/dev/ai-runtimes.md](../dev/ai-runtimes.md)：运行时定位与能力对比
 - [docs/dev/adapter-contract.md](../dev/adapter-contract.md)：适配器契约与适配器 UI 约定
 - [docs/ops/CONFIGURATION.md](CONFIGURATION.md)：`ai_backend` / `dsh.*` 配置键
