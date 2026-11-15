@@ -93,14 +93,24 @@ function planItemId(entry: WakeEntry): string {
   return entry.id;
 }
 
-// dsh 适配：唤醒条目来自母版，v1 当日账里没有这些 id；plan done 会 item-not-found，
-// plan note 在 v1 账 closed / 版本对不上时同样走不通（2026-11-15 生产实测），所以
-// 不指派任何回写工具：完成事实由执行结果本身承担，需要留痕就在回复里说明。
-function planDoneHint(entry: WakeEntry, _date: string): string {
+// 唤醒条目来自母版，当日 v1 账里通常没有这些 id。`kinship-plan` 的 overlay 写回
+// （2026-11-16）让 `plan done` 在 v1 不可达时自动落到 plan-{date}.overlay.json，
+// 所以这里恢复 Loom 的 done 指令；plan.build/review 仍不要求 done。
+function planDoneHint(entry: WakeEntry, date: string): string {
   if (entry.action === "plan.build" || entry.action === "plan.review") {
     return "完成后只写当日计划，不需要 plan done。";
   }
-  return "完成后无需回写计划（母版条目不在当日 v1 账里）；如需留痕，在回复里说明。";
+  const payload = isRecord(entry.payload) ? entry.payload : null;
+  const slots = payload?.["slots"];
+  if (Array.isArray(slots)) {
+    const ids = slots
+      .map((slot) => (isRecord(slot) ? slot["entry_id"] : undefined))
+      .filter((id): id is string => typeof id === "string" && id !== "");
+    if (ids.length > 0) {
+      return `完成后分别执行 plan done（date=${date}, id=${ids.join(" / ")}）。`;
+    }
+  }
+  return `完成后执行 plan done（date=${date}, id=${planItemId(entry)}）。`;
 }
 
 function coverageInstruction(entry: WakeEntry, date: string): string | null {

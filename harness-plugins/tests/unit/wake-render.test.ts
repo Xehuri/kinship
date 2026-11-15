@@ -4,7 +4,8 @@
  *
  * Ported from loom-harness/packages/server/src/plan/wake-render.test.ts (kinship@c945667).
  * 适配：不再依赖 @axeuh/loom-core 的 formatWakeAt（本包内为私有函数），
- * 时间戳断言改为形状匹配；done 提示按 dsh 文案断言（不指派回写工具）并标注 `// dsh adaptation`。
+ * 时间戳断言改为形状匹配；done 提示恢复 Loom 的 `plan done` 文案（overlay 写回已在
+ * kinship-plan 落地），plan.build/review 仍不要求 done。
  */
 
 import { readFileSync } from "node:fs";
@@ -83,11 +84,10 @@ describe("plan wake line", () => {
     expect(line).toContain("条目：cov-08");
     expect(line).not.toContain("条目：plan:2026-10-28:cov-08");
     expect(line).toContain("目标日 2026-10-28）。");
-    // dsh adaptation: no write-back tool is named, because no dsh plan tool can
-    // reach a master id (plan done -> item-not-found; plan note -> closed/conflict).
-    expect(line).not.toContain("完成后 plan done");
+    // The overlay write-back (kinship-plan) makes `plan done` reachable for a
+    // master id, so the wake names it again (Loom parity).
+    expect(line).toContain("完成后执行 plan done（date=2026-10-28, id=cov-08）。");
     expect(line).not.toContain("plan note");
-    expect(line).toContain("完成后无需回写计划（母版条目不在当日 v1 账里）");
   });
 
   it("falls back to the entry instruction and omits an empty instruction line", () => {
@@ -141,10 +141,10 @@ describe("plan wake line", () => {
     expect(withDepsInstruction).not.toContain("entry 级指令");
   });
 
-  // dsh adaptation: Loom 对 slots（catchup 合并条目）逐条列 plan done；
-  // dsh 不指派任何回写工具（v1 账 closed/版本冲突时 plan done 与 plan note 都走不通），
-  // 条目行仍按 entry_id 缺省回落到 entry.id。
-  it("renders the coalesced catchup slots payload with the dsh hint", () => {
+  // The overlay write-back restores Loom's coalesced-catchup hint: one plan done
+  // instruction listing every slot id. The 条目 line still falls back from
+  // `catchup` to the entry id.
+  it("renders the coalesced catchup slots payload with a plan-done list", () => {
     const line = formatPlanWakeLine({
       entry: entry({
         id: "plan:2026-10-28:catchup:0100",
@@ -170,11 +170,10 @@ describe("plan wake line", () => {
     expect(line.split("\n")[0]).toBe("【计划唤醒·coverage.run】05:00 · 补覆盖 2026-10-28");
     expect(line).toContain("补做 2026-10-28 的迟到覆盖：");
     expect(line).toContain("条目：plan:2026-10-28:catchup:0100");
-    expect(line).not.toContain("分别执行 plan done");
-    expect(line).not.toContain("plan note");
     expect(line).toContain(
-      "完成后无需回写计划（母版条目不在当日 v1 账里）；如需留痕，在回复里说明。",
+      "完成后分别执行 plan done（date=2026-10-28, id=cov-a / cov-b）。",
     );
+    expect(line).not.toContain("plan note");
     expect(line.endsWith("不发用户通知，除非条目要求。")).toBe(true);
   });
 

@@ -5,6 +5,11 @@
  * return a compact view with file paths. CAS is explicit on every mutation:
  * `expected_version: 0` creates; any other value must match the current file.
  *
+ * When the v1 `plan-{date}.json` truth file cannot serve (missing, closed, or
+ * without the requested item), `plan_note`/`plan_done` write the day's
+ * master+overlay instead, and `plan_overlay_read` exposes that view. The `plan`
+ * alias shares the handlers and therefore the same fallback.
+ *
  * @module kinship-plan/tools
  */
 
@@ -14,10 +19,20 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { toJsonValue } from './json.js'
+import type {
+  OverlayDoneInput,
+  OverlayEffectiveView,
+  OverlayEntryView,
+  OverlayPlanSupport,
+} from './overlay.js'
 import {
+  PlanClosedError,
+  PlanItemNotFoundError,
+  PlanNotFoundError,
   PlanValidationError,
   parseCommitInput,
   parseDoneStatus,
+  requirePlanDate,
   serializeCarryOver,
   serializePlanDocument,
   serializePlanItem,
@@ -58,7 +73,8 @@ export interface PlanCommitArgs {
 
 export interface PlanNoteArgs {
   readonly date?: string
-  readonly expected_version: number
+  /** v1 CAS version; omitted only when no open v1 plan exists (overlay write-back). */
+  readonly expected_version?: number
   readonly note: string
 }
 
@@ -108,6 +124,14 @@ export interface PlanReadView {
   readonly warning?: 'overlay_present'
 }
 
+export interface PlanOverlayReadView {
+  readonly source: 'overlay' | 'master'
+  readonly date: string
+  readonly overlay_version: number | null
+  readonly overlay_status: string | null
+  readonly entries: JsonValue[]
+}
+
 export interface PlanMutationView {
   readonly ok: true
   readonly date: string
@@ -117,6 +141,8 @@ export interface PlanMutationView {
   readonly json_path: string
   readonly markdown_path: string
   readonly ledger_path: string
+  /** Present only when the mutation went to the day overlay instead of v1 JSON. */
+  readonly source?: 'overlay'
 }
 
 export interface PlanDoneView extends PlanMutationView {
@@ -148,6 +174,35 @@ async function mutationView(store: PlanToolStore, plan: PlanDocument): Promise<P
   }
 }
 
+/** Mutation view for a write that landed in the day overlay instead of v1 JSON. */
+async function overlayMutationView(
+  store: PlanToolStore,
+  date: string,
+  overlayVersion: number,
+  overlayStatus: string | null,
+  entries: readonly OverlayEntryView[],
+): Promise<PlanMutationView> {
+  const paths = await store.paths(date)
+  const status = overlayStatus ?? 'draft'
+  return {
+    ok: true,
+    date,
+    version: overlayVersion,
+    status,
+    plan: toJsonValue({
+      source: 'overlay',
+      date,
+      version: overlayVersion,
+      status,
+      entries,
+    }),
+    json_path: paths.overlay,
+    markdown_path: paths.markdown,
+    ledger_path: paths.ledger,
+    source: 'overlay',
+  }
+}
+
 /** Read one day; a missing file is reported as `found:false`, not an error. */
 export async function handlePlanRead(
   store: PlanToolStore,
@@ -166,6 +221,29 @@ export async function handlePlanRead(
       ledger: result.paths.ledger,
     },
     ...(result.warning === undefined ? {} : { warning: result.warning }),
+  }
+}
+
+/** Read the effective day (master + overlay diff) without touching the v1 truth file. */
+export async function handlePlanOverlayRead(
+  store: PlanToolStore,
+  overlay: OverlayPlanSupport | undefined,
+  args: PlanReadArgs,
+): Promise<PlanOverlayReadView> {
+  if (overlay === undefined) {
+    throw new PlanValidationError('overlay', 'is not configured for this tool host')
+  }
+  const date = args.date === undefined ? (await store.read()).date : requirePlanDate(args.date)
+  return overlayReadView(await overlay.readEffective(date))
+}
+
+function overlayReadView(effective: OverlayEffectiveView): PlanOverlayReadView {
+  return {
+    source: effective.source,
+    date: effective.date,
+    overlay_version: effective.overlayVersion,
+    overlay_status: effective.overlayStatus,
+    entries: effective.entries.map(entry => toJsonValue(entry)),
   }
 }
 
@@ -190,30 +268,136 @@ export async function handlePlanCommit(
 export async function handlePlanNote(
   store: PlanToolStore,
   args: PlanNoteArgs,
+  overlay?: OverlayPlanSupport,
 ): Promise<PlanMutationView> {
-  return mutationView(store, await store.note({
-    ...(args.date === undefined ? {} : { date: args.date }),
-    expectedVersion: args.expected_version,
-    note: args.note,
-  }))
+  if (args.expected_version === undefined) {
+    return noteWithoutVersion(store, args, overlay)
+  }
+  try {
+    return await mutationView(store, await store.note({
+      ...(args.date === undefined ? {} : { date: args.date }),
+      expectedVersion: args.expected_version,
+      note: args.note,
+    }))
+  } catch (error) {
+    if (overlay === undefined || !isNoteFallbackError(error)) throw error
+    return noteOverlayView(store, overlay, error.date, args.note)
+  }
+}
+
+/**
+ * A note without a v1 version can only go to the overlay: an open v1 truth file
+ * still needs its CAS version, so the model must read it first.
+ */
+async function noteWithoutVersion(
+  store: PlanToolStore,
+  args: PlanNoteArgs,
+  overlay: OverlayPlanSupport | undefined,
+): Promise<PlanMutationView> {
+  if (overlay === undefined) {
+    throw new PlanValidationError(
+      'expected_version',
+      'is required for plan note; call plan_read for the current version',
+    )
+  }
+  const current = await store.read(args.date)
+  if (current.found && current.status !== 'closed') {
+    throw new PlanValidationError(
+      'expected_version',
+      `is required for plan note while plan-${current.date}.json exists; call plan_read for the current version`,
+    )
+  }
+  return noteOverlayView(store, overlay, current.date, args.note)
+}
+
+function isNoteFallbackError(error: unknown): error is PlanNotFoundError | PlanClosedError {
+  return error instanceof PlanNotFoundError || error instanceof PlanClosedError
+}
+
+async function noteOverlayView(
+  store: PlanToolStore,
+  overlay: OverlayPlanSupport,
+  date: string,
+  note: string,
+): Promise<PlanMutationView> {
+  const result = await overlay.note(date, note)
+  const effective = await overlay.readEffective(date)
+  return overlayMutationView(
+    store,
+    date,
+    result.overlayVersion,
+    effective.overlayStatus,
+    effective.entries,
+  )
 }
 
 /** Mark one item done/skipped/blocked/carried. */
 export async function handlePlanDone(
   store: PlanToolStore,
   args: PlanDoneArgs,
+  overlay?: OverlayPlanSupport,
 ): Promise<PlanDoneView> {
-  const result = await store.done({
-    ...(args.date === undefined ? {} : { date: args.date }),
-    expectedVersion: args.expected_version,
-    id: args.id,
-    ...(args.status === undefined ? {} : { status: parseDoneStatus(args.status) }),
-    ...(args.note === undefined ? {} : { note: args.note }),
-    ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
-  })
+  const status = parseDoneStatus(args.status)
+  try {
+    const result = await store.done({
+      ...(args.date === undefined ? {} : { date: args.date }),
+      expectedVersion: args.expected_version,
+      id: args.id,
+      status,
+      ...(args.note === undefined ? {} : { note: args.note }),
+      ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
+    })
+    return {
+      ...await mutationView(store, result.plan),
+      item: toJsonValue(serializePlanItem(result.item)),
+    }
+  } catch (error) {
+    if (overlay === undefined || !isDoneFallbackError(error)) throw error
+    return doneOverlayView(store, overlay, {
+      date: error.date,
+      id: args.id,
+      status,
+      ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
+      // `expected_version: 0` means "no v1 plan expected"; it says nothing about
+      // the overlay, which CAS-es on the version it just read. Any real v1
+      // version is still forwarded so a stale caller stays a conflict.
+      ...(args.expected_version >= 1 ? { expectedVersion: args.expected_version } : {}),
+    })
+  }
+}
+
+function isDoneFallbackError(
+  error: unknown,
+): error is PlanItemNotFoundError | PlanNotFoundError | PlanClosedError {
+  return error instanceof PlanItemNotFoundError
+    || error instanceof PlanNotFoundError
+    || error instanceof PlanClosedError
+}
+
+async function doneOverlayView(
+  store: PlanToolStore,
+  overlay: OverlayPlanSupport,
+  input: OverlayDoneInput,
+): Promise<PlanDoneView> {
+  const result = await overlay.done(input)
+  const effective = await overlay.readEffective(input.date)
+  const entry = effective.entries.find(candidate => candidate.id === input.id)
+  const evidence = input.evidence === undefined || input.evidence.trim() === ''
+    ? undefined
+    : input.evidence
   return {
-    ...await mutationView(store, result.plan),
-    item: toJsonValue(serializePlanItem(result.item)),
+    ...await overlayMutationView(
+      store,
+      input.date,
+      result.overlayVersion,
+      effective.overlayStatus,
+      effective.entries,
+    ),
+    item: toJsonValue({
+      ...(entry ?? { id: input.id }),
+      status: result.status,
+      ...(evidence === undefined ? {} : { evidence }),
+    }),
   }
 }
 
@@ -240,6 +424,7 @@ export async function handlePlanClose(
 export async function handlePlanAlias(
   store: PlanToolStore,
   args: PlanAliasArgs,
+  overlay?: OverlayPlanSupport,
 ): Promise<PlanAliasView> {
   switch (args.action) {
     case 'read':
@@ -283,7 +468,7 @@ export async function handlePlanAlias(
           ...(args.date === undefined ? {} : { date: args.date }),
           expected_version: args.expected_version,
           note: args.note,
-        })),
+        }, overlay)),
       }
     case 'done':
       if (args.expected_version === undefined) {
@@ -303,7 +488,7 @@ export async function handlePlanAlias(
             : {}),
           ...(args.note === undefined ? {} : { note: args.note }),
           ...(args.evidence === undefined ? {} : { evidence: args.evidence }),
-        })),
+        }, overlay)),
       }
     case 'close':
       if (args.expected_version === undefined) {
@@ -359,6 +544,25 @@ const MUTATION_OUTPUT = {
     json_path: { type: 'string' as const, required: true },
     markdown_path: { type: 'string' as const, required: true },
     ledger_path: { type: 'string' as const, required: true },
+    source: { type: 'string' as const },
+  },
+} as const
+
+const OVERLAY_READ_OUTPUT = {
+  type: 'object' as const,
+  additionalProperties: false,
+  properties: {
+    source: { type: 'string' as const, required: true },
+    date: { type: 'string' as const, required: true },
+    overlay_version: {
+      oneOf: [{ type: 'integer' as const }, { type: 'null' as const }],
+      required: true,
+    },
+    overlay_status: {
+      oneOf: [{ type: 'string' as const }, { type: 'null' as const }],
+      required: true,
+    },
+    entries: { type: 'array' as const, required: true },
   },
 } as const
 
@@ -418,8 +622,27 @@ function aliasRender(_args: unknown, value: { action: string }): { type: 'text';
   return [{ type: 'text', text: `Plan alias action ${value.action} completed.` }]
 }
 
-/** Build every plan tool; registration order is read, commit, note, done, close, alias. */
-export function createPlanToolDefinitions(store: PlanToolStore): ToolDefinition[] {
+function overlayReadRender(_args: unknown, value: {
+  source: string
+  date: string
+  overlay_version: number | null
+  entries: readonly unknown[]
+}): { type: 'text'; text: string }[] {
+  const version = value.overlay_version === null ? 'no overlay' : `overlay v${String(value.overlay_version)}`
+  return [{
+    type: 'text',
+    text: `Plan ${value.date} from ${value.source} (${version}); ${String(value.entries.length)} entries.`,
+  }]
+}
+
+/**
+ * Build every plan tool; registration order is read, overlay read, commit,
+ * note, done, close, alias.
+ */
+export function createPlanToolDefinitions(
+  store: PlanToolStore,
+  overlay?: OverlayPlanSupport,
+): ToolDefinition[] {
   return [
     defineTool({
       name: 'plan_read',
@@ -433,6 +656,20 @@ export function createPlanToolDefinitions(store: PlanToolStore): ToolDefinition[
       },
       async execute(args) {
         return handlePlanRead(store, args)
+      },
+    }),
+    defineTool({
+      name: 'plan_overlay_read',
+      description: 'Read the effective daily plan: master entries plus the day overlay diff (source=master when no overlay exists yet). Lists the entry ids and the current overlay_version used by plan_note/plan_done write-back.',
+      parameters: {
+        date: { type: 'string', description: 'YYYY-MM-DD; omitted uses the configured time zone today.' },
+      },
+      output: {
+        schema: OVERLAY_READ_OUTPUT,
+        render: overlayReadRender,
+      },
+      async execute(args) {
+        return handlePlanOverlayRead(store, overlay, args)
       },
     }),
     defineTool({
@@ -462,10 +699,10 @@ export function createPlanToolDefinitions(store: PlanToolStore): ToolDefinition[
     }),
     defineTool({
       name: 'plan_note',
-      description: 'Append one note to the daily plan without changing items. Requires the current version. A closed plan is rejected.',
+      description: 'Append one note to the daily plan without changing items. Requires the current v1 version while plan-{date}.json is open. When that file is missing or closed the note is written to the day overlay (master + diff) instead; omit expected_version in that case. A closed v1 plan is never written.',
       parameters: {
         date: { type: 'string', description: 'YYYY-MM-DD; omitted uses the configured time zone today.' },
-        expected_version: { type: 'integer', required: true, description: 'Current plan version (CAS).' },
+        expected_version: { type: 'integer', description: 'Current v1 plan version (CAS). Omit only when plan-{date}.json is missing or closed and the note goes to the day overlay.' },
         note: { type: 'string', required: true, description: 'Note text to append.' },
       },
       output: {
@@ -473,15 +710,15 @@ export function createPlanToolDefinitions(store: PlanToolStore): ToolDefinition[
         render: mutationRender,
       },
       async execute(args) {
-        return handlePlanNote(store, args)
+        return handlePlanNote(store, args, overlay)
       },
     }),
     defineTool({
       name: 'plan_done',
-      description: 'Set one plan item status, defaulting to done. Requires the current version. Records done_at for done and appends optional evidence/note.',
+      description: 'Set one plan item status, defaulting to done. Requires the current v1 version; when plan-{date}.json is missing, closed, or lacks the id, the status goes to the day overlay instead. Records done_at for done and appends optional evidence/note.',
       parameters: {
         date: { type: 'string', description: 'YYYY-MM-DD; omitted uses the configured time zone today.' },
-        expected_version: { type: 'integer', required: true, description: 'Current plan version (CAS).' },
+        expected_version: { type: 'integer', required: true, description: 'Current v1 plan version (CAS).' },
         id: { type: 'string', required: true, description: 'Plan item id.' },
         status: { type: 'string', enum: ['done', 'skipped', 'blocked', 'carried'], description: 'New item status; defaults to done.' },
         note: { type: 'string', description: 'Optional note appended to the item note.' },
@@ -492,7 +729,7 @@ export function createPlanToolDefinitions(store: PlanToolStore): ToolDefinition[
         render: mutationRender,
       },
       async execute(args) {
-        return handlePlanDone(store, args)
+        return handlePlanDone(store, args, overlay)
       },
     }),
     defineTool({
@@ -535,7 +772,7 @@ export function createPlanToolDefinitions(store: PlanToolStore): ToolDefinition[
         render: aliasRender,
       },
       async execute(args) {
-        return handlePlanAlias(store, args)
+        return handlePlanAlias(store, args, overlay)
       },
     }),
   ]

@@ -45,6 +45,7 @@ describe('plan tools', () => {
   it('registers the exact tool names', () => {
     expect(createPlanToolDefinitions(store()).map(tool => tool.name)).toEqual([
       'plan_read',
+      'plan_overlay_read',
       'plan_commit',
       'plan_note',
       'plan_done',

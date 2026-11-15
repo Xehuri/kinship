@@ -14,6 +14,7 @@
 import { isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { createOverlayPlanSupport } from './overlay.js'
 import { PlanValidationError } from './schema.js'
 import { PlanStore } from './store.js'
 import { createPlanToolDefinitions } from './tools.js'
@@ -63,10 +64,17 @@ export function createPlanStore(config: Config): PlanStore {
   })
 }
 
-/** Mount `plan_read`, `plan_commit`, `plan_note`, `plan_done`, `plan_close`, and `plan`. */
+/**
+ * Mount `plan_read`, `plan_overlay_read`, `plan_commit`, `plan_note`,
+ * `plan_done`, `plan_close`, and `plan`.
+ *
+ * The v1 store stays the truth for `plan-{date}.json`; the overlay support only
+ * writes the day diff (master + overlay) when that file cannot serve.
+ */
 export function apply(ctx: Context, config: Config): void {
   const store = createPlanStore(config)
-  for (const tool of createPlanToolDefinitions(store)) {
+  const overlay = createOverlayPlanSupport(store.rootPath())
+  for (const tool of createPlanToolDefinitions(store, overlay)) {
     ctx.tools.register(tool)
   }
   ctx.logger.info('kinship-plan: root %s (timezone=%s)', store.rootPath(), store.timeZone())
