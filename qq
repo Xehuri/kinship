@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# QQ gateway CLI wrapper. The interpreter is configurable because the venv path
+# differs per deployment (the 2026-11 migration moved it to /opt/venvs/...).
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export QQ_CLI_BACKEND="$DIR/backend"
-exec /opt/kinship/.venv-health/bin/python "$DIR/ai/skills/qq-cli/qq_cli.py" "$@"
+exec "${QQ_CLI_PYTHON:-/opt/venvs/axeuh-health/bin/python}" "$DIR/ai/skills/qq-cli/qq_cli.py" "$@"
