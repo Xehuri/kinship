@@ -27,7 +27,9 @@ compatibility tools the preset exposes to the model.
    backend (`ai_backend: dsh`, `dsh.url`, `dsh.token`).
 3. Create a Session with the `kinship` preset inside the workspace the backend
    should use; the bridge binds the earliest such Session, or the one you bind
-   from the page.
+   from the page. After a `dsh` restart the bridge rehydrates the bound Session
+   by itself (same resume path as the Web UI), so there is no need to open that
+   Session manually first.
 
 ## Limits
 

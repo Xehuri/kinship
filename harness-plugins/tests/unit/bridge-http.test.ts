@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { BindingStore } from '../../packages/kinship-bridge/src/binding.js'
 import { startBridgeServer } from '../../packages/kinship-bridge/src/server.js'
 import type { BindingPolicy } from '../../packages/kinship-bridge/src/types.js'
-import { FakeBridgeSession, FakeHost, bridgeEvent, sessionInfo } from '../helpers/fake-host.js'
+import { FakeBridgeSession, FakeHost, ResumableFakeHost, bridgeEvent, sessionInfo } from '../helpers/fake-host.js'
 
 const cleanups: (() => Promise<void> | void)[] = []
 
@@ -121,6 +121,28 @@ describe('bridge HTTP contract', () => {
     store.reconcile(missingHost)
     const missingBase = await serve(missingHost, store)
     expect((await call(missingBase, '/v1/session')).body).toMatchObject({ error: 'bound_session_missing' })
+  })
+
+  it('rehydrates a persisted binding through the host resume capability', async () => {
+    const path = tempPath()
+    const restored = new FakeBridgeSession(sessionInfo('s1'))
+    const seeded = new FakeHost()
+    seeded.add(restored)
+    binding(path).reconcile(seeded)
+
+    const host = new ResumableFakeHost()
+    host.resumeHandler = async () => {
+      host.add(restored)
+      return { status: 'resumed', session: restored }
+    }
+    const store = binding(path)
+    const base = await serve(host, store)
+
+    const session = await call(base, '/v1/session')
+    expect(session.status).toBe(200)
+    expect(session.body).toMatchObject({ session_id: 's1', preset: 'kinship', status: 'bound' })
+    expect(host.resumeRequests).toEqual(['s1'])
+    expect(store.snapshot().status).toBe('bound')
   })
 
   it('switches the binding atomically and rejects non-kinship sessions', async () => {

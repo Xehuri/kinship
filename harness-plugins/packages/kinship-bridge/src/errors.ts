@@ -35,6 +35,16 @@ export function boundSessionMissing(sessionId: string): BridgeError {
   )
 }
 
+/** 409 when the bound Session could not be resumed back into a live agent. */
+export function boundSessionUnavailable(sessionId: string, reason: string): BridgeError {
+  const detail = reason.trim().replace(/\.+$/, '')
+  return new BridgeError(
+    409,
+    'bound_session_unavailable',
+    `The bound kinship session "${sessionId}" could not be resumed: ${detail === '' ? 'no reason given' : detail}.`,
+  )
+}
+
 /** 404 when a requested Session id is unknown. */
 export function sessionNotFound(sessionId: string): BridgeError {
   return new BridgeError(404, 'session_not_found', `Unknown session "${sessionId}".`)

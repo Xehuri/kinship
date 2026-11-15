@@ -94,6 +94,18 @@ export interface BridgeSession {
   children(signal?: AbortSignal): Promise<readonly ChildRow[]>
 }
 
+/**
+ * Outcome of turning one persisted Session back into a live agent.
+ *
+ * `missing` means the host answered that the Session does not exist (or is no
+ * longer an acceptable root kinship Session); `unavailable` means this
+ * composition has no way to resume it at all.
+ */
+export type ResumeResult =
+  | { readonly status: 'resumed'; readonly session: BridgeSession }
+  | { readonly status: 'missing' }
+  | { readonly status: 'unavailable'; readonly reason: string }
+
 /** One live (non-durable) assistant stream publication, projected for SSE. */
 export interface BridgeLiveEvent {
   /** Stable extra event type appended to the contract's event stream. */
@@ -139,6 +151,16 @@ export interface BridgeHost {
    */
   catalog?(): readonly SessionCatalogRow[]
   getSession(id: string): BridgeSession | undefined
+  /**
+   * Turn a persisted Session back into a live agent.
+   *
+   * A harness restart empties the live agent registry while the durable
+   * binding still points at the last Kinship Session; resuming is what makes
+   * that Session usable again. The capability is optional: when it is absent,
+   * this composition has no way to rehydrate a Session and callers keep the
+   * `bound_session_missing` contract.
+   */
+  resume?(sessionId: string): Promise<ResumeResult>
   /** Subscribe to committed Session events; returns an unsubscribe function. */
   subscribe(listener: (sessionId: string, event: BridgeEvent) => void): () => void
   /**

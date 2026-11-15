@@ -111,6 +111,12 @@ token 或请求体。
 - 同一时刻最多一个绑定；`POST /v1/session/bind` 原子切换：先写文件，成功后再
   改内存；写失败返回 500 且保留旧绑定。
 - 绑定的 Session 消失时状态变成 `bound_session_missing`；默认不自动换绑。
+- 冷启动自愈：进程重启后 registry 为空，绑定指向的持久化 Session 不再"存活"，
+  bridge 会在启动时预热、并在请求期懒恢复（`sessionController.resolveAgent`，
+  与 dsh UI 打开会话同一条路径，含 preset 装配）。所以重启 dsh 后**不需要**先在
+  UI 里打开一次 Kinship 会话。恢复失败（会话被删、preset 移除、无
+  `sessionController` 的组合）才回落到 `bound_session_missing`；其它失败是
+  409 `bound_session_unavailable`。多个并发请求共享同一次恢复尝试（单飞）。
 
 ### HTTP API
 

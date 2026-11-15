@@ -27,7 +27,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import z from '@deepseek-ai/schemastery'
 import { BindingStore, defaultBindingPath } from './binding.js'
+import { BridgeError } from './errors.js'
 import { createCordisHost } from './host.js'
+import { ensureBoundSession } from './rehydrate.js'
 import { startBridgeServer } from './server.js'
 import { installUiRoutes, UiError } from './ui.js'
 import type { UiConfigView, UiTokenInfo } from './ui.js'
@@ -270,6 +272,37 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     offCreated()
     offDisposed()
   }, 'kinship-bridge agent listeners')
+
+  /**
+   * Startup rehydration: a restart leaves the agent registry empty while the
+   * durable binding still names the last Kinship Session. The optional
+   * `sessionController` service resumes that Session exactly like opening it
+   * in the dsh Web UI, so the Kinship backend needs no manual step after a
+   * restart. The attempt is fire-and-forget: without the service, with no
+   * binding, or on failure the bridge keeps its previous behavior.
+   */
+  let startupRehydrationStarted = false
+  ctx.inject(['sessionController'], () => {
+    // A replaced/reloaded service must not resume the same Session again.
+    if (startupRehydrationStarted) return
+    startupRehydrationStarted = true
+    void ensureBoundSession(binding, host).then(
+      (bound) => {
+        ctx.logger.info('kinship-bridge: bound session %s rehydrated after restart', bound.id)
+      },
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        if (
+          error instanceof BridgeError &&
+          (error.code === 'no_kinship_session' || error.code === 'bound_session_missing')
+        ) {
+          ctx.logger.info('kinship-bridge: startup session rehydration skipped: %s', message)
+          return
+        }
+        ctx.logger.warn('kinship-bridge: startup session rehydration failed: %s', message)
+      },
+    )
+  })
 
   const configView = (): UiConfigView => ({
     host: config.host,

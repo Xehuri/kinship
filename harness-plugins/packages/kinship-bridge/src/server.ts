@@ -12,9 +12,9 @@
 
 import { timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { requireBoundSession } from './binding.js'
 import { BridgeError } from './errors.js'
 import { lastTurnAt, projectMessages } from './messages.js'
+import { ensureBoundSession } from './rehydrate.js'
 import type {
   BridgeEvent,
   BridgeLogger,
@@ -232,11 +232,11 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
     return liveSeq.durable + liveSeq.n / (liveSeq.n + 1000)
   }
 
-  const handleEvents = (
+  const handleEvents = async (
     request: IncomingMessage,
     response: ServerResponse,
-  ): void => {
-    const bound = requireBoundSession(binding, host)
+  ): Promise<void> => {
+    const bound = await ensureBoundSession(binding, host)
     const sessionId = bound.id
     let ready = false
     const unsubscribe = host.subscribe((eventSessionId, event) => {
@@ -308,7 +308,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
 
     if (path === '/v1/session') {
       if (!requireMethod(request, response, 'GET')) return
-      const bound = requireBoundSession(binding, host)
+      const bound = await ensureBoundSession(binding, host)
       sendJson(response, 200, {
         session_id: bound.id,
         preset: 'kinship',
@@ -340,7 +340,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
         const url = new URL(request.url ?? '/', 'http://127.0.0.1')
         const limit = parseLimit(url.searchParams.get('limit'))
         const before = parseBefore(url.searchParams.get('before'))
-        const bound = requireBoundSession(binding, host)
+        const bound = await ensureBoundSession(binding, host)
         const page = projectMessages(bound.session.events(), limit, before)
         sendJson(response, 200, {
           session_id: bound.id,
@@ -354,7 +354,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
         const body = await readJsonObject(request, options.bodyLimitBytes)
         const text = stringField(body, 'text')
         const source = optionalStringField(body, 'source')
-        const bound = requireBoundSession(binding, host)
+        const bound = await ensureBoundSession(binding, host)
         const messageId = bound.session.send(
           text,
           source === undefined ? { kind: 'bridge' } : { kind: 'bridge', source },
@@ -374,7 +374,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
 
     if (path === '/v1/session/abort') {
       if (!requireMethod(request, response, 'POST')) return
-      const bound = requireBoundSession(binding, host)
+      const bound = await ensureBoundSession(binding, host)
       const result = bound.session.abort()
       sendJson(response, 202, {
         ok: true,
@@ -386,7 +386,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
 
     if (path === '/v1/session/status') {
       if (!requireMethod(request, response, 'GET')) return
-      const bound = requireBoundSession(binding, host)
+      const bound = await ensureBoundSession(binding, host)
       const info = bound.session.info()
       sendJson(response, 200, {
         session_id: bound.id,
@@ -399,7 +399,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
 
     if (path === '/v1/session/children') {
       if (!requireMethod(request, response, 'GET')) return
-      const bound = requireBoundSession(binding, host)
+      const bound = await ensureBoundSession(binding, host)
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), 5_000)
       timer.unref()
@@ -424,7 +424,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
 
     if (path === '/v1/models') {
       if (!requireMethod(request, response, 'GET')) return
-      requireBoundSession(binding, host)
+      await ensureBoundSession(binding, host)
       const providers = host.models === undefined ? [] : await host.models()
       sendJson(response, 200, { providers })
       return
@@ -432,7 +432,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
 
     if (path === '/v1/session/context') {
       if (!requireMethod(request, response, 'GET')) return
-      const bound = requireBoundSession(binding, host)
+      const bound = await ensureBoundSession(binding, host)
       const row = host.context?.(bound.id) ?? null
       sendJson(response, 200, {
         session_id: bound.id,
@@ -447,7 +447,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
 
     if (path === '/v1/session/compact') {
       if (!requireMethod(request, response, 'POST')) return
-      const bound = requireBoundSession(binding, host)
+      const bound = await ensureBoundSession(binding, host)
       const result = host.compact?.(bound.id) ?? { status: 'unavailable' as const }
       if (result.status === 'busy') {
         throw new BridgeError(409, 'compaction_busy', 'Manual compaction needs an idle session.')
@@ -461,7 +461,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
 
     if (path === '/v1/session/compaction') {
       if (!requireMethod(request, response, 'GET')) return
-      const bound = requireBoundSession(binding, host)
+      const bound = await ensureBoundSession(binding, host)
       const snapshot = host.compaction?.(bound.id) ?? null
       sendJson(response, 200, {
         session_id: bound.id,
@@ -477,7 +477,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
 
     if (path === '/v1/session/events') {
       if (!requireMethod(request, response, 'GET')) return
-      handleEvents(request, response)
+      await handleEvents(request, response)
       return
     }
 
@@ -490,7 +490,7 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
       }
       const text = stringField(body, 'text')
       const threadId = optionalStringField(body, 'thread_id')
-      const bound = requireBoundSession(binding, host)
+      const bound = await ensureBoundSession(binding, host)
       const target = wakeClass === 'interrupt' && bound.session.info().status === 'running'
         ? 'next-step'
         : 'next-turn'

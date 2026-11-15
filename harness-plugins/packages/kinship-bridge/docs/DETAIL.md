@@ -19,6 +19,18 @@ the dsh Connection's authenticated `/api` channel (`/api/kinship/ui/state`,
 `/config`, `/token`, `/bind`); those routes never accept the bridge token and
 are refused for every principal but the owner.
 
+## Session lifecycle
+
+A harness restart empties the live agent registry while the durable binding
+still names the last Kinship Session. The bridge treats that as "not live yet":
+it rehydrates the Session through the harness's own `sessionController` service
+(the same path the Web UI takes when it opens a Session, including preset
+mounting), warms it once at startup and lazily on the first request, and shares
+one attempt between concurrent callers. A restart therefore needs no manual
+"open the session in the UI once" step. Only a persisted Session the harness
+reports as not found falls back to `bound_session_missing`; other resume
+failures answer `409 bound_session_unavailable`.
+
 ## Configuration
 
 `host` and `port` choose the listener (loopback only), `tokenFile` wins over

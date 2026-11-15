@@ -7,6 +7,7 @@ import type {
   ChildRow,
   CompactionSnapshot,
   ModelProviderRow,
+  ResumeResult,
   SessionContextRow,
   SessionInfo,
 } from '../../packages/kinship-bridge/src/types.js'
@@ -135,6 +136,18 @@ export class FakeHost implements BridgeHost {
 
   compaction(): CompactionSnapshot | null {
     return this.compactionRow
+  }
+}
+
+/** A host whose resume capability is scripted by the test. */
+export class ResumableFakeHost extends FakeHost {
+  readonly resumeRequests: string[] = []
+  /** Scripted outcome; defaults to `missing` so an unscripted resume is visible. */
+  resumeHandler: (sessionId: string) => Promise<ResumeResult> = async () => ({ status: 'missing' })
+
+  async resume(sessionId: string): Promise<ResumeResult> {
+    this.resumeRequests.push(sessionId)
+    return this.resumeHandler(sessionId)
   }
 }
 

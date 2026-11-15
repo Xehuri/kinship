@@ -29,6 +29,7 @@ import type {
   ChildRow,
   CompactionSnapshot,
   ModelProviderRow,
+  ResumeResult,
   SessionCatalogRow,
   SessionContextRow,
   SessionInfo,
@@ -55,6 +56,44 @@ declare module '@deepseek-ai/dsh-llm' {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Structural view of the optional dsh `sessionController` service.
+ *
+ * The real service lives in `@deepseek-ai/dsh-api-session-controller`, which
+ * only the web composition loads. Declaring the single method the bridge calls
+ * keeps this package free of a build-time dependency on that package while
+ * still using the same resume path the dsh panel takes.
+ */
+interface SessionResumeController {
+  resolveAgent(sessionId: SessionId): Promise<unknown>
+}
+
+/** Read the optional Session controller, or undefined when unavailable. */
+function sessionResumeController(ctx: Context): SessionResumeController | undefined {
+  // `sessionController` is not part of the statically known Context surface,
+  // so `ctx.get` returns `any` for it; narrow the value by shape instead.
+  const candidate: unknown = ctx.get('sessionController')
+  if (!isRecord(candidate) || typeof candidate['resolveAgent'] !== 'function') return undefined
+  return candidate as unknown as SessionResumeController
+}
+
+/** Extract the resolved agent from one controller result, or undefined. */
+function resumedAgentOf(result: unknown): Agent | undefined {
+  if (!isRecord(result)) return undefined
+  const agent = result['agent']
+  return isRecord(agent) ? agent as unknown as Agent : undefined
+}
+
+/** Stable diagnostic for a controller failure the bridge cannot classify. */
+function resumeFailureReason(result: unknown): string {
+  const failure = isRecord(result) ? result['error'] : undefined
+  const code = isRecord(failure) ? failure['code'] : undefined
+  const message = isRecord(failure) ? failure['message'] : undefined
+  if (typeof code === 'string' && code !== '') return `session resume failed with ${code}`
+  if (typeof message === 'string' && message !== '') return message
+  return 'session resume returned no agent'
 }
 
 /** Concatenate the text blocks of a ContentBlock[] payload. */
@@ -214,6 +253,52 @@ class CordisBridgeHost implements BridgeHost {
   getSession(id: string): BridgeSession | undefined {
     const agent = this.ctx.agents.get(SessionId(id))
     return agent === undefined ? undefined : new CordisBridgeSession(this.ctx, agent)
+  }
+
+  /**
+   * Rebuild the live agent behind a persisted Session.
+   *
+   * This goes through the optional `sessionController` service, which is the
+   * same path the dsh Web UI takes when it opens a Session: the controller
+   * reads the durable log, resolves the recorded agent preset, and mounts the
+   * full preset composition before publishing the agent. Resuming through
+   * `ctx.agents` directly would produce an agent without its preset tools and
+   * instructions, so the bridge never does that.
+   */
+  async resume(sessionId: string): Promise<ResumeResult> {
+    const controller = sessionResumeController(this.ctx)
+    if (controller === undefined) {
+      return {
+        status: 'unavailable',
+        reason: 'this harness composition has no sessionController service',
+      }
+    }
+    let result: unknown
+    try {
+      result = await controller.resolveAgent(SessionId(sessionId))
+    } catch (error: unknown) {
+      return {
+        status: 'unavailable',
+        reason: error instanceof Error ? error.message : String(error),
+      }
+    }
+    if (isRecord(result) && result['error'] !== undefined) {
+      const failure = result['error']
+      const code = isRecord(failure) ? failure['code'] : undefined
+      if (code === 'session/not-found') return { status: 'missing' }
+      return { status: 'unavailable', reason: resumeFailureReason(result) }
+    }
+    const agent = resumedAgentOf(result)
+    if (agent === undefined) {
+      return { status: 'unavailable', reason: resumeFailureReason(result) }
+    }
+    const info = infoOf(this.ctx, agent)
+    if (!info.isRoot || info.preset !== 'kinship') {
+      // The Session is live again but binding policy accepts only root kinship
+      // Sessions, so report it exactly like any other rejectable Session id.
+      return { status: 'missing' }
+    }
+    return { status: 'resumed', session: new CordisBridgeSession(this.ctx, agent) }
   }
 
   subscribe(listener: (sessionId: string, event: BridgeEvent) => void): () => void {
