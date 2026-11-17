@@ -70,6 +70,7 @@ files = [
 # Literal directory trees. The trailing slash is required and no wildcard is
 # accepted here, so adding a new public tree is always an explicit edit.
 trees = [
+  ".github/",
   "ai-template/",
   "app/",
   "assets/",
