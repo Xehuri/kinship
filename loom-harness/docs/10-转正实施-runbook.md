@@ -1,5 +1,12 @@
 # 10 - 转正实施 Runbook（B 模式单实例，用户 2026-10-14 拍板）
 
+> **状态（2026-11-17 补记）：已执行完毕，作为历史执行记录保留，正文不改写。**
+> 2026-10-14 起 5100 为生产实例（B 案单实例；生产配置落 `<实例根>/.loom/config.yaml`，见其头注）。
+> 后端现由 systemd 直接跑 `core.hot_server`（`AXEUH_ORCHESTRATOR=on`，`AXEUH_LOOM_MODE=child`），
+> 编排器迁移阶段见 `scripts/migrate-orchestrator/README.md`。
+> 后续变化：2026-11-02 flow Phase A 退役；2026-11-15 起生产 `ai_backend=dsh`，`axeuh-loom` 单元停用（仅回退用）。
+> 本文的"回滚面 = ai_backend 翻回 opencode"已作废——现行切换/回滚口径见 `docs/06-Loom使用文档.md` §9。
+
 > 状态：**草案待批准**——前置票 W36/W37/W38 全绿后，按 §3 顺序执行。
 > 决策基线：回滚面在 hm（`ai_backend: opencode` 一键回现网），opencode:5096 launcher 全程不动兜底。
 > 本 runbook 引用行号截至 harness @ d5bd068 / hm @ 3148c5a5，执行前重核。

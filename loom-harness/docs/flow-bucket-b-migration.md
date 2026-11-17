@@ -1,5 +1,9 @@
 # Flow bucket B migration preparation（L9）
 
+> **状态（2026-11-17 补记）：已作废，不再执行。** flow 已于 2026-11-02 起 `flow.enabled=false` 并按 Phase A 退休
+> （`docs/ops/flow-retirement.md`），`flow_commit` 不再接线；本文描述的 7 天观察窗（2026-10-23→10-30）与
+> "测试 fixture 从 converge 迁到 flow_commit"的前提已不存在。历史正文保留，仅供追溯当时的迁移设计。
+
 > 状态：准备稿。**L9 观察门通过前不得应用**。
 > 关联：`flow-converge-migration.md` §4 桶 B、§6 删除门禁。
 > 边界：本文与 `scripts/flow-bucket-b-migration.mjs` 只做 dry-run 准备；不改任何测试文件、不删 converge、不写生产 `stateRoot`、不重启服务、不提交。

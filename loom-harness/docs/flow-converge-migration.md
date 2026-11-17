@@ -1,5 +1,11 @@
 # converge 退役与 flow_commit 迁移清单（D7）
 
+> **状态（2026-11-17 补记）：历史迁移记录，已被 flow 退役取代，正文不改写。**
+> 结局：L1–L8 落地后，**L9 删除门禁与 bucket B 迁移均未执行**；取而代之的是 2026-11-02 的
+> flow Phase A 退休（`flow.enabled=false` + `scripts/retire-flow.mjs`，见 `docs/ops/flow-retirement.md` 与
+> `docs/dev/flow-retirement-inventory.md`）。Phase B（删源码）仍未执行，`packages/server/src/flow/` 代码保留但不接线。
+> `converge` 工具本身继续可用；flow 唤醒来源已随退役停止生产。
+
 > 状态：迁移契约 + 实施状态（2026-10-23）。L1-L8 已落地；L9 删除受 7 天观察门禁，未执行。
 > 代码基线：axeuh-harness `main` HEAD `19cd6bd` + 未提交 flow 工作树（2026-10-23）。
 > 决策依据：`../axeuh-health-monitor/docs/记忆与心流-讨论与决策-2026-10-23.md` D7（converge 可退役，先清单后删除）与 D10（未确认前不改代码、不重启生产、不提交）。

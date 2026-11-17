@@ -1,5 +1,13 @@
 # 编排器迁移：四阶段 + 回滚（stage1-4）
 
+> **状态（2026-11-17 补记）：迁移已完成，本文作为历史执行记录保留，正文不改写。**
+> 现状证据：`systemctl cat axeuh-health` 的 `ExecStart` 是 `core.hot_server`，
+> `Environment=AXEUH_ORCHESTRATOR=on`、`AXEUH_LOOM_MODE=child`，迁移 drop-in
+> （`20-orchestrator-migration.conf`）已删除；kernel 与 MOSS watcher 都是后端 `core.hot_server`
+> 的子进程（`ss`/`ps` 实测 ppid 等于后端 PID），`axeuh-moss-watch` / `axeuh-loom` 单元为
+> `disabled`+`inactive`。文中"回滚面 = ai_backend 翻回 opencode"与 stage3 的 Loom 交接假设
+> （`ai_backend=loom` 时）按当时口径读；现行运行时是 `ai_backend=dsh`，见 `docs/06-Loom使用文档.md` §9。
+
 本目录是**生产迁移**脚本，不是日常运维工具。四阶段必须按 1 → 2 → 3 → 4 串行执行，
 每阶段之间至少留一个观察窗；**不允许一次跑完**。
 

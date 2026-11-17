@@ -1,8 +1,8 @@
 # Loom 使用文档
 
-> 版本：v1（2026-10-08；2026-10-18 增补 W53 按 agent 分配模型；2026-10-19 增补 W54/W55/W56 压缩历史、忙时可见性与抢占、瞬时重试与读图护栏；2026-10-21 增补 converge 自动唤醒（wake）与 server.autoWakeEnabled；2026-10-21 增补单次/auto 压缩、投影摘要与 tail 重放；2026-10-28 增补单主会话、sessionList 列表开关与 GET /sessions/main）。Loom（织机）是 axeuh 自研 agent harness，替换 opencode serve；
+> 版本：v1（2026-10-08；2026-10-18 增补 W53 按 agent 分配模型；2026-10-19 增补 W54/W55/W56 压缩历史、忙时可见性与抢占、瞬时重试与读图护栏；2026-10-21 增补 converge 自动唤醒（wake）与 server.autoWakeEnabled；2026-10-21 增补单次/auto 压缩、投影摘要与 tail 重放；2026-10-28 增补单主会话、sessionList 列表开关与 GET /sessions/main；2026-11-17 增补统一收件箱、feature 插件 host（P0/P2a）、flow 退役口径与运行时切换现状）。Loom（织机）是 axeuh 自研 agent harness；
 > "小贺同学"是织工（persona），Loom 是躯体（infra）。
-> 决策真源：docs/01（D1–D34）；实现真源：packages/ 源码；本文是使用者视角的汇编。
+> 决策真源：docs/01（D1–D34，文件名为历史 `D1-D32`，正文含 §14 D33 与 §15 D34）；实现真源：packages/ 源码；本文是使用者视角的汇编。
 > 文中标注 **[未来]** 的条目属命名蓝图，v1 未实现，勿依赖。
 
 ---
@@ -10,17 +10,19 @@
 ## 1. 架构一图流
 
 ```
-                      axeuh-health-monitor 后端 (8768/8769)
-                              │ ai_backend 开关
+                      kinship 后端 (8768，HTTPS/HTTP 同端口)
+                              │ ai_backend（顶层 hot 配置，保存即全链生效）
                 ┌─────────────┴─────────────┐
-                ▼(兜底)                      ▼(转正)
-     opencode serve :5096            loom serve :5100  ← systemd axeuh-loom
-     （原样保留，随时切回）            │
-                                     ├─ 主会话（聊天，长生命周期，收束终止）
-                                     ├─ 副会话引擎（定时/手动任务，每次 fresh）
-                                     ├─ 子智能体（task 工具派发，上限受控）
-                                     ├─ 上下文装配器（AGENTS.md+memory 注入，缓存友好）
-                                     └─ L0 账本（state/*.jsonl：trace/ledger/session/inbox/dead-letter）
+                ▼                           ▼
+        loom serve :5100            dsh :18765（kinship-bridge）
+        （本仓 loom-harness）        （harness-plugins 参考适配层，可选）
+                │                           │
+                ├─ 主会话（聊天，长生命周期，收束终止）
+                ├─ 副会话引擎（定时/手动任务，每次 fresh）
+                ├─ 子智能体（task 工具派发，上限受控）
+                ├─ 上下文装配器（AGENTS.md+memory 注入，缓存友好）
+                ├─ 统一收件箱（letters：QQ/后端任务/脚本等异步来源）
+                └─ L0 账本（state/*.jsonl：trace/ledger/session/inbox/dead-letter）
 ```
 
 核心不变量：
@@ -28,11 +30,21 @@
 - **账本先于执行**：任务 expected 行在任何执行动作前持久化；崩溃重启后全量对账补差（D13/D19）。
 - **前缀字节恒定**：稳定记忆是"经线"（prompt cache 命中），每轮增量是"纬线"（D6）。
 - **opencode.db 已弃用**：一切状态在 `state/` jsonl，append-only，内存不是真源（D2）。
+- **opencode 通道已退役**：生产不再运行 `opencode serve`（5096）；`ai_backend` 的现行取值是 `loom`（模板默认）与 `dsh`（可选适配层）。后端配置 schema 仍接受历史值 `opencode`，但仓库与生产都不再提供该链路的部署。
+- **flow 已退役**：`flow.enabled` 缺省 `false`；`true` 才构造 FlowStore/观察窗。生产 2026-11-02 起关闭并跑过 `scripts/retire-flow.mjs`，历史状态目录仅归档保留（见 §9.3）。
 
 ## 2. 快速开始
 
 ```bash
 cd /opt/kinship/loom-harness
+
+# 0) 运行时与构建
+#    Node 版本：package.json 没有 engines 声明，实际下限由依赖决定——
+#    运行时外部依赖只有两个：@earendil-works/pi-ai@0.74.2（engines.node>=20）与 yaml；
+#    devDeps 声明 @types/node ^20。生产 systemd unit 用 /usr/bin/node（实测 v20.20.2）。
+#    构建 = tsc -b + scripts/write-version.mjs（写版本戳），必须先 build 再 serve。
+npm ci && npm run build
+#    类型检查/测试：npm run typecheck、npm test（vitest run）；三连 = bash scripts/ci.sh
 
 # 1) 配置（首次）：复制模板并改 workspace/port，见 §3
 cp config/loom.example.yaml config/loom.yaml
@@ -51,8 +63,11 @@ bash scripts/smoke-real-model.sh   # 真模型对话（需真实 LOOM_KEY_*）
 bash scripts/ci.sh                 # typecheck+build+test
 ```
 
-CLI 实际命令面：`loom serve [--port N] [--hostname H] [--config PATH]`。
-`loom runs / trace / doctor` **[未来]**：v1 未实现，等价能力走 HTTP API（§5）与直读 state 文件（§7）。
+CLI 实际命令面（`packages/server/src/cli.ts`）：
+
+- `loom serve [--port N] [--hostname H] [--config PATH]`
+- `loom plan master validate|show|edit --root <abs>`（`serve/plan-cli.ts`；`edit` 还要 `--ops <json|@file>` 与 `--expected-version <n>`，`--root` 必须是显式绝对路径，不读默认生产根）
+- `loom runs / trace / doctor` **[未来]**：v1 未实现（仍是桩命令），等价能力走 HTTP API（§5）与直读 state 文件（§8）。
 
 ## 3. 配置
 
@@ -63,13 +78,17 @@ CLI 实际命令面：`loom serve [--port N] [--hostname H] [--config PATH]`。
 | 段 | 关键字段 | 说明 |
 |---|---|---|
 | `server` | port(≥5097) / hostname / interruptOnSend / autoWakeEnabled / sessionList / mainSessionId | 生产=5100 / 127.0.0.1；5096/8768/8769/18888 是现网禁碰口（D32）；interruptOnSend=true 时忙时发送抢占在途 turn，缺省/false 保留旧排队语义（§5.1）；autoWakeEnabled 缺省启用，显式 false 关闭主会话自动唤醒，改动需重启（§4.1）；sessionList 缺省关闭，仅显式 true 开放 `GET /sessions`；mainSessionId 指定主会话，缺省走标记/调度/首个会话解析（§3.4）；两者改动均需重启 |
-| `workspace` | 路径 | **一切记忆与任务定义的家**。开发=fixture-workspace/，生产=axeuh-health-monitor/ai/ |
+| `workspace` | 路径 | **一切记忆与任务定义的家**。开发=fixture-workspace/，生产=`<kinship-data>/ai/`（实例目录，不入 git） |
 | `models[]` | id/provider/contextWindow/maxOutput/vision/timeout/reasoningEffort | 模型目录；timeout 毫秒。可多条并存：`models[0]` 供主会话/副会话/压缩，子智能体按 frontmatter `model:` 选用其他条目（W53） |
 | `pricing` | input/output/cacheRead/cacheWrite | USD/百万 token，cost-tracker 记账用 |
 | `providers[]` | provider / baseUrl / apiKey? | provider 级端点；`apiKey` 可选内联，声明时优先于 `credentials`。`/config` 只回 `apiKeyConfigured` 布尔，密钥值永不外泄 |
 | `credentials` | 逻辑名: `${ENV_VAR}` | **只允许 env 引用**。写内联密钥→拒绝启动；env 无值→fail-fast；无内联 `apiKey` 时作为回退 |
 | `exits` | kind: ai-mcp 等 | D33 stub，v1 原样透传不实现 |
 | `pty` | enabled / maxSessionsPerLoomSession / maxSessionsTotal | 交互式终端（§7.2）；整段缺省=启用，两个上限缺省 16/64 |
+| `compaction` | enabled / fallbackTokens / watermark / summaryPerspectives / microcompact … | 主会话上下文压缩；两条互斥路径（worker vs legacy）与子会话兜底见 §5.4.1 |
+| `inbox` | mode(off/shadow/live) / sources / limits / digest / classes / quietHours … | 统一收件箱（§5.5）；整段缺省=不物化，运行期缺省 `mode=off` |
+| `plugins` | `<id>: {enabled, path, trust}` | feature 插件 host（§11）；`path` 必须是绝对路径，`trust` 只接受 `trusted`（`sandboxed` 属 P2b，未实现） |
+| `flow` | enabled / retireConverge / limits | **已退役路径**：缺省 `enabled:false`（零 flow 面）；`true` 才构造 FlowStore，`retireConverge` 仅在该段 `enabled:true` 时被采纳（§9.3） |
 
 - `models[].reasoningEffort`（可选）：`none|minimal|low|medium|high|xhigh|max`。缺席 = 不发送 thinking 参数、走上游默认；设置后按 reasoning 模型发送 `reasoning_effort` 档位（DeepSeek 官方支持 none/low/high/max，minimal→low、medium/xhigh→high）。
 
@@ -251,8 +270,21 @@ Loom 按单主会话运行。`GET /sessions/main` 恒可用，不受 `sessionLis
 | `POST /runs/:runID/cancel` | 取消（actor 落账；副会话不得控制副会话） |
 | `POST /runs/:runID/rerun` | 重跑（新会话、attempt+1、parent_run 溯源） |
 | `GET /pause` | 全局/按工作流暂停开关查询 |
+| `GET /tasks` / `GET /tasks/:taskID` | 任务（workflow）列表/详情 |
+| `POST /tasks/:taskID/cancel` | 取消任务（按 taskID） |
 
-**运维域**：`GET /health`（uptime/version）、`GET /config`（脱敏：credentials 只回 `${VAR}` 名）、`GET /config/audit`（热载审计）、`GET /catalog/models`。
+**收件箱域（letters，2026-11-02）**
+| 方法 路径 | 作用 |
+|---|---|
+| `POST /inbox/letters` | 外部异步来源入箱（QQ/后端任务/脚本等）；用户聊天仍走 `/sessions/:id/messages`。见 §5.5 |
+| `GET /inbox/status` | 只读积压面：按 class/来源计数、摘要到期时刻 |
+| `GET /inbox/results/:correlation_id` | 派生结果面（后端任务轮询用；不含正文/principal） |
+
+**计划域**：`GET /plan/state`（计划真源快照）、`POST /plan/reconcile`（手动对账）。
+
+**运维域**：`GET /health`（uptime/version）、`GET /config`（脱敏：credentials 只回 `${VAR}` 名）、`GET /config/audit`（热载审计）、`GET /catalog/models`、`GET /plugins/status`（feature 插件 host 登记状态，§11）、`POST /skills/reload`（重扫 skills allowlist 目录）。
+
+**会话辅助端点**：`GET /sessions/:id/context` 与 `GET /sessions/:id/context/full`（上下文装配面）、`GET /sessions/:id/events`（逐会话 SSE）、`POST /sessions/:id/title`、`POST /sessions/:id/archive`、`POST /sessions/:id/unarchive`。
 
 curl 示例：
 ```bash
@@ -262,6 +294,19 @@ curl -s -X POST -H "$H" -H "content-type: application/json" \
   -d '{"content":"你好"}' http://127.0.0.1:5100/sessions/ses_xxx/messages
 curl -N -H "$H" http://127.0.0.1:5100/events   # SSE 收流
 ```
+
+### 5.5 统一收件箱（letters，2026-11-02）
+
+用户聊天永远是直达路径（`POST /sessions/:id/messages`），**绝不进收件箱**。只有异步来源（QQ、后端任务、脚本、未来服务）走 letters：
+
+- **分类**：调用方只能请求 `class ∈ {interrupt, notify, digest}`，不能提交 score/weight；数值权重只在 `policy` 内部排序（`inbox.classes.weights`），不进 prompt、日志或 HTTP。
+- **来源与信任正交**：`source` 是注册键（`inbox.sources.<key>`，`[a-z0-9_.-]{1,64}`），`trust` 是独立维度（`external` / `trusted_service` / `user`）。未注册来源一律抑制；请求的 trust/class 高于该来源上限时 403 或向下钳制。
+- **落盘**：`<stateRoot>/inbox/<sessionId>.jsonl`（append-only）。去重 TTL、合并窗口、速率窗口、摘要租约全部由 replay 得出，内存不是真源。
+- **摘要唤醒（digest）**：`inbox.digest` 决定 cadence/maxAge/maxBatch；到点由 WakeQueue 的 `source=inbox` 条目触发一次批量投递（`≤ maxBatch`，oldest first），无 pending 时取消条目。
+- **静音时段**：`quietHours` 生效时 `external` 的 `interrupt` 会降级为 `notify`/`digest`，不打断。
+- **模型侧工具**：`inbox_list` / `inbox_read` / `inbox_ack` / `inbox_defer`（主会话 pull 面）；线程视图按 `(source, thread_id)` 聚合。
+- **配置**：`inbox.mode` 缺省 `off`（不入账、不投递；`shadow` = 只落账观测；`live` = 允许投递，且要求 `scheduling.wakeQueue=live`）；`off` 时三个 `/inbox/*` 路由仍注册但一律 503 `inbox_disabled`。改 `<实例根>/.loom/config.yaml` 后重启生效，无热重载通道。
+- **与 flow 的关系**：inbox 取代了 flow 的异步入站角色；flow 自身已于同日退役（§9.3）。
 
 ## 6. 任务（workflow）定义
 
@@ -355,16 +400,35 @@ A/B 操作：
 | `state/session/queue/{sid}.json` | 忙时待发队列 sidecar（`{text,at}`，重启按 `(content,timestamp)` 对账恢复） |
 | `state/session/compaction/{sid}.events.jsonl` | 压缩摘要 append-only 观察日志（与 durable boundary 合并成 `/compactions` 历史） |
 | `state/config/{date}.jsonl` | 配置 applied 审计（前后 hash） |
-| `state/inbox/` `state/dead-letter/` | 待投递 / 死信 |
+| `state/inbox/{sessionID}.jsonl` | 统一收件箱 letters 账本（append-only；去重/合并/速率/摘要状态均由此 replay，见 §5.5） |
+| `state/dead-letter/{date}.jsonl` | 死信（日分片，按 payload.at 落账） |
+| `state/session/<sid>/flow/` | **flow 已退役**：只有 `flow.enabled:true` 时才创建；关掉后残留目录由 §9.3 的退休工具归档 |
 
 分析脚本改读这些文件（替代 opencode.db 的 D2 方案）：聚合统计在脚本侧算，loom 不开聚合端点。
 
-## 9. 双通道运维（转正+兜底）
+## 9. 运行时切换、进程托管与 flow 退役（2026-11-17 口径）
 
-- **切换**：后端 `config.yaml` `ai_backend: loom` → 重启 axeuh-health；opencode(5096) 全程不停。
-- **回退**：`ai_backend: opencode` → 重启即回老链路（秒级）；loom 的 state/ 数据保留不清（再切回无缝）。
-- 两套会话数据互相独立，切来切去不会串台；观察期指标见 docs/04 §8（trace span 完整率、账本零缺口、死信数、缓存命中率）。
-- loom 进程监督：systemd `axeuh-loom.service`（Restart=always）；日志 `journalctl -u axeuh-loom`；改任何配置前 `cp -a` 备份（项目红线）。
+### 9.1 切换入口只有 `config.yaml` 的 `ai_backend`
+
+- 唯一真源：后端 `config.yaml` 顶层 `ai_backend`（`hot` 配置，保存即全链生效，不需要重启后端）。
+- 现行取值：`loom`（本仓，模板默认）与 `dsh`（`harness-plugins/` 参考适配层，走 `dsh.url` 指向的 kinship-bridge）。历史值 `opencode` 仍被配置 schema 的 enum 接受，但生产与仓库都不再部署该链路；`POST /api/screen/backend` 写入口已退役（返回 410），`GET` 只作只读回显。
+- 健康探针只在生效通道上运行：切到 `dsh` 时 Loom 探针缓存归 `unknown`，不再每 60s 打 `LoomHealth offline` 噪声。
+- 两套会话数据互相独立；切来切去不串台，Loom 的 `state/` 数据保留不清（切回无缝）。
+
+### 9.2 Loom 的进程托管
+
+- **受管形态**：`ai_backend=loom` 时由后端编排器托管为子进程（`AXEUH_LOOM_MODE=child`，随 `axeuh-health` 的 cgroup 起停）；日志与状态看后端日志与备份的 `loom-child.log`。
+- **独立单元**：`axeuh-loom.service`（Restart=always）保留为**迁移与回滚用**，默认停用。生产当前 `ai_backend=dsh`，该单元为 `failed`/inactive 属预期，不代表故障。
+- 改任何配置前先 `cp -a` 备份（项目红线）；`LOOM_TOKEN`/模型密钥只经 systemd `EnvironmentFile` 注入。
+
+### 9.3 flow 退役（Phase A，2026-11-02）
+
+- **现状**：`flow.enabled` 缺省 `false`；为 `false` 时 boot 不构造 FlowStore、不扫状态目录，`flow_*` 工具与流程面整体消失（旧行为逐字节不变）。生产配置 `flow.enabled: false` + `retireConverge: true`。
+- **残留告警**：`flow.enabled=false` 但 state 下仍有 `session/<sid>/flow/` 时，boot 只打一条 WARN `loom flow state remains but flow.enabled=false`，不改任何 boot 行为。
+- **退休工具**：`node scripts/retire-flow.mjs --state-root <stateRoot> [--dry-run|--apply|--verify]`（实现 `packages/server/src/maintenance/flow-retire.ts`）。`--apply` 把 flow 数据**复制**到归档目录、取消 `source=flow`/`action=flow.check` 的唤醒条目并写 manifest，拒绝在实例锁存活时执行；**不删除**原数据。生产 2026-11-02 已执行，state 下可见 `flow.retired-<时间戳>/`。
+- **Phase B（删源码）未执行**：`packages/server/src/flow/` 代码仍在，只是不接线；`flow.limits` 等配置段在 `enabled:true` 时才被采纳。
+- **converge 不受影响**：`retireConverge: true` 只在 `flow.enabled=true` 时被 boot 采纳，作用是摘掉主会话的 `converge` 工具/hook（`boot.ts` 的 `converge:"disabled"`）；生产 `flow.enabled=false` 下该键不生效，`converge` 工具照常可用，主会话收束语义不变（§1 核心不变量）。
+- 运维手册：[docs/ops/flow-retirement.md](../../docs/ops/flow-retirement.md)；面清单：[docs/dev/flow-retirement-inventory.md](../../docs/dev/flow-retirement-inventory.md)。
 
 ## 10. 故障排查
 
@@ -374,11 +438,42 @@ A/B 操作：
 | 启动即退，报 `${VAR}` 无法解析 | credentials 引用 env 无值 | 补 LOOM_KEY_*，fail-fast 是设计 |
 | 启动即退，报内联密钥 | loom.yaml 写了密钥字面量 | 改成 `${ENV}` 引用 |
 | 改了配置没生效 | 校验被拒 | `GET /config/audit` 看拒绝原因（旧配置在服务，无崩） |
+| 启动日志 `loom compaction legacy keys ignored` | 同时声明了 `fallbackTokens` 与 legacy 键 | 只留 worker 路径的键（§5.4.1），legacy 键删掉 |
+| 启动日志 `flow state remains but flow.enabled=false` | flow 已关但有残留状态目录 | 跑 §9.3 的 `retire-flow.mjs --apply` 归档 |
+| `POST /inbox/letters` 返回 503 `inbox_disabled` | `inbox.mode=off`（缺省） | 需要投递就设 `shadow`（只观测）或 `live`，改配置+重启 |
+| `POST /inbox/letters` 返回 403 `source_unregistered`/`trust_ceiling` | 来源未注册或 trust 超过该来源上限 | 在 `inbox.sources.<key>` 注册/抬上限 |
+| `/plugins/status` 里插件 `failed` | 外部插件 manifest/路径/加载错（§11） | 看 boot WARN/ERROR；路径必须绝对，manifest.id 必须等于配置键 |
 | 回合不结束 | 收束字段不齐在催办 | 看 trace nudge 计数；5 次后自动升级，60 轮硬顶兜底 |
 | UI 卡 120s 无 idle | 前端链路漏 session.idle | 查 `/events` 帧；loom 侧 idle 必带 id（契约测试已锁） |
 | 任务没跑 | 到点被暂停/enabled:false | `GET /pause`；catchup 策略决定补跑行为 |
 | 端口占用 | 非 loom 进程抢 5100 | `ss -tlnp`，只按 PID 处置，禁按名杀（项目红线） |
 
+## 11. Feature 插件 host（P0/P2a 已实现，P2b 暂缓）
+
+把工具/子系统从 `boot.ts` 的静态装配里解耦，同时不引入第二个 WakeQueue、工具 dispatcher 或 Hook 总线。
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| P0 | Manifest / Plugin / Contribution / Context 契约 + `PluginHost`（注册、依赖排序、冲突检测、生命周期、状态）+ 内置 feature 元数据（todo/pty/task/plan/inbox）；`GET /plugins/status` | 已实现（元数据面，P0 行为零变化） |
+| P1 | 构造迁入插件：todo、pty、task_fetch 等工具改由 feature 插件提供 | 已实现（boot 用插件工厂替换空 setup） |
+| P2a | trusted 本地外部插件：`plugins.<id>.path` 指向绝对路径的 `.mjs`，boot 时进程内加载 | 已实现 |
+| P2b | 沙箱化外部插件（独立进程 + capability RPC + Linux 沙箱），`trust: "sandboxed"` | **暂缓**（2026-11-03 决策；配置里写 `sandboxed` 会直接报错） |
+
+配置与契约要点：
+
+```yaml
+plugins:
+  my_feature:                 # id 必须匹配 ^[a-z0-9][a-z0-9._-]*$（`PLUGIN_ID_RE`）
+    enabled: true             # 缺省 true
+    path: /opt/kinship/loom-harness/my-feature.mjs   # 必须是绝对路径
+    trust: trusted            # 仅 trusted；sandboxed 属 P2b，未实现
+```
+
+- 模块契约：default export 一个对象，含 `manifest`（对象）与 `setup`（函数）；`manifest.id` 必须等于配置键，`apiVersion` 必须等于当前 SDK 版本（`@axeuh/loom-plugin-sdk`）。
+- **安全边界**：P2a 不做沙箱——模块顶层代码与 `setup()` 都在 Loom 进程内执行，权限与 Loom 进程完全相同。`plugins.<id>.path` 等价于"允许这段本地代码在 Loom 进程里运行"，只装自己编写或完全信任的模块。
+- 加载失败语义：除 `critical: false` 的插件外，失败即 boot 失败（响亮拒绝，不静默降级）。
+- 设计与差异：[docs/dev/plugin-host-p0.md](../../docs/dev/plugin-host-p0.md)、[docs/dev/plugin-host-p2a.md](../../docs/dev/plugin-host-p2a.md)、[docs/dev/plugin-host-p2b.md](../../docs/dev/plugin-host-p2b.md)。
+
 ---
 
-*配套文档：决策=docs/01 · 实现计划=docs/02 · 影子验证=docs/03 · 切换清单=docs/04 · HTTP 选型=docs/05。*
+*配套文档：决策=docs/01 · 实现计划=docs/02 · 影子验证=docs/03 · 切换清单=docs/04 · HTTP 选型=docs/05 · 收件箱契约=docs/dev/loom-inbox-contract.md · 插件 host=docs/dev/plugin-host-p0.md。*

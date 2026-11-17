@@ -7,17 +7,24 @@ authenticates every request with a bearer token.
 
 ## Endpoints
 
-Under the bearer token, `GET /v1/health`, `GET /v1/session`, paged
-`GET /v1/session/messages`, `POST /v1/session/messages`, `POST /v1/inbox`,
-`POST /v1/session/bind`, `POST /v1/session/abort`, `GET /v1/session/events`
-(SSE with the live `kinship/assistant-stream` frame type), `GET /v1/models`,
-`GET /v1/session/context`, `POST /v1/session/compact`, `GET /v1/session/compaction`,
-and the subagent catalog.
+Under the bearer token (`server.ts` route table):
+
+- Session: `GET /v1/health`, `GET /v1/session`, `POST /v1/session/bind`,
+  `GET /v1/session/status`, `GET|POST /v1/session/messages` (paged reads),
+  `POST /v1/session/abort`, `GET /v1/session/children` (the subagent catalog),
+  `GET /v1/session/events` (SSE with the live `kinship/assistant-stream` frame type).
+- Model and context: `GET /v1/models`, `GET /v1/session/context`.
+- Compaction: `POST /v1/session/compact`, `GET /v1/session/compaction`.
+- Inbox: `POST /v1/inbox` (queue/delivery only; no `send_letter` semantics).
+- Pushed by the Kinship backend: `GET|POST /v1/kinship/paths` (plan layout, persisted
+  as `$DSH_HOME/kinship/paths.json`) and `GET|POST /v1/kinship/tool-auth` (backend
+  address plus service token for the `kinship-tools` rows; kept in memory only).
 
 The owner-facing panel API used by the Web **Kinship** page lives beside them on
 the dsh Connection's authenticated `/api` channel (`/api/kinship/ui/state`,
 `/config`, `/token`, `/bind`); those routes never accept the bridge token and
-are refused for every principal but the owner.
+are refused for every principal but the owner. The four `/api/kinship/ui/plan*`
+routes are registered by `kinship-plan-scheduler`, not here.
 
 ## Session lifecycle
 

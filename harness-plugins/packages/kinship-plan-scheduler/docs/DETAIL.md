@@ -102,11 +102,12 @@ and hands the result to the wake queue, replacing that queue's `plan` source.
 Triggers:
 
 - `boot` - once while the plugin mounts, followed by `start()`.
-- Daily anchors - `anchors` (default `05:00` and `07:30`), one timer each,
-  re-armed for the next day after firing. Reasons are `anchor-0500`,
-  `anchor-0730` for the two defaults and `anchor:HH:MM` for any other clock. If
-  the master names a different timezone than the plugin config, the anchors are
-  re-armed against the master zone on the first successful read.
+- Daily anchors - `anchors` (config default `[]` = derive: the master's
+  `plan.build` / `plan.review` slots, falling back to `05:00` and `07:30`), one
+  timer each, re-armed for the next day after firing. Reasons are `anchor-0500`,
+  `anchor-0730` for the two fallback clocks and `anchor:HH:MM` for any other
+  clock. If the master names a different timezone than the plugin config, the
+  anchors are re-armed against the master zone on the first successful read.
 - Watchdog - every `watchdogMs` (default 60 s, `0` disables), reason
   `watchdog`.
 - Panel - the reconcile route, reason `manual`.

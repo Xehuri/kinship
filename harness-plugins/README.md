@@ -47,6 +47,12 @@ npm run link:dsh   # 把安装机的 @deepseek-ai/* 链到本 workspace node_mod
 npm run verify     # typecheck + build + tests（375 个用例，32 个文件）
 ```
 
+`npm run build` 串行跑 **7 个 tsc 项目，顺序即依赖顺序**：
+`kinship-bridge → kinship-plan-scheduler → kinship-plan → kinship-task-compat → kinship-compact → kinship-tools → kinship-isolation`。
+`kinship-plan` 从 `kinship-plan-scheduler/plan/*` 导入母版/覆盖层 store，所以前者必须先构建出
+`dist/*.d.ts`；单独构建某包时按同一顺序，否则会报找不到模块。`kinship-ui` 是纯 JS
+（`index.js` + `client.js`），没有构建步骤。
+
 `link:dsh` 默认读取
 `/mnt/d/tools/node-v24.22.3-linux-x64/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai`，
 可用 `DSH_PACKAGES_DIR` 覆盖。它只写本 workspace 的 `node_modules`，不碰任何

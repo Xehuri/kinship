@@ -1,5 +1,11 @@
 # 05 - HTTP 框架选型决策（T26，已冻结）
 
+> **状态（2026-11-17 补记）：选型仍然有效，未重开。** 实现仍是裸 `node:http` + 手写 method/path router
+> （`packages/server/src/http/`），server 包没有新增外部运行时依赖；新增路由（`/inbox/*`、`/plan/*`、`/plugins/status` 等）
+> 都按同一路由表模式注册，未引入框架。
+> **注意一处已过期的表述**：本文与 docs/02 里的"pi-ai 是唯一外部运行时依赖"在 W2 之后不再成立——仓库根
+> `package.json` 的运行时依赖是 `@earendil-works/pi-ai@0.74.2` **与** `yaml@^2.9.1`（配置解析），两个都是外部包。
+
 > 状态：**FROZEN（方案 A）**。本节记录决策与权衡；除非出现推翻性事实，后续任务（T27-T32）一律基于此实现，不再重开选型。
 > 对应计划：`docs/02-实施计划-v1.md` 的 "Decision: HTTP framework" 与 "### T26"。
 

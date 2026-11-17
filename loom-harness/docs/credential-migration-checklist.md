@@ -1,5 +1,10 @@
 # 凭据迁移清单（Credential Migration Checklist）
 
+> **状态（2026-11-17 补记）：已执行完毕。** 生产 Loom 的密钥只经 systemd
+> `EnvironmentFile=/etc/axeuh-loom/credentials.conf`（0640 root:xehuri）注入，实例配置
+> `<实例根>/.loom/config.yaml` 的 `credentials` 段只出现 `${LOOM_KEY_*}` 引用，未见内联密钥。
+> 本文作为检查清单保留，正文不改写（下文"未来授权事项"是执行前的历史口径）。
+
 > **未来授权事项（切换日执行）**——本文档只登记程序与检查项，**开发期一律不执行**。
 > 依据：docs/02-实施计划-v1.md T07 与切换日附录；决策 D32（不触碰现状）约束开发期。
 
