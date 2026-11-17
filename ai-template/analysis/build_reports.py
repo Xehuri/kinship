@@ -20,7 +20,9 @@ START_DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 TYPE_PREFIX = {"daily": "D", "weekly": "W", "biweekly": "B", "program": "P"}
 REPORT_TYPES = ("daily", "weekly", "biweekly", "program")
 REPORT_LAYERS = {
-    "daily": "event",
+    # 复盘＝观测层：报告是对当天事件的解释，不是事件本身；
+    # 报告块（R-）可以切卡片，用来说明/佐证同一件事。
+    "daily": "observation",
     "weekly": "observation",
     "biweekly": "observation",
     "program": "observation",

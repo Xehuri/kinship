@@ -48,7 +48,7 @@ def _default_db_path():
 
 DB_DEFAULT = _default_db_path()
 _AI_ROOT = Path(__file__).resolve().parent.parent
-CHATLOG_CACHE = _AI_ROOT / "memory" / "self" / "chatlog_sessions.json"
+CHATLOG_CACHE = _AI_ROOT / "memory" / "self" / "chatlog-cache.json"
 
 MAX_OUT_DEFAULT = 500          # 单个工具 output 裁剪阈值 (字)
 MAX_CHARS_DEFAULT = 120000     # 总输出预算
@@ -82,7 +82,7 @@ def _open_ro(db_path):
 
 
 def _resolve_parent(parent_arg, cache_path=CHATLOG_CACHE):
-    """解析主会话ID: 'auto' 读 chatlog_sessions.json 的 main_history 最后一项。"""
+    """解析主会话ID: 'auto' 读 chatlog-cache.json 的 main_history 最后一项。"""
     if parent_arg and parent_arg != "auto":
         return parent_arg
     try:
@@ -470,7 +470,7 @@ def main(argv=None):
     mode.add_argument("--session-id", help="导出该会话处理时间线")
     mode.add_argument("--selftest", action="store_true", help="运行内置测试后退出")
     parser.add_argument("--parent-id", default="auto",
-                        help="主会话ID, auto=读 chatlog_sessions.json (默认 auto)")
+                        help="主会话ID, auto=读 chatlog-cache.json (默认 auto)")
     parser.add_argument("--since", default=None,
                         help="列表时间过滤: 3d / 24h / YYYY-MM-DD [HH:MM] (默认 3d)")
     parser.add_argument("--until", default=None, help="列表时间上界, 格式同 --since")

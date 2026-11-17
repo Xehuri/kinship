@@ -149,3 +149,93 @@ def test_changed_from_git_reads_untracked_memory_files(tmp_path):
 
     assert result['changed_files'] == ['ai/memory/profile/x.md']
     assert result['status'] == 'passed'
+
+
+# ---------- 语义检查（必读硬事实 / fact 冲突 / 证据指针） ----------
+
+def _brief(root: Path, body: str) -> Path:
+    return _write(root, 'ai/memory/self/必读.md',
+                  f'---\ntags: [记忆]\ndate: 2026-11-17\n---\n# 必读\n\n{body}\n')
+
+
+_GOOD_FACTS = """# Facts
+
+## FACT-2026-11-01-a 甲
+- status: active
+- entity: 甲
+- attribute: 值
+- value: 二
+- source: x
+"""
+
+
+def test_hardfacts_missing_is_error(tmp_path):
+    root = _tree(tmp_path)
+    _brief(root, '## 主线\n- 无\n')
+    _write(root, 'ai/memory/ledger/facts.md', _GOOD_FACTS)
+    result = finalize.finalize(str(root), ['ai/memory/self/必读.md'], now=STAMP)
+    assert 'memory.hardfacts.missing' in [c['id'] for c in result['checks']]
+    assert result['status'] == 'failed'
+
+
+def test_hardfacts_thin_is_error(tmp_path):
+    root = _tree(tmp_path)
+    _brief(root, '## 硬事实（不许压缩）\n\n- 只有一条\n')
+    _write(root, 'ai/memory/ledger/facts.md', _GOOD_FACTS)
+    result = finalize.finalize(str(root), ['ai/memory/self/必读.md'], now=STAMP)
+    assert 'memory.hardfacts.thin' in [c['id'] for c in result['checks']]
+
+
+def test_hardfacts_ok(tmp_path):
+    root = _tree(tmp_path)
+    _brief(root, '## 硬事实（不许压缩）\n\n- 甲＝一\n- 乙＝二\n- 丙＝三\n')
+    _write(root, 'ai/memory/ledger/facts.md', _GOOD_FACTS)
+    result = finalize.finalize(str(root), ['ai/memory/self/必读.md'], now=STAMP)
+    assert 'memory.hardfacts.missing' not in [c['id'] for c in result['checks']]
+    assert 'memory.hardfacts.thin' not in [c['id'] for c in result['checks']]
+
+
+def test_fact_conflict_is_error(tmp_path):
+    root = _tree(tmp_path)
+    _brief(root, '## 硬事实（不许压缩）\n\n- 甲＝一\n- 乙＝二\n- 丙＝三\n')
+    _write(root, 'ai/memory/ledger/facts.md', _GOOD_FACTS + """
+## FACT-2026-11-02-a 甲二
+- status: active
+- entity: 甲
+- attribute: 值
+- value: 三
+- source: x
+""")
+    result = finalize.finalize(str(root), ['ai/memory/self/必读.md'], now=STAMP)
+    assert 'memory.fact.conflict' in [c['id'] for c in result['checks']]
+    assert result['status'] == 'failed'
+
+
+def test_superseded_does_not_conflict(tmp_path):
+    root = _tree(tmp_path)
+    _brief(root, '## 硬事实（不许压缩）\n\n- 甲＝一\n- 乙＝二\n- 丙＝三\n')
+    _write(root, 'ai/memory/ledger/facts.md', _GOOD_FACTS + """
+## FACT-2026-11-02-a 甲二
+- status: superseded
+- entity: 甲
+- attribute: 值
+- value: 三
+- source: x
+""")
+    result = finalize.finalize(str(root), ['ai/memory/self/必读.md'], now=STAMP)
+    assert 'memory.fact.conflict' not in [c['id'] for c in result['checks']]
+
+
+def test_fact_without_source_is_error(tmp_path):
+    root = _tree(tmp_path)
+    _brief(root, '## 硬事实（不许压缩）\n\n- 甲＝一\n- 乙＝二\n- 丙＝三\n')
+    _write(root, 'ai/memory/ledger/facts.md', """# Facts
+
+## FACT-2026-11-03-b 无源
+- status: active
+- entity: 乙
+- attribute: 值
+- value: 四
+""")
+    result = finalize.finalize(str(root), ['ai/memory/self/必读.md'], now=STAMP)
+    assert 'memory.fact.no-source' in [c['id'] for c in result['checks']]

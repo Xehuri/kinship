@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""AI 记忆目录的唯一写入入口（A 方案）。
+"""DEPRECATED（Phase A）：记忆写入改由 02 日复盘直接编辑 ledger/notes；本脚本仅保留作旧数据兼容。
+
+AI 记忆目录的旧写入入口（A 方案）。
 
 设计约束：
 - Markdown 仍是真源；长期条目只追加，旧条目不删除，用 superseded/invalid 标记。

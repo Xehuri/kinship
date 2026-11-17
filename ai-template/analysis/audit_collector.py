@@ -410,10 +410,10 @@ def _fmt_dur(ms):
 
 
 def _main_session_ids():
-    """解析主会话 id 列表 = 当前 + 历史主会话 (chatlog_sessions.json main_history 全量,
+    """解析主会话 id 列表 = 当前 + 历史主会话 (chatlog-cache.json main_history 全量,
     与 session_context._resolve_parent 同源; 压缩换 id 后旧主会话仍要纳入树)。
     失败返回 []。"""
-    p = os.path.join(AI_ROOT, 'memory', 'self', 'chatlog_sessions.json')
+    p = os.path.join(AI_ROOT, 'memory', 'self', 'chatlog-cache.json')
     try:
         cache = json.loads(open(p, encoding='utf-8').read())
         return [h.get('sid') for h in (cache.get('main_history') or []) if h.get('sid')]

@@ -27,7 +27,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _AI_DIR = os.path.normpath(os.path.join(_SCRIPT_DIR, '..'))
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
-from health_source import read_health_view
+import health_source
 
 # 百度逆地理编码配置（部署时替换为你的 AK，或改为从配置文件读取）
 BAIDU_AK = '{百度地图AK}'
@@ -219,22 +219,78 @@ def _health_shard_exists(date_str):
     return False
 
 
+def _health_view_diagnosis(date_str):
+    """视图读不出时逐项探测真实原因，返回人类可读的原因列表。
+
+    只报“多为缺 pydantic”会误导：缺依赖只是其中一种可能，更常见的是没设
+    CONFIG_PATH——配置回落到默认路径后 DATA_DIR 指向不存在的位置、
+    HEALTH_PRIMARY_USER 为空，store 拿 "default" 去查自然查不到。按“缺依赖”
+    去查会白折腾一轮，所以这里把配置、分片、store 三层分开报。
+    """
+    problems = []
+    cfg = None
+    backend_dir = getattr(health_source, '_BACKEND_DIR', None)
+    try:
+        if backend_dir and backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+        from config.config import get_config
+        cfg = get_config()
+    except Exception as exc:  # 诊断路径：任何异常都要变成可读原因
+        problems.append(f'backend config 模块不可用: {exc!r}')
+    if cfg is not None:
+        data_dir = str(getattr(cfg, 'DATA_DIR', '') or '')
+        primary = str(getattr(cfg, 'HEALTH_PRIMARY_USER', '') or '')
+        problems.append(
+            f'配置来源: CONFIG_PATH={os.environ.get("CONFIG_PATH") or "(未设置)"}'
+            f'；DATA_DIR={data_dir or "(空)"}'
+        )
+        expected_data = os.path.normpath(os.path.join(_SCRIPT_DIR, '..', 'data'))
+        if data_dir and os.path.normpath(data_dir) != expected_data:
+            problems.append(
+                f'DATA_DIR 与 AI 目录不一致（应为 {expected_data}）；'
+                '典型原因＝没设 CONFIG_PATH，配置回落到默认路径'
+            )
+        if not data_dir or not os.path.isdir(data_dir):
+            problems.append(f'DATA_DIR 指向不存在的目录 {data_dir or "(空)"}')
+        if not primary:
+            problems.append('HEALTH_PRIMARY_USER 为空：配置里的 health.primary_user 没读到')
+        if primary and data_dir and os.path.isdir(data_dir):
+            try:
+                from services.health_storage import get_health_store
+                probe = get_health_store().read_view(primary, date_str)
+                if probe is None:
+                    problems.append(
+                        f'store.read_view({primary!r}, {date_str!r}) 返回 None：'
+                        'store 打得开但没有这一天的分片数据'
+                    )
+            except Exception as exc:  # 诊断路径
+                problems.append(f'store.read_view 抛错: {exc!r}')
+    if len(problems) <= 1:
+        problems.append('未定位到具体原因；分片文件存在但视图为空')
+    return problems
+
+
 def load_health(date_str):
     """加载指定日期的健康数据（P2-V11: 分片合成视图优先，派生文件回落）
 
-    fail-fast: 分片真源存在但视图读不出（典型＝裸 python 缺 pydantic）时直接退出，
-    不再静默产出没有 HR/SpO2 的事实文件。
+    fail-fast: 分片真源存在但视图读不出时直接退出，不再静默产出没有 HR/SpO2
+    的事实文件（否则一次运行就能写出上千行零心率事实）。退出前用
+    `_health_view_diagnosis` 逐项列出真实原因，不预设成“缺 pydantic”。
     """
-    view = read_health_view(date_str)
+    view = health_source.read_health_view(date_str)
     if view is not None:
         return view
     path = _find_data_file(date_str, 'health.json')
     if not path:
         if _health_shard_exists(date_str):
+            reasons = '\n'.join(f'  - {item}' for item in _health_view_diagnosis(date_str))
             sys.exit(
-                f'错误: {date_str} 健康分片存在但视图读取失败（多为缺 pydantic）。'
-                '请改用安装了后端依赖的 Python 解释器（{Python解释器路径}）运行 fact_extractor.py，'
-                '否则事实文件会静默丢 HR/SpO2。'
+                f'错误: {date_str} 健康分片存在但视图读取失败。\n{reasons}\n'
+                '修复: 在项目根目录带配置跑——\n'
+                '  CONFIG_PATH={项目根}/config.yaml '
+                '{Python解释器路径} '
+                f'ai/analysis/fact_extractor.py {date_str} [--hours A~B]\n'
+                '（缺 pydantic 只是其中一种可能，先看上面列的原因）'
             )
         return {'samples': [], 'sleep_data': {}}
     with open(path, 'r', encoding='utf-8') as f:
@@ -364,7 +420,12 @@ def _stage_duration_min(stages, idx):
 
 
 def filter_events_by_time(events, time_range_str):
-    """按时间范围过滤事件"""
+    """按时间范围过滤事件；**结束点为开区间**。
+
+    `A~B` 收 [A, B) 的事件。结束点必须是开区间：`22:00~00:00` 若把 00:00 也收进来，
+    就会把次日的第一分钟并进当天文件，而 `get_slot_key` 只看 HH:MM、不看日期，
+    这一分钟会和当天 00:00~00:05 那个真实时段撞成同一个键，覆盖掉当天凌晨那一段。
+    """
     if not time_range_str:
         return events
     # 格式: "06:00~14:00"
@@ -380,11 +441,11 @@ def filter_events_by_time(events, time_range_str):
             continue
 
         if start_min <= end_min:
-            if start_min <= t_min <= end_min:
+            if start_min <= t_min < end_min:
                 result.append(e)
         else:
-            # 跨天 (如 22:00~06:00)
-            if t_min >= start_min or t_min <= end_min:
+            # 跨天 (如 22:00~06:00)：结束点开区间
+            if t_min >= start_min or t_min < end_min:
                 result.append(e)
     return result
 
@@ -1735,8 +1796,29 @@ def _section_start_minutes(title):
     return 0
 
 
+def _section_interval(title):
+    """从段落标题提取 (起, 止) 区间分钟数；跨午夜时止点加一天。解析不出返回 None。
+
+    标题形如 `20:00~20:05 | 笔记本`、`01:00~03:00 -- 睡眠（合并时段…）`，
+    时段区间永远在最前面，设备/类型后缀不参与解析。
+    """
+    m = re.match(r'^(\d{1,2}):(\d{2})~(\d{1,2}):(\d{2})', title.strip())
+    if not m:
+        return None
+    start = int(m.group(1)) * 60 + int(m.group(2))
+    end = int(m.group(3)) * 60 + int(m.group(4))
+    if end <= start:
+        end += 24 * 60
+    return start, end
+
+
 def merge_fact_sections(existing_path, new_sections):
-    """将本次生成的段落与现有事实文件合并，仅替换同键（时段+设备）段落。
+    """将本次生成的段落与现有事实文件合并，替换本次覆盖到的时段。
+
+    去重键是**时段区间**，不是段落标题。设备集合会在两次运行之间变化
+    （同一时段先只有笔记本数据，补上手机数据后标题从 `| 笔记本` 变成
+    `| 手机+笔记本`），按标题去重会把同一时段留成两份；合并段（睡眠）覆盖的
+    整段区间同样按包含关系替换。
 
     Args:
         existing_path: 现有事实文件路径（须已存在）
@@ -1757,13 +1839,19 @@ def merge_fact_sections(existing_path, new_sections):
         body = parts[1] if len(parts) > 1 else ''
         if title:
             new_parsed.append((title, body))
-    new_titles = {x[0] for x in new_parsed}
-    # 保留未被本次覆盖的旧段落（旧 body 为行列表，统一转字符串）
+    new_intervals = [
+        iv for iv in (_section_interval(title) for title, _ in new_parsed) if iv
+    ]
+    # 保留未被本次覆盖的旧段落：旧段落区间完全落在某个新区间内即被替换
     merged = []
     for t, b in old_sections:
-        if t not in new_titles:
-            body_str = b if isinstance(b, str) else '\n'.join(b)
-            merged.append((t, body_str))
+        iv = _section_interval(t)
+        if iv is not None and any(
+            lo <= iv[0] and iv[1] <= hi for lo, hi in new_intervals
+        ):
+            continue
+        body_str = b if isinstance(b, str) else '\n'.join(b)
+        merged.append((t, body_str))
     merged.extend(new_parsed)
     # 按时段开始时间排序（跨午夜段 start 分钟数较大自然靠后）
     merged.sort(key=lambda x: _section_start_minutes(x[0]))
@@ -1782,7 +1870,9 @@ def render_fact_markdown(date_str, coverage, titles, bodies, total_voice_count=N
     for t, b in zip(titles, bodies):
         md_lines.append(f'## {t}')
         if b:
-            md_lines.append(b)
+            # 合并路径会把段落尾部的空行带进 body，这里统一剥掉再补一个空行；
+            # 否则每跑一次 --hours 增量，所有保留段都会多攒一行空行。
+            md_lines.append(b.rstrip('\n'))
         md_lines.append('')
     md_lines.append('---')
     if total_voice_count is not None:
@@ -2184,7 +2274,7 @@ def _manifest_load_health_by_day(days, daily_dir):
     health_by_day = {}
     for d in days:
         ds = d.strftime('%Y-%m-%d')
-        hd = read_health_view(ds)
+        hd = health_source.read_health_view(ds)
         if hd is None:
             hp = os.path.join(daily_dir, ds, 'health.json')
             hd = None
@@ -2238,20 +2328,20 @@ def _manifest_sleep_section(health_by_day):
             wakeup = _epoch_hm(sd.get('wakeup_time'))
             if not wakeup and stages:
                 wakeup = _stage_hm(stages[-1])
-            durations = [
-                int(s.get('duration'))
-                for s in sessions
-                if isinstance(s, dict) and isinstance(s.get('duration'), (int, float))
-            ]
+            # 同 bedtime 的多次快照＝同一觉的不同截断（重拉后变长），不是小睡：
+            # 按 bedtime 分组取最长，其余组才算小睡。
+            groups = {}
+            for s in sessions:
+                if not isinstance(s, dict) or not isinstance(s.get('duration'), (int, float)):
+                    continue
+                key = s.get('bedtime') if s.get('bedtime') is not None else ('anon', id(s))
+                groups.setdefault(key, []).append(int(s.get('duration')))
+            kept = [(max(v), k) for k, v in groups.items()]
             naps = []
-            if durations:
-                main_duration = max(durations)
-                primary_skipped = False
-                for duration in durations:
-                    if not primary_skipped and duration == main_duration:
-                        primary_skipped = True
-                        continue
-                    naps.append(str(duration))
+            if kept:
+                kept.sort(reverse=True)
+                main_duration, main_key = kept[0]
+                naps = [str(d) for d, _k in kept[1:]]
             row = [
                 ds, '新', bedtime or '-', wakeup or '-',
                 fmt(sd.get('duration_min')), fmt(awake_count),
@@ -2287,7 +2377,7 @@ def _manifest_sleep_section(health_by_day):
             row = [ds, '-', '-', '-', '-', '-', '-', '-', '-', '-', '-']
         lines.append('| ' + ' | '.join(row) + ' |')
     lines.append('')
-    lines.append('> **口径（2026-10-27 后端修复后）**：`总睡眠min`＝深睡＋浅睡＋REM（**不含清醒**）；顶层字段取当日最长主觉，`sleep_sessions` 存主觉＋各次小睡，`小睡` 列列出非主觉各段时长。`格式=旧` 的行是后端回填前落盘的数据：清醒次／清醒min 仍按「`rem` 段＝清醒、`awake` 段＝REM」的临时映射计算，且旧顶层 `duration_min`／`wakeup_time` 可能来自小睡，故 `总睡眠min` 记 `-`，不可当新口径使用。')
+    lines.append('> **口径（2026-10-27 后端修复后）**：`总睡眠min`＝深睡＋浅睡＋REM（**不含清醒**）；顶层字段取当日最长主觉，`sleep_sessions` 存主觉＋各次小睡，`小睡` 列列出非主觉各段时长（**同一 bedtime 的多次快照只取最长，不算小睡**——重拉后变长的那种）。`格式=旧` 的行是后端回填前落盘的数据：清醒次／清醒min 仍按「`rem` 段＝清醒、`awake` 段＝REM」的临时映射计算，且旧顶层 `duration_min`／`wakeup_time` 可能来自小睡，故 `总睡眠min` 记 `-`，不可当新口径使用。')
     return lines
 
 
@@ -2385,6 +2475,27 @@ def _manifest_sync_section(health_by_day):
         lines.append(f'- {ds}: 存在，覆盖 {first_t}~{last_t}')
     lines.append('')
     return lines
+
+
+# 健康清单里的「主会话手写段」标记：--update-summary 重跑时原样保留其后内容。
+# （否则每次重跑都会把主会话追加的修正段冲掉）
+_MANUAL_TAIL_RE = re.compile(r'^## (?:修正|主会话追加)', re.M)
+
+
+def _preserve_manual_tail(new_md, path):
+    """把旧文件里从手写段标记开始的内容追加到新生成的内容之后。"""
+    try:
+        with open(path, encoding='utf-8') as f:
+            old_md = f.read()
+    except OSError:
+        return new_md
+    mt = _MANUAL_TAIL_RE.search(old_md)
+    if not mt:
+        return new_md
+    tail = old_md[mt.start():].rstrip() + '\n'
+    if tail.strip() in new_md:
+        return new_md
+    return new_md.rstrip() + '\n\n' + tail
 
 
 def build_health_manifest(date_str):
@@ -2527,6 +2638,7 @@ def main():
             f.write(index_md)
         manifest_md = build_health_manifest(date_str)
         manifest_path = os.path.join(daily_dir, f'健康清单-{date_str}.md')
+        manifest_md = _preserve_manual_tail(manifest_md, manifest_path)
         with open(manifest_path, 'w', encoding='utf-8') as f:
             f.write(manifest_md)
         print(f'当日摘要: {summary_path}', file=sys.stderr)

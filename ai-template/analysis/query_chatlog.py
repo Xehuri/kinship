@@ -23,7 +23,7 @@ AI 复盘/数据检查可用它了解"某时段用户主动问了什么、AI 回
   - 打印纯文本对话时间线（用户消息 / AI 正文 / 工具名）
   - 同时把本次查询的完整原始输出追加存档到 {AI目录}/data/cache/chatlog_tmp/（脚本数据内容，非 JSON）
   - 完成后打印存档文件路径
-  - 每次成功查询后，把实际命中的会话ID自动缓存到 {AI目录}/memory/self/chatlog_sessions.json，
+  - 每次成功查询后，把实际命中的会话ID自动缓存到 {AI目录}/memory/self/chatlog-cache.json，
     并记录它是否为当时的 main-task 绑定。切换主会话后旧ID仍可从缓存找回，
     不再因后端缺省解析到新会话而丢失回溯能力。该文件随 git 备份（故不放 gitignore 的 cache 区）。
 
@@ -61,7 +61,7 @@ ARCHIVE_DIR = AI_ROOT / "data" / "cache" / "chatlog_tmp"
 # 会话ID缓存：记录每次查询实际命中的会话，切换主会话后旧ID仍可找回。
 # 放 {AI目录}/memory/self/ 而非 data/cache/：后者常被 .gitignore 忽略、不受 git 备份；
 # 这把"打开历史会话的钥匙"若随 cache 丢失，回溯能力即失效，故与记忆导航同区、随 git 备份。
-SESSION_CACHE_FILE = AI_ROOT / "memory" / "self" / "chatlog_sessions.json"
+SESSION_CACHE_FILE = AI_ROOT / "memory" / "self" / "chatlog-cache.json"
 
 # 后端端口候选（默认列表；可用环境变量 BACKEND_PORTS 覆盖，逗号分隔）
 DEFAULT_BACKEND_PORTS = (8768, 8767, 9787, 9788)

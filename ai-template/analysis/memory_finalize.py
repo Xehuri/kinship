@@ -333,6 +333,115 @@ def _projection_checks(root: Path, status: Projection | None,
     return checks
 
 
+MEMORY_BASE = Path(STATUS_REL).parent          # 与 STATUS_REL 同根：ai/memory
+LEDGER_DIR = MEMORY_BASE / 'ledger'
+BRIEF_REL = MEMORY_BASE / 'self/必读.md'
+HARD_FACT_HEADING = '## 硬事实'
+HARD_FACT_MIN_LINES = 3
+ENTRY_HEAD_RE = re.compile(r'^##\s+(?P<id>[A-Z]+-[^\s]+)\s*')
+FIELD_RE = re.compile(r'^\s*-\s*(?P<key>[A-Za-z_]+)\s*[:：]\s*(?P<value>.*)$')
+
+
+def _ledger_entries(path: Path) -> list[dict[str, Any]]:
+    """把 ledger 文件切成 entry：{id, fields}。只认 `## ID` 标题 + `- key: value` 行。"""
+    entries: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
+        head = ENTRY_HEAD_RE.match(line)
+        if head:
+            current = {'id': head.group('id'), 'fields': {}}
+            entries.append(current)
+            continue
+        if current is None:
+            continue
+        if line.startswith('## '):
+            current = None
+            continue
+        field = FIELD_RE.match(line)
+        if field:
+            current['fields'][field.group('key').lower()] = field.group('value').strip()
+    return entries
+
+
+def _hard_facts_check(root: Path) -> list[Check]:
+    """必读里的「硬事实」节必须在，且不少于 N 行——投影压缩时最容易吃掉它。"""
+    path = root / BRIEF_REL
+    if not path.is_file():
+        # 没有这份文件（新树/测试夹具）就不适用本条；文件在但缺节才是错。
+        return []
+    lines = path.read_text(encoding='utf-8', errors='replace').splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip().startswith(HARD_FACT_HEADING))
+    except StopIteration:
+        return [Check(ERROR, 'memory.hardfacts.missing',
+                      '必读.md 缺少「硬事实」节（投影重写时被整节吃掉？）', BRIEF_REL.as_posix())]
+    count = 0
+    for line in lines[start + 1:]:
+        if line.startswith('## '):
+            break
+        if line.lstrip().startswith('- '):
+            count += 1
+    if count < HARD_FACT_MIN_LINES:
+        return [Check(ERROR, 'memory.hardfacts.thin',
+                      f'「硬事实」节只有 {count} 条（至少 {HARD_FACT_MIN_LINES} 条）', BRIEF_REL.as_posix())]
+    return []
+
+
+def _conflict_checks(root: Path) -> list[Check]:
+    """同一 (entity, attribute) 有多条 active 且 value 不同——没走 supersede 的分叉写法。"""
+    facts = root / LEDGER_DIR / 'facts.md'
+    if not facts.is_file():
+        return []
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for entry in _ledger_entries(facts):
+        fields = entry['fields']
+        if fields.get('status', '').lower() != 'active':
+            continue
+        entity = fields.get('entity')
+        attribute = fields.get('attribute')
+        if not entity or not attribute:
+            continue
+        groups.setdefault((entity, attribute), []).append(entry)
+    checks: list[Check] = []
+    for (entity, attribute), entries in groups.items():
+        values = {' '.join(e['fields'].get('value', '').split()) for e in entries}
+        if len(entries) > 1 and len(values) > 1:
+            ids = '、'.join(e['id'] for e in entries)
+            checks.append(Check(ERROR, 'memory.fact.conflict',
+                                f'同实体同属性有多条 active 且值不同：{entity}／{attribute}（{ids}）；应新建 entry 并把旧的标 superseded',
+                                (LEDGER_DIR / 'facts.md').as_posix()))
+    return checks
+
+
+def _evidence_checks(root: Path) -> list[Check]:
+    """fact 要有 source 或 evidence；rule 要有 evidence——否则结论无法回溯。"""
+    checks: list[Check] = []
+    facts = root / LEDGER_DIR / 'facts.md'
+    if facts.is_file():
+        for entry in _ledger_entries(facts):
+            fields = entry['fields']
+            if fields.get('status', '').lower() != 'active':
+                continue
+            if not (fields.get('source') or fields.get('evidence')):
+                checks.append(Check(ERROR, 'memory.fact.no-source',
+                                    f'fact 缺 source/evidence：{entry["id"]}', (LEDGER_DIR / 'facts.md').as_posix()))
+    rules = root / LEDGER_DIR / 'rules.md'
+    if rules.is_file():
+        for entry in _ledger_entries(rules):
+            fields = entry['fields']
+            if fields.get('status', '').lower() != 'active':
+                continue
+            if not fields.get('evidence'):
+                checks.append(Check(WARNING, 'memory.rule.no-evidence',
+                                    f'rule 缺 evidence：{entry["id"]}', (LEDGER_DIR / 'rules.md').as_posix()))
+    return checks
+
+
+def _semantic_checks(root: Path) -> list[Check]:
+    """语义层硬检查：投影完整性 / 事实分叉 / 证据指针。与 git 变更无关，每次都跑。"""
+    return _hard_facts_check(root) + _conflict_checks(root) + _evidence_checks(root)
+
+
 def _git_changed(root: Path) -> list[str]:
     command = ['git', '-c', 'core.quotepath=false', 'status', '--porcelain', '--untracked-files=all']
     try:
@@ -420,6 +529,7 @@ def finalize(root: str | os.PathLike[str], files: Sequence[str] = (),
         checks.extend(_pii_check(rel, text))
         checks.extend(_soft_checks(rel, path, text, frontmatter))
     checks.extend(_projection_checks(root_path, projection, status_checks, reference))
+    checks.extend(_semantic_checks(root_path))
     checks.sort(key=lambda check: (0 if check.severity == ERROR else 1, check.check_id,
                                    check.path, check.message))
     errors = sum(1 for check in checks if check.severity == ERROR)

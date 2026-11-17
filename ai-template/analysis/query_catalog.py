@@ -8,6 +8,22 @@ import json
 import sys
 from pathlib import Path
 
+DEPRECATED_INDEX_MARKER = "DEPRECATED"
+DEPRECATED_INDEX_HINT = (
+    "the index layer in {index_dir} is deprecated (marker file "
+    f"{DEPRECATED_INDEX_MARKER}); it is frozen and answers nothing "
+    "newer. Live retrieval: `stratum query --type claim|card|report|block "
+    "--grep <text> [--from/--to]`. Point --index-dir at a private copy if you "
+    "really need the frozen export."
+)
+
+
+def deprecated_index_reason(index_dir: Path) -> str | None:
+    """Return why this index directory must not be read, or None when it is live."""
+    if not (index_dir / DEPRECATED_INDEX_MARKER).exists():
+        return None
+    return DEPRECATED_INDEX_HINT.format(index_dir=index_dir)
+
 
 def load_jsonl(path: Path) -> list[dict]:
     if not path.exists():
@@ -125,6 +141,10 @@ def main(argv: list[str] | None = None) -> int:
 
     root = Path(args.root).resolve()
     index_dir = Path(args.index_dir).resolve() if args.index_dir else root / "data" / "index"
+
+    reason = deprecated_index_reason(index_dir)
+    if reason is not None:
+        raise SystemExit(f"error: {reason}")
 
     concepts = load_jsonl(index_dir / "concept_types.jsonl")
     blocks = {row["block_id"]: row for row in load_jsonl(index_dir / "blocks.jsonl") if "block_id" in row}

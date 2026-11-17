@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+from query_catalog import deprecated_index_reason
+
 REPORT_TYPES = ("daily", "weekly", "biweekly", "program")
 
 
@@ -68,6 +70,9 @@ def main(argv: list[str] | None = None) -> int:
 
     root = Path(args.root).resolve()
     index_dir = Path(args.index_dir).resolve() if args.index_dir else root / "data" / "index"
+    reason = deprecated_index_reason(index_dir)
+    if reason is not None:
+        raise SystemExit(f"error: {reason}")
     rows = load_jsonl(index_dir / "reports.jsonl")
     relations = load_jsonl(index_dir / "report_relations.jsonl") if args.follow else []
     relations_by_report: dict[str, list[dict]] = {}

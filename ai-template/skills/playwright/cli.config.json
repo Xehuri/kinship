@@ -1,0 +1,17 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "userDataDir": "__AI_ROOT__/.loom/playwright-profile",
+    "contextOptions": {
+      "viewport": { "width": 1280, "height": 720 }
+    }
+  },
+  "outputDir": "__AI_ROOT__/data/browser",
+  "timeouts": {
+    "action": 15000,
+    "navigation": 60000
+  },
+  "console": {
+    "level": "warning"
+  }
+}

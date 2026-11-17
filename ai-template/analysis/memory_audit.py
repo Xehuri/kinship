@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""记忆目录与 agent 注入清单的只读体检工具。
+"""LEGACY（Phase A）：验收主入口是 memory_finalize.py；本检查器的 lite 注入清单已与 Phase A 模板不一致。
+
+记忆目录与 agent 注入清单的只读体检工具。
 
 用法：
     python {AI目录}/analysis/memory_audit.py scan

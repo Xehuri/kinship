@@ -28,3 +28,21 @@
   aliases: [系统, 事项]
   notes: "示例：token 模式用别名覆盖同义表达。"
   min_hits: 1
+
+- id: q04
+  query: 睡眠异常
+  match_kind: mixed
+  expected_paths:
+    - ai/memory/profile/规律.md
+  aliases: [睡眠, 异常, 失眠, 夜醒]
+  notes: "示例：mixed＝字面命中或别名 token 共现都得分。"
+  min_hits: 1
+
+- id: q05
+  query: issue
+  match_kind: alias
+  expected_paths:
+    - ai/memory/self/任务.md
+  aliases: [缺陷, bug]
+  notes: "示例：alias＝查询词本身可以字面不出现，只按别名命中（中英混用场景）。"
+  min_hits: 1

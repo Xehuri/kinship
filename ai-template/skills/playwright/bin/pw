@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Playwright CLI wrapper for the AI root.
+# 固定 CLI 安装位、配置文件与默认会话名；调用方无需重复长参数。
+#
+# 可用环境变量覆盖：
+#   LOOM_HARNESS_DIR          loom-harness 目录（默认 <AI根>/../loom-harness）
+#   PW_CLI                    playwright-cli 可执行文件路径
+#   PW_CONFIG                 直接指定已就绪的 cli 配置（跳过 __AI_ROOT__ 替换）
+#   PW_SESSION                会话名（默认 loom）
+#   PLAYWRIGHT_BROWSERS_PATH  浏览器缓存目录
+set -euo pipefail
+
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AI_ROOT="$(cd "$SKILL_DIR/../.." && pwd)"
+HARNESS_DIR="${LOOM_HARNESS_DIR:-$AI_ROOT/../loom-harness}"
+CLI="${PW_CLI:-$HARNESS_DIR/mcp-servers/playwright-cli/node_modules/.bin/playwright-cli}"
+CONFIG_TEMPLATE="$SKILL_DIR/cli.config.json"
+RUNTIME_CONFIG="${PW_CONFIG:-$AI_ROOT/data/browser/.pw-config.json}"
+SESSION="${PW_SESSION:-loom}"
+
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HARNESS_DIR/mcp-servers/.playwright-browsers}"
+
+if [ ! -x "$CLI" ]; then
+  echo "playwright-cli 未安装：$CLI" >&2
+  echo "在 loom-harness/mcp-servers/playwright-cli 执行 npm ci 后重试；" >&2
+  echo "或用 PW_CLI 指向已安装的 playwright-cli。" >&2
+  exit 69
+fi
+
+# cli.config.json 里的 __AI_ROOT__ 运行时替换成实际 AI 根，避免模板写死绝对路径。
+if [ -z "${PW_CONFIG:-}" ]; then
+  mkdir -p "$(dirname "$RUNTIME_CONFIG")"
+  python3 - "$CONFIG_TEMPLATE" "$RUNTIME_CONFIG" "$AI_ROOT" <<'PY'
+import pathlib
+import sys
+
+template, target, ai_root = sys.argv[1], sys.argv[2], sys.argv[3]
+text = pathlib.Path(template).read_text(encoding="utf-8")
+pathlib.Path(target).write_text(text.replace("__AI_ROOT__", ai_root), encoding="utf-8")
+PY
+fi
+
+if [ "$#" -eq 0 ]; then
+  exec "$CLI" -s="$SESSION" --help
+fi
+
+if [ "$1" = "open" ]; then
+  shift
+  exec "$CLI" --config="$RUNTIME_CONFIG" -s="$SESSION" open --idle-timeout=1800000 "$@"
+fi
+
+exec "$CLI" -s="$SESSION" "$@"

@@ -703,14 +703,13 @@ def test_chat_adapter_with_monkeypatch(corpus, capsys, monkeypatch):
     rc, payload, err = _json(
         capsys, *_args(corpus, "--scope", "chat", "--from", "2026-10-31",
                        "--to", "2026-10-31", "--grep", "修电脑",
-                       "--include-children", "--backend", "loom",
+                       "--include-children",
                        "--format", "json"),
     )
     assert rc == 0, err
     assert calls[0]["params"]["start"] == "2026-10-31 00:00:00"
     assert calls[0]["params"]["end"] == "2026-10-31 23:59:59"
     assert calls[0]["params"]["include_children"] == "true"
-    assert calls[0]["params"]["backend"] == "loom"
     assert calls[0]["params"]["format"] == "json"
     assert _ids(payload) == ["m1"]
     assert payload["counts"]["deduped"] == 1
@@ -718,14 +717,6 @@ def test_chat_adapter_with_monkeypatch(corpus, capsys, monkeypatch):
     assert item["type"] == "user"
     assert item["timestamp"] == "2026-10-31T10:00:00"
     assert item["dedupe_key"] == "chat:ses_1:m1"
-
-    # 不带 --backend 时不发该键：后端按 config.yaml 的 ai_backend 选路
-    rc, _, err = _json(
-        capsys, *_args(corpus, "--scope", "chat", "--from", "2026-10-31",
-                       "--to", "2026-10-31", "--format", "json"),
-    )
-    assert rc == 0, err
-    assert "backend" not in calls[1]["params"]
 
 
 def test_chat_failure_degrades_in_all_mode_but_explicit_fails(corpus, capsys, monkeypatch):

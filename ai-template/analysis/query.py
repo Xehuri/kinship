@@ -2,8 +2,8 @@
 """Read-only normalized retrieval across the index, memory and chat layers.
 
 Usage:
-    python ai/analysis/query.py --scope all --from 2026-10-31 --to 2026-11-01 \
-        --grep 修电脑 --format json
+    python ai/analysis/query.py --scope memory --grep 睡眠
+    python ai/analysis/query.py --scope chat --from 2026-11-14 --to 2026-11-15
 
 Scopes (layer order):
     event -> observation -> report -> evidence -> memory -> chat
@@ -11,9 +11,12 @@ Scopes (layer order):
 `--scope all` covers event, observation, report, memory and chat; evidence is
 opt-in because it is the rawest layer and usually duplicates card evidence.
 
-The chat scope follows config.yaml's `ai_backend`; pass `--backend
-opencode|loom|dsh` to read another engine explicitly (the loom leg reads Loom's
-offline session log, so it works even when the Loom process is stopped).
+Deprecation (见 `analysis/README.md` 的「索引工具（已弃用）」):
+    The event/observation/report/evidence scopes read the JSONL export in
+    `data/index`. That export is frozen and must not be written any more, so
+    those scopes answer from stale data. Reading it now requires an explicit
+    `--index-dir`; a deprecated directory carries a `DEPRECATED` marker and is
+    refused outright. Live retrieval lives in `stratum query`.
 """
 
 from __future__ import annotations
@@ -50,6 +53,9 @@ MAX_MEMORY_SNIPPET = 1200
 MAX_CHAT_TITLE = 120
 ELLIPSIS = "…"
 TIME_HEADING_RE = re.compile(r"^(\d{2}:\d{2})")
+DEPRECATED_INDEX_SUFFIX = (
+    " The memory and chat scopes do not read the index and still work here."
+)
 
 
 class UsageError(Exception):
@@ -317,6 +323,9 @@ def _parse_block_sources(value: str | None) -> frozenset[str]:
 def _load_tables(index_dir: Path) -> dict[str, Any]:
     if not index_dir.is_dir():
         raise DataUnavailable(f"index directory unavailable: {index_dir}")
+    reason = query_catalog.deprecated_index_reason(index_dir)
+    if reason is not None:
+        raise DataUnavailable(reason + DEPRECATED_INDEX_SUFFIX)
     blocks = {
         str(row["block_id"]): row
         for row in query_catalog.load_jsonl(index_dir / "blocks.jsonl")
@@ -611,9 +620,6 @@ def _chat_hits(args: argparse.Namespace) -> list[Hit]:
     params = {"start": start, "end": end, "format": "json"}
     if args.include_children:
         params["include_children"] = "true"
-    backend = getattr(args, "backend", None)
-    if backend:
-        params["backend"] = backend
     status, body = module._query_chatlog(port, token, params)
     if status is None:
         raise DataUnavailable(f"chat backend unavailable: {body}")
@@ -876,10 +882,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--block-source", default=None, help="batch,legacy | review | all")
     parser.add_argument("--include-children", action="store_true")
     parser.add_argument("--backend-port", type=int, default=None)
-    parser.add_argument(
-        "--backend", default=None, choices=("opencode", "loom", "dsh"),
-        help="chat scope: explicit engine (default follows config.yaml ai_backend)",
-    )
     parser.add_argument("--as-of", default=None, help="YYYY-MM-DD anchor for chat windows")
     parser.add_argument("--allow-full-scan", action="store_true")
     parser.add_argument("--format", choices=("table", "json"), default="table")
