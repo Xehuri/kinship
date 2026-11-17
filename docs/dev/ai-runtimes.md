@@ -1,6 +1,6 @@
 # Kinship AI 运行时：Loom、dsh 与自带 harness
 
-> 状态：2026-11-15。本文是 AI 运行时选择与定位的唯一真源。适配器接口见 [adapter-contract.md](adapter-contract.md)。
+> 状态：2026-11-17。本文是 AI 运行时选择与定位的唯一真源。适配器接口见 [adapter-contract.md](adapter-contract.md)。
 >
 > 一句话：Loom 是 Kinship 的默认运行时和完整工作流；dsh 是给已经拥有自己 harness 的用户准备的可选接入路径；其他 harness 按适配器契约接入。
 
@@ -47,8 +47,10 @@ dsh 是另一条可选路径，面向已经运行 dsh、并且愿意安装 Kinsh
 - `kinship-plan-scheduler`：Loom 计划调度器的 dsh 移植——读同一份母版与当日覆盖层，按锚点/看门狗对账，把每日计划唤醒投递进绑定会话（见 3.1）。
 - `kinship-task-compat`：提供与 Loom 工具名兼容的任务工具。
 - `kinship-compact`：给 Kinship 会话加模型可调用的 `compact_context`（回合结束后执行，与自动压缩、人类 `/compact` 并列）。
-- `kinship-ui`：dsh Web 左侧栏的 **Kinship** 面板。桥接状态、token 显示/轮换、桥接配置（地址、端口、绑定策略、请求体上限等）、可绑定会话和接入片段都在这一页完成，等价于在 dsh 自己的 UI 里完成接入配置，不需要手改 profile 配置。
-- Kinship preset：把 persona、工具面、压缩和计划装配成一个 dsh preset。
+- `kinship-tools`：四个原生工具（手机通知、提醒板写入/读取、TTS），经 `kinship-bridge` 的内存凭据直连后端，替代 `ai_mcp` MCP 进程。
+- `kinship-isolation`：preset 级排异——在 Kinship 会话作用域遮蔽 host 的记忆提示词段并限制 host 的记忆工具（默认 `memory:index` 与 `memory_` 前缀），不影响其他 preset 与主机会话。
+- `kinship-ui`：dsh Web 左侧栏的 **Kinship** 面板，分「概览 / 排异 / 计划 / 接入 / 设置」五页。桥接状态、token 显示/轮换、桥接配置（地址、端口、绑定策略、请求体上限等）、可绑定会话、计划排班、排异结果和接入片段都在这里完成，不需要手改 profile 配置。
+- Kinship preset：把 persona、工具面、压缩、计划、原生工具与排异装配成一个 dsh preset。
 
 后端侧由 `backend/services/dsh_event_bridge.py` 把 dsh 原生事件（含实时流帧）翻译成前端已认得的 SSE 词表，并在 `/health` 里暴露 dsh 探针（bridge 连通性与绑定状态），因此 dsh 模式下网页对话同样有实时流式渲染。
 
