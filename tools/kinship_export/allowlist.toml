@@ -31,8 +31,9 @@ circuitjs_location = "separate plugin repository (not exported here)"
 docs_check_gap = "tools/docs-check/check_docs.py scans markdown and AGENTS files only; it does not scan backend tests, app/desktop/frontend sources, or docs/migration"
 
 [allow]
-# Exact files at the repository root only. Nested files are allowed through the
-# explicit directory trees below.
+# Exact files. Root-level files are the norm; a nested exact file is used only
+# when exporting its whole parent tree would over-export (for example
+# "frontend/LICENSE" while frontend/ itself is restricted to mobile/).
 files = [
   ".gitattributes",
   ".gitignore",
@@ -40,13 +41,16 @@ files = [
   "CHANGELOG.md",
   "CONTRIBUTING.md",
   "LICENSE",
+  "NOTICE",
   "README.md",
   "README.en.md",
   "README.zh-CN.md",
+  "SECURITY.md",
   "THIRD_PARTY_NOTICES.md",
   "VERSION",
   "build.gradle.kts",
   "config.example.yaml",
+  "frontend/LICENSE",
   "gradle.properties",
   "gradle/wrapper/gradle-wrapper.jar",
   "gradlew",
@@ -59,6 +63,8 @@ files = [
   "setup.ps1",
   "start.bat",
   "start.ps1",
+  "tools/check_stratum_commands.py",
+  "tools/check_stratum_prompts.py",
 ]
 
 # Literal directory trees. The trailing slash is required and no wildcard is
@@ -73,9 +79,11 @@ trees = [
   "docs/",
   "frontend/mobile/",
   "gradle/",
+  "harness-plugins/",
   "LICENSES/",
   "loom-harness/",
   "scripts/",
+  "tools/docs-check/",
   "tools/kinship_export/",
 ]
 
