@@ -143,17 +143,16 @@ sudo systemctl enable --now kinship
 - **dsh 适配路径（可选）**：`harness-plugins/` 提供 8 个插件包与 `kinship` preset，把已有的 dsh 接成 Kinship 运行时；需要自带 dsh、手动安装（`link:` 依赖或同步脚本）、绑定会话并配置 token，不是开箱即用。已覆盖：计划排班（与 Loom 读同一份母版/覆盖层，计划根由后端经 bridge 推送）、`plan_note` / `plan_done` 覆盖层写回、模型可调用的 `compact_context`、通知/提醒/TTS 原生工具（经 bridge tool-auth 直连后端），以及 preset 级排异（遮蔽 host 记忆提示词段、限制 `memory_*` 工具）。dsh Web 左侧栏的 **Kinship** 面板分「概览 / 排异 / 计划 / 接入 / 设置」五页。Loom 仍是默认工作流；见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) 与 [harness-plugins/README.md](harness-plugins/README.md)。
 - **三层工作流**：脚本层（`fact_extractor.py` / `check_coverage.py`）→ 子智能体层（data-check / reviewer）→ 主智能体层（派发、验收、自优化）。
 - **定时调度**：默认 7 个数据检查窗口（00/06/08/12/16/20/22），每日复盘 00:40，双周复盘 1/15 18:30，周报周一 03:00。
-- **记忆 A 方案**：主会话常驻 6 件（约 36.5 KB），批次/复盘 role 注入 5 件 core；`memory_write` / `memory_retrieve` / `memory_audit` / `memory_consolidate`；检索以 `grep` + `read` 为主。
+- **记忆协议（Phase A）**：证据 → `ledger/`（facts / rules / open）与 `notes/`（观察 / 案例 / 人格 / 判断 / 长尾 / 提案）→ 投影。主会话注入 6 件投影（必读、身份、state、core、topics INDEX、active-tasks），只写 `notes/proposals` 等提案；02 日复盘是唯一日更写入者，旧 A 方案文件冻结只读，`memory_finalize.py` 做收尾门。
 - **MOSS 旁路（转正执行中）**：`tools/moss-shadow/`，`axeuh-moss` + `axeuh-moss-watch`，输出 `audio_deepdive.jsonl`；七步已完成，待两日回归 + 七天观察；事实文件只消费 `静音`/`ambient`，human/mixed/device 留审计；`perception.jsonl` 与主链零改动。多实例部署可用 `moss.data_root` / `moss.state_dir` 隔离各自的 watcher 数据与状态。
 - **QQ 网关**：单 WS + SQLite inbox/outbox/read-state/water-state + qq CLI IPC `127.0.0.1:8770`；qq-mcp 已退役；群聊元数据提醒与水群模式；默认关闭，生产已启用。
-- **Loom 运行时**：交互式 PTY、flow 自动唤醒、回执简化、ops+chat 双视角压缩。
+- **Loom 运行时**：交互式 PTY、自动唤醒、回执简化、ops+chat 双视角压缩。
 
-### Loom 的四个特点
+### Loom 的三个特点
 
 - **Plan 机制**：`plan` 工具提供 `read` / `commit` / `revise` / `note` / `close`，把当日计划、coverage 检查点、care 与长任务写成带版本和 CAS 校验的计划文件。日计划与计划复核走 Plan mode，只读并执行 `plan commit` / `plan revise`，不执行 care、不主动发用户通知。
-- **Flow 机制**：`flow_commit` / `flow_list` / `flow_get` 维护可恢复的主线，记录 `active` / `waiting_user` / `waiting_event` / `closed` 状态、focus、`next_decision_at` 与关闭条件。FlowGate 只在主会话生效，`flowEnded` 负责收束回合，自动唤醒按 `next_decision_at` 投递；旧的 converge 路径已禁用。
 - **上下文 diff**：每个会话维护自己的上下文快照。`SessionContextWatcher` 只轮询注入源的 stat 变化，把变化转成有字节预算的 unified-diff notice，下一轮只注入变化片段，而不是把整份 memory 和历史重新灌入。
-- **上下文注入**：装配顺序是稳定前缀（`AGENTS.md` + memory + 任务 prompt）→ boundary 摘要 → 每轮增量尾部。稳定前缀字节恒定以命中 prompt cache；memory Markdown 自动扫描，源缺失或损坏时 fail-soft；压缩只写 boundary 摘要，并提供 ops/chat 双视角。
+- **上下文注入**：装配顺序是稳定前缀（主会话提示词 + memory + 任务 prompt）→ boundary 摘要 → 每轮增量尾部。稳定前缀字节恒定以命中 prompt cache；memory Markdown 自动扫描，源缺失或损坏时 fail-soft；压缩只写 boundary 摘要，并提供 ops/chat 双视角。
 
 ## 文档索引
 

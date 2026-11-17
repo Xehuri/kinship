@@ -26,8 +26,8 @@ Loom 提供的完整工作流包括：
 
 - 任务与调度：数据检查、每日复盘、周报、双周回顾、计划唤醒与自动唤醒按 Kinship 的节拍运行。
 - 计划与覆盖：plan 工具维护当日计划、coverage 检查点和长期条目，计划变更有版本与冲突校验。
-- 记忆：主会话与批次按不同注入面读取记忆，写入走受控工具，复盘做增量收割。
-- Flow 与收敛：主线状态、等待条件、下一决策时间与回合收束都在运行时内维护。
+- 记忆：主会话与批次按不同注入面读取记忆；写入按角色归属直接编辑 `ledger/` 与 `notes/`，复盘做增量收割。
+- 收敛与唤醒：主会话收敛、`wake` 自动唤醒与回合收束都由运行时维护。
 - 压缩：按 ops 与 chat 两个视角生成摘要，只写压缩边界，不重灌全量历史。
 - 工具链：PTY、子智能体、通知、收件箱与 QQ 通道按 Kinship 的接口对接。
 
@@ -58,7 +58,7 @@ dsh 路径的定位：
 
 - 可选：它不改变 `ai_backend` 的默认值，默认仍然是 Loom。
 - 自带：用户自带 dsh、模型和运行环境，Kinship 只维护适配层。
-- 有边界：适配器契约只承诺单会话、消息、状态、事件和收件箱；手动压缩、模型目录、上下文窗口是适配层额外的可选端点，flow 收敛与 Loom 其余专有工具面不在等价范围内。
+- 有边界：适配器契约只承诺单会话、消息、状态、事件和收件箱；手动压缩、模型目录、上下文窗口是适配层额外的可选端点，收敛与 Loom 其余专有工具面不在等价范围内。
 - 已实现参考适配：dsh 适配层已有单元与集成测试；本文不声明所有部署环境的生产可用性，首次接入仍需自行验证。
 
 dsh 是 Loom 之外的另一条可选路径。选择 dsh 的理由通常是你已经有一套自己的 harness 和工具习惯，而不是因为 Loom 不能完成 Kinship 的工作流。Loom 继续作为默认运行时维护；dsh 也不改变这个默认值。
@@ -72,7 +72,7 @@ dsh 现在也有计划排班。`kinship-plan-scheduler` 是 Host 级插件，读
 - 投递：每条到点条目先落到 `{stateDir}/session/wake-queue/{sessionId}.json`（schema 2、原子写、进程级实例锁），再由 `kinship-bridge` 的 `deliver` 作为普通用户消息注入绑定会话（冷会话会先恢复）；投递失败重试一次（30s），再失败归档 `failed`。`plan` 条目保留 48 小时。
 - 唤醒行契约：`【计划唤醒·<action>】HH:MM · <title>` + 指令 + `条目：<id>` + 尾行 + `不发用户通知，除非条目要求。`。尾行（W59 起）恢复 Loom 的 `完成后执行 plan done（date=…, id=…）`，合并补做条目逐条列 slot id；原因是 `kinship-plan` 的 note/done 现在会在当日 v1 账不可服务（缺失 / closed / 不含目标 id）时写回当日覆盖层 `plan-{date}.overlay.json`，并新增 `plan_overlay_read` 让模型先看生效计划的 id 与覆盖层版本。`plan.build` / `plan.review` 仍写「完成后只写当日计划，不需要 plan done。」。写回要求当日 `plan/master.json` 至少有一个 anchor 条目；`plan done` / `plan note` 在当日 v1 账缺失或 closed 时可省略 `expected_version`，v1 仍 open 时工具会返回带当前版本的校验错误。
 - 面板：Kinship 页的「计划排班」卡片可启停条目、改时间、增删条目、立即对账、创建默认排班；并标出计划根来源（backend 推送 / 行配置 / env / 默认）与最近同步时间。写操作走 owner-only 的 `/api/kinship/ui/plan*`，每次带版本号，冲突返回 409 而不是覆盖。
-- 与 Loom 的差异：当日存在 v1 `plan-{date}.json` 时仍排母版条目（Loom 会用旧计划整体替换当日视图）；只实现 `plan` 唤醒来源（没有 flow / special / inbox 生产者）；状态根默认 `$DSH_HOME/kinship/state`。完整清单见 [harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)。
+- 与 Loom 的差异：当日存在 v1 `plan-{date}.json` 时仍排母版条目（Loom 会用旧计划整体替换当日视图）；只实现 `plan` 唤醒来源（没有 special / inbox 生产者）；状态根默认 `$DSH_HOME/kinship/state`。完整清单见 [harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)。
 
 验证与关闭：
 

@@ -58,7 +58,7 @@
 
 - 真源：`ai/data/plan/master.json`（版本化母版，含固定时段、7 个 coverage 锚点、长期条目）+ `ai/data/daily/{date}/plan-{date}.overlay.json`（当日 diff）+ `plan-ledger.jsonl`（只追加账本）。`master.md` 是人读视图，旧 `plan-{date}.json` 只读回退。
 - 工具：`plan read/base/diff/revise/done/note/close`；`done` 只写覆盖层与账本，**主会话写完成字段，调度器不推断完成**。master 只能走显式 `loom plan master edit`（CAS），日计划不能改母版。工具输出为紧凑纯文本（2026-10-28 起）；`read`/`base` 用 `include_instruction: true | ["id"]` 按需展开任务正文，并支持 `status`/`kind` 过滤；`diff`/`revise` 支持 `user_intent`（只记录，不参与 coverage）；care 的 `done_when` 必须非空且含 `HH:MM` 或配非空 `window`，否则改用 `kind=note`。
-- 队列：`{stateRoot}/session/wake-queue/{sid}.json`，plan/flow/special 多条目共存，一条最早定时器；投递失败只重试一次（+30 秒），随后归档 `failed` 并走死信；启动恢复并迁移旧单槽唤醒。Flow 只对账 `flow` 来源，不覆盖 plan。
+- 队列：`{stateRoot}/session/wake-queue/{sid}.json`，plan/special 多条目共存，一条最早定时器；投递失败只重试一次（+30 秒），随后归档 `failed` 并走死信；启动恢复并迁移旧单槽唤醒。
 - 对账：boot、05:00、07:30、看门狗与 `POST /plan/reconcile` 触发；默认 48 小时视野、8 小时追赶、8–24 小时迟到补做、超过 24 小时记欠账；连续迟到的 coverage 合并为一个补做条目。
 - 配置：`ai/.loom/config.yaml` 的 `scheduling` 段，`wakeQueue`/`planScheduler` 取 `live|shadow|off`；`sessionId` 不配置，调度目标由 boot 解析出的主会话决定。缺省或两者 `off` = 旧路径。`shadow` 只写 `{stateRoot}/plan/shadow/{date}.jsonl`，不投递。
 - 端点：`POST /plan/reconcile`（202，幂等；body `{reason?, anchor?}`）与 `GET /plan/state?sessionId=&date=`（master/overlay 版本、队列 pending/delivered 尾、账本尾、degraded）。

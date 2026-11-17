@@ -11,7 +11,7 @@
 - [6. 子智能体](#6-子智能体)
 - [7. 分析脚本](#7-分析脚本)
 - [8. 数据接口与数据流](#8-数据接口与数据流)
-- [9. 记忆系统（A 方案）](#9-记忆系统a-方案)
+- [9. 记忆协议（Phase A）](#9-记忆协议phase-a)
 - [10. MOSS 深度音频影子管线](#10-moss-深度音频影子管线)
 - [11. QQ 网关](#11-qq-网关)
 - [12. 核心设计原则与边界](#12-核心设计原则与边界)
@@ -79,7 +79,7 @@ Loom 是公开模板默认的助手宿主，固定为 `127.0.0.1:5100`，由 sys
 
 AI 处理任何数据都遵循“脚本层 → 子智能体层 → 主智能体层”：
 
-- **脚本层**：`fact_extractor.py` 把原始 JSON 转成可读事实文件；`check_coverage.py` 验证时间线覆盖；记忆工具做体检与巩固。只做机械活，不做语义分析。
+- **脚本层**：`fact_extractor.py` 把原始 JSON 转成可读事实文件；`check_coverage.py` 验证时间线覆盖；记忆收尾门检查预算与新鲜度。只做机械活，不做语义分析。
 - **子智能体层**：`data_checker` / `reviewer` / `05-audit` 按各自 prompt 做专业分析，写理解记录、复盘、周报与审计产物。不做跨域决策，不直接回复用户。
 - **主智能体层**：理解意图、派发任务、验收产物、处理异常、自优化。L2 分析不亲自下场，只读脚本与子智能体的结论。
 
@@ -89,11 +89,11 @@ AI 处理任何数据都遵循“脚本层 → 子智能体层 → 主智能体�
 2. 主会话运行 `python ai/analysis/fact_extractor.py {date} --hours {start}~{end}`，把原始感知合并进 `事实-全天.md`。
 3. 主会话派 `data_checker`（或 `01_data_check`）子智能体，按 `ai/agents/01-data-check.md` 逐段写 `理解-{date}-批次-{HH}.md`。
 4. 运行 `python ai/analysis/check_coverage.py {date}` 复核覆盖；未过则回补缺口。
-5. 子智能体在收尾写执行日志、在 git commit body 写 `## 任务概要`，主会话读完整 body 验收。
+5. 子智能体在收尾写产物文件、在 git commit body 写 `## 任务概要`，主会话读完整 body 验收。
 
 ### 每日复盘流程
 
-00:40 的 `12-daily-review.yaml` 先跑 `check_coverage.py` 验证昨天数据完整，再把昨天交给 `reviewer` 执行 `ai/agents/02-daily-review.md`：读取当天全部批次理解文件，做跨日对比、异常检测与记忆收割，写 `复盘-{date}.md`，更新 `fact/{月}.md` 与执行日志后提交；主会话验收文件存在与 commit 概要。
+00:40 的 `12-daily-review.yaml` 先跑 `check_coverage.py` 验证昨天数据完整，再把昨天交给 `reviewer` 执行 `ai/agents/02-daily-review.md`：读取当天全部批次理解文件，做跨日对比、异常检测与记忆收割，写 `复盘-{date}.md`，更新 `fact/{月}.md`、`memory/ledger/`、`memory/notes/` 与投影后提交；主会话验收文件存在与 commit 概要。
 
 分析产出类任务（01 批次分析、02/03/04 复盘）必须独立完成，禁止嵌套孙代理；待办、调研、信息收集类任务可以派孙代理辅助，委托型业务由批次按 01 步骤 8 自行派发。
 
@@ -102,9 +102,8 @@ AI 处理任何数据都遵循“脚本层 → 子智能体层 → 主智能体�
 
 ```text
 ai/
-├── AGENTS.md                 # 一级记忆：不变的系统规定与导航
 ├── agents/                   # 子智能体 prompt + 规则库
-│   ├── main.md               # 主会话身份声明（人格/模式/边界）
+│   ├── main.md               # 主会话身份声明 + 操作规程（系统提示词）
 │   ├── 01-data-check.md ~ 04-weekly-review.md
 │   ├── 05-audit.md           # 夜间审计
 │   ├── 复盘-公共.md           # 02/03/04 共享流程
@@ -116,7 +115,7 @@ ai/
 │   ├── users/{user}/health/{date}/  # 健康源分片 phone.json/cloud.json
 │   ├── tasks/                # 定时任务 YAML + 常驻 Python 脚本
 │   └── cache/                # 运行时缓存
-├── memory/                   # 长期记忆（self / profile / fact / topics）
+├── memory/                   # 长期记忆（ledger / notes / 投影 / legacy）
 ├── .loom/                    # Loom 配置、会话与运行状态
 └── skills/                   # Loom 技能（如 loom-handover）
 ```
@@ -152,7 +151,7 @@ Loom 同时按单主会话运行（2026-10-28）：`GET /sessions/main` 是唯�
 - master：`{planRoot}/plan/master.json`，版本化，包含固定时段、7 个 coverage 锚点与长期条目；`master.md` 是派生人读视图，`master.last-good.json` 供降级读取。模型不写 master，编辑只走 `loom plan master edit` 的 CAS。
 - 每日覆盖层：`{planRoot}/daily/{date}/plan-{date}.overlay.json`，带 `base_version` 和 add/update/remove/note 四种 diff op。有效视图 = master 当日物化 + overlay 合并；旧 `plan-{date}.json` 只读回退。
 - 工具面：`plan read/base/diff/revise/done/note/close`。`done` 只写覆盖层与 `plan-ledger.jsonl`，主会话拥有完成状态，调度器不推断完成。工具输出为紧凑纯文本（2026-10-28 起，plan/long_task/搜索/task_fetch 均不再回灌 JSON），结构化数据留在 `details`；`read`/`base` 默认隐藏任务 `instruction` 正文，`include_instruction: true | ["id"]` 按需展开；`leftovers` 只保留昨日 `planned/blocked/carried` 且不在当日计划中的条目。`diff`/`revise` 支持 `user_intent`（只记录，不参与 coverage）；`read`/`base` 支持 `status`/`kind` 过滤（`anchor` 别名）；新增或改写 care 的 `done_when` 必须非空且含 `HH:MM` 或配非空 `window`，否则改用 `kind=note`。
-- WakeQueue：`{stateRoot}/session/wake-queue/{sid}.json`，plan/flow/special 多条目共存，每会话一条最早定时器；投递失败重试一次（+30 秒），随后归档 failed 并走死信；启动时恢复并迁移旧单槽唤醒。
+- WakeQueue：`{stateRoot}/session/wake-queue/{sid}.json`，plan/special 多条目共存，每会话一条最早定时器；投递失败重试一次（+30 秒），随后归档 failed 并走死信；启动时恢复并迁移旧单槽唤醒。
 - PlanScheduler：boot、05:00、07:30、看门狗与 `POST /plan/reconcile` 触发确定性对账；默认 48 小时视野、8 小时追赶、8 到 24 小时迟到补做、超过 24 小时记欠账。shadow 只写 `{stateRoot}/plan/shadow/{date}.jsonl`，不投递。
 - 锚点：`ai/analysis/plan_anchor.py` 先调用 `POST /plan/reconcile`，失败才回退旧唤醒消息；`axeuh-loom-plan.timer`（05:00）与 `axeuh-loom-review.timer`（07:30）已安装并 enabled。`GET /plan/state` 只读当前队列、版本与账本尾。
 - 主会话与调度：主会话为 `ses_6320...`（历史转录，已 unarchive），config 不写 `mainSessionId`/`sessionId`，由 marker 固定并由调度回落；`loom_main` 仍 archive，旧队列退休。
@@ -230,7 +229,7 @@ prompt: |-
 | 夜间审计 | `05-audit.md` | 机械采集 + 审计检查项，输出 PASS/FAIL/WARN/SKIP | `audit-{date}.txt` 与复盘审计小节 |
 | 主会话 | `main.md` | 身份、模式、工具与边界声明 | 会话行为 |
 
-`02/03/04` 共享 `复盘-公共.md` 的读 self、数据盘点、置信度、探索、执行日志、提交与通知流程；各自只保留节奏与模板差异。原 `05-feedback-agent` / `06-study-coach` 的职责已并入 01 步骤 7/8；小红书卡片任务已停用，不在现行 `agents/` 目录。`data-checker.md` / `reviewer.md` 是薄壳定义，实际流程在带编号的 role 文件中。
+`02/03/04` 共享 `复盘-公共.md` 的读注入、数据盘点、置信度、探索、记忆收割、提交与通知流程；各自只保留节奏与模板差异。原 `05-feedback-agent` / `06-study-coach` 的职责已并入 01 步骤 7/8；小红书卡片任务已停用，不在现行 `agents/` 目录。`data-checker.md` / `reviewer.md` 是薄壳定义，实际流程在带编号的 role 文件中。
 
 子智能体正常情况下每批独立新建会话；意外中断时复用原 `session_id` 重试并说明已完成内容，不要新建会话覆盖已有产物。仅当 session 完全不可用时才降级新建，并先备份已产出文件。
 
@@ -269,7 +268,7 @@ python ai/analysis/check_coverage.py 2026-10-22
 | `audit_collector.py` / `session_context.py` | 夜间审计采集、只读会话上下文与通知核对 |
 | `query_chatlog.py` / `query_session_stats.py` | 历史对话与 token/花费查询 |
 | `audio_mimo_analyzer.py` / `listen_audio.py` | MiMo 音频理解与试听 |
-| `memory_audit.py` / `memory_write.py` / `memory_retrieve.py` / `memory_consolidate.py` | 记忆体检、写入、检索、巩固 |
+| `memory_finalize.py` / `memory_audit.py` / `memory_consolidate.py` | 记忆收尾门（预算/新鲜度/legacy 检查）、旧档体检、离线巩固；写入改由各 agent 直接编辑 `ledger/` 与 `notes/` |
 
 `legacy/` 与 `mimo_batch_run*.py` 是实例专用实验残留，不属于通用工具。
 
@@ -290,54 +289,82 @@ python ai/analysis/check_coverage.py 2026-10-22
 
 数据检查时序：调度器到点投 prompt → 主会话跑 `fact_extractor.py --hours` 得到事实文件与行号范围 → 派 `data_checker` 子智能体逐段写理解文件 → 跑 `check_coverage.py` 复核 → 子智能体写 commit body，主会话读完整 body 验收。
 
-输出与消费：数据检查写 `理解-{date}-批次-{HH}.md`，每批独立，不覆盖已存在批次；复盘写 `复盘-{date}.md` 并更新 `fact/{月}.md` 的当日行与执行日志；周报/双周写 `ai/data/reports/`；健康清单由脚本生成，供复盘与主会话读取。运行数据不提交 git，只提交 `ai/` 文本产物与脚本变更。
+输出与消费：数据检查写 `理解-{date}-批次-{HH}.md`，每批独立，不覆盖已存在批次；复盘写 `复盘-{date}.md` 并更新 `fact/{月}.md` 的当日行、`memory/ledger/`、`memory/notes/` 与投影；周报/双周写 `ai/data/reports/`；健康清单由脚本生成，供复盘与主会话读取。运行数据不提交 git，只提交 `ai/` 文本产物与脚本变更。
 
 ---
-## 9. 记忆系统（A 方案）
+## 9. 记忆协议（Phase A）
 
-2026-10-20 起生产采用 A 方案：主会话少注入、批次按需检索、写入治理优先于检索扩张。
+2026-11-14 起生产记忆改用「记忆协议 Phase A」，替换 2026-10-20 的 A 方案。规则唯一真源是 AI 根内的 `memory/PROTOCOL.md`，`memory/README.md` 只做导航；各 agent prompt 只引用协议，不重复 schema 与预算。Phase A 只做提示词与结构治理：不建 CLI/索引、不接 Stratum memory、不全量迁移旧条目；情景记忆（EPI）仍是 Phase B0 的设计，未启用。
 
-### 主会话常驻 6 件
+### 分层
 
-`ai/agents/main.md` 声明：`AGENTS.md`、`memory/self/必读.md`、`memory/self/persona-lite.md`（身份+价值校准投影，02 刷新）、`memory/profile/state.md`、`memory/profile/core-lite.md`（core+semantic 投影，02 刷新）、`memory/topics/INDEX.md`。实测约 36.5KB，旧方案约 190KB（−80.8%）。`main.md` 另声明 `memory/self/chat-mode.md` 作为模式补充。
+| 层 | 目录/文件 | 作用 | 是否注入 |
+|---|---|---|---|
+| 证据 | `data/daily/`、`data/reports/`、Stratum | 原始事实与复盘 | 否 |
+| 内核 | `memory/ledger/facts.md`、`rules.md`、`open.md` | 稳定事实、规则、未决问题 | 间接 |
+| 便签 | `memory/notes/observations.md`、`notes/{cases,persona,judgments,dossiers,topics,proposals}/` | 观察、案例、人格、判断、长尾、提案 | 否 |
+| 投影 | `profile/core.md`、`profile/state.md`、`self/必读.md`、`self/身份.md`、`self/active-tasks.md`、`topics/INDEX.md`、`self/SELF-INDEX.md` | 给 agent 读的浓缩层 | 是（SELF-INDEX 按需） |
+| 冷档 | `memory/archive/`、`memory/legacy/` | 旧档、退役文件 | 否 |
 
-### 批次/复盘注入
+单向流：证据 → 02 日复盘 → `ledger/`、`notes/` → 投影。主会话不写内核；03/04 事后审阅与压缩，不阻塞 02。
 
-四个 role 文件（`01-data-check.md`、`02-daily-review.md`、`03-biweekly-review.md`、`04-weekly-review.md`）通过 frontmatter 注入 5 件 core：`AGENTS-lite.md`、`必读.md`、`state.md`、`core-lite.md`、`topics/INDEX.md`；2026-10-20 起另机载 `memory/profile/规律-摘要.md`（规律层）。实际注入以 role frontmatter 为准。
+### Entry 模型
 
-### 记忆工具
+一条 entry 是一个语义单位，文件只是容器，从 `## <ID> <title>` 开始。类型：
 
-| 工具 | 用途 |
+- `FACT-<domain>-NNN`：`entity / attribute / value / valid_from / valid_to / confidence / source`。
+- `RULE-<YYYY-MM-DD>-<scope>-NN`：`scope / trigger / action / exceptions / evidence / confidence`。
+- `OPEN-<YYYY-MM-DD>-<scope>-NN`：`question / blocking / evidence / owner`。
+- `OBS-<domain>-NNN`：`verification / expires / evidence / confidence`，放 `notes/observations.md`。
+- `NOTE-<YYYY-MM-DD>-NN`：`date / tags / links / source`，放 `notes/cases/` 或 `notes/topics/`。
+
+状态：`active`（默认） / `draft` / `stale` / `superseded` / `refuted` / `archived`。默认查询和投影只读 active；新值替换旧值必须新建 entry，并把旧 entry 标 `superseded` + `superseded_by`，禁止静默覆盖；`review_due` 过期由 03/04 标 stale，不自动删除。
+
+### 去重
+
+fact 键 `entity + attribute + scope`；rule 键 `scope + trigger + action`；open 键为规范化问题文本。同键同值 NOOP；同键新值新建 + supersede 旧 entry；同键同时间冲突写 `ledger/open.md` 或 `notes/proposals` 标冲突，不覆盖。不做行级去重，语义重复交 03 复核。
+
+### 注入
+
+主会话注入 6 件投影：`self/必读.md`、`self/身份.md`、`profile/state.md`、`profile/core.md`、`topics/INDEX.md`、`self/active-tasks.md`；`self/SELF-INDEX.md` 是导航投影，按需读。子智能体按各自 prompt 的 frontmatter 注入：
+
+| 角色 | 注入 |
 |---|---|
-| `ai/analysis/memory_audit.py` | 只读体检：常驻件数、role 注入、超线、tag、投影新鲜度、摘要/索引上限、孤儿 |
-| `ai/analysis/memory_write.py` | 原子写与去重：append-log、append-scratch、upsert、mark、check、snapshot；目录锁 + temp + fsync + `os.replace` |
-| `ai/analysis/memory_retrieve.py` | 只读检索：中文 2-gram + ASCII，按标题切段，`0.55 relevance + 0.30 recency + 0.15 importance`，按 UTF-8 字节预算截断 |
-| `ai/analysis/memory_consolidate.py` | 离线巩固：daily 只清已标记 7 天 scratch；weekly 只报告重复/陈旧/超线/已完成任务 |
-| `fact_extractor.py --update-summary` | 写当日摘要 v2（≤24KB）与批次索引（每批一行，≤4KB） |
+| 01 数据检查 | `AGENTS-lite`、`state`、`core`、`topics/INDEX`、`规律` |
+| 02 日复盘 | `AGENTS-lite`、`必读`、`state`、`core`、`topics/INDEX`、`规律` |
+| 03 双周 | `AGENTS-lite`、`state`、`core`、`topics/INDEX` |
+| 04 周报 | `AGENTS-lite`、`state`、`core` |
 
-`memory_retrieve.py` 仅辅助定位：2026-10-20 自拟 50 题基线 hit@12 35%、偏好 0/6、无答案 10/10 误召。自然语言、偏好、关系、日期优先用 `grep` + `read` 指定文件，命中后必须验证。检索升级不在本期范围。
+实际注入以 `ai/agents/*.md` 的 frontmatter 为准。
 
-### 写入与治理
+### 归属与写入
 
-- 每条知识只在一个地方定义；上层只放路径，细节不复制。
-- 同 key 同文本写入为 NOOP；不同文本旧条目 `superseded` 并保留正文，不删除旧事实。
-- 任务/状态类记忆只保留当前状态，完成即销；历史由 git 与 `daily/`、`fact/` 承担。
-- 执行日志保留在 `ai/memory/self/执行日志/` 原位，不搬 `data/ledger`；归档只清已标记的 7 天 scratch 行，正文不做自动合并或删除。
+| 角色 | 读 | 写 |
+|---|---|---|
+| 主会话 | 6 件投影；按需读 `notes/`、`ledger/`、旧文件（只读） | 只写 `notes/proposals/`、`notes/persona/`、`notes/judgments/`；不写 `ledger/`，不追加旧文件；当场确认的身份/红线写 proposals 并标 `immediate: true`，不直接改 `身份.md` |
+| 01 数据检查 | 上述 5 件 | 批次理解文件的 `## 关键观察`、`## 转达` |
+| 02 日复盘 | 6 件 | 日更唯一写入者：`ledger/`、`notes/`、6 个投影 |
+| 03 双周 | 4 件；旧 `semantic/` 只读 | `notes/observations` 升格、`ledger` 去重/复核、`notes/dossiers` |
+| 04 周报 | 3 件；旧文件按需只读 | `notes/` 压缩、`archive/`、legacy 压缩记录 |
+| 05 审计 | 全部只读 | 审计报告 |
 
-### 记忆收割（每日复盘）
+### 预算
 
-| 判定 | 去处 |
-|---|---|
-| 已确认稳定事实/属性 | `profile/semantic/people/`、`事项/`、属性四文件 |
-| AI 推断待验证 | `self/认知.md` |
-| 执行型待办 | `self/任务.md` |
-| 用户纠正 AI | `self/纠错.md` |
-| 用户认可的做法 | `self/价值校准.md` |
-| 里程碑/承诺 | `self/关系.md` |
-| 状态快照变化 | `profile/state.md`（整文件覆盖） |
-| 每日客观事件 | `fact/{月}.md` 当日行 |
+`profile/core.md` 8KB、`self/必读.md` 3KB、`profile/state.md` 3KB、`self/身份.md` 5KB、`self/active-tasks.md` 3KB、`topics/INDEX.md` 2KB、`self/SELF-INDEX.md` 4KB；`ledger` 合计 ≤60KB（facts 25KB、rules 25KB、open 10KB）；`notes/` 热数据 ≤200KB；`archive/` 不限。超预算不得净增长：新增必须等量删/压，或移入 `notes/archive`；投影只含 active 内容，并标 `generated: true` / `projection: true`。
 
-只做增量检测，无增量零写入；复盘收尾必更新 fact 月度行与执行日志。
+### 冻结与退役
+
+2026-11-14 起以下文件只读，不再追加：`self/纠错.md`、`self/认知.md`、`self/任务.md`、`self/价值校准.md`、`self/关系.md`、`profile/semantic/**`、`topics/*.md`（`INDEX.md` 除外）；新内容写 `ledger/` 或 `notes/`。`self/人格方案-2026-11-13.md`、`self/他这个人.md` 的副本已进 `notes/persona/`、`notes/judgments/`，原件冻结备查。旧 A 方案的 `persona-lite.md`、`core-lite.md`、`规律-摘要.md`、`self/执行日志/`、`self/scratch/` 与 `memory_write.py` 已退役，不重建。04 可压缩/归档 legacy，但必须记录删了什么、去哪。
+
+### 收尾门与检索
+
+日复盘 commit 后运行 `analysis/memory_finalize.py`，检查预算、新鲜度、legacy 是否被改、投影状态，结果落 `memory/MEMORY-STATUS.json`；`status` 非 passed 时通知。`memory_audit.py` 在 Phase A 保留为旧检查器，已知与 lite 注入清单有漂移，Phase B 统一修。
+
+记忆检索以 `grep` + `read` 为主；`analysis/query.py --scope memory --grep` 可做记忆域检索，事件/报告检索走 `stratum query`，对话检索走 `query_chatlog.py`。旧的 `memory_retrieve.py` 基线差（hit@12 35%、偏好 0/6），不作为主路径。
+
+### 迁移边界
+
+公开模板 `ai-template/` 仍随旧骨架（A 方案）发布；生产实例的协议文件、`ledger/`、`notes/` 与冻结清单在私有 AI 根内维护，公开树不包含。迁移与初始化以实例内的 `memory/PROTOCOL.md` 为准。
 
 ---
 ## 10. MOSS 深度音频影子管线
