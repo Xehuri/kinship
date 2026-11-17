@@ -62,6 +62,35 @@ npm run build
 DSH_HOME=/path/to/dsh-home bash scripts/sync-profile.sh web
 ```
 
+> **注意（2026-11-17）**：`sync-profile.sh` 只把构建产物拷进 profile 的 `node_modules/`，不会在
+> profile 的 `package.json` 里声明依赖。只要在该 profile 里用 dsh 插件管理器或 `dsh plugin`
+> 安装、升级、移除任何插件，pnpm 就会把这些未声明的目录当多余依赖清理（移入
+> `node_modules/.ignored/`），随后 dsh 启动或热重载会报
+> `skipping profile bundle "kinship-harness-plugins"`，bridge 端口不再监听、后端 dsh 探针 offline。
+> 此时**重启 dsh 不会恢复**，必须重装依赖。
+>
+> 长期部署请改用 `link:` 依赖（一次装好，之后插件操作不会再清理；更新流程 = 本仓库
+> `npm run build` + 重启 dsh）：
+
+```bash
+cd /path/to/server                # 包含 kinship 检出的目录
+export PATH=/path/to/node24/bin:$PATH
+REPO=/path/to/server/kinship/harness-plugins
+DSH_HOME=/path/to/dsh-home dsh plugin --profile web add \
+  "link:$REPO" \
+  "link:$REPO/packages/kinship-bridge" \
+  "link:$REPO/packages/kinship-ui" \
+  "link:$REPO/packages/kinship-plan" \
+  "link:$REPO/packages/kinship-plan-scheduler" \
+  "link:$REPO/packages/kinship-compact" \
+  "link:$REPO/packages/kinship-task-compat"
+```
+
+六个插件包会提示 `declares no dsh.bundle … plain dependency`，属正常（bundle 在
+`dsh.profile.bundles`，插件包只是普通依赖）。事故细节、判据与恢复步骤见
+[docs/ops/dsh-production-rollout.md](../docs/ops/dsh-production-rollout.md) 第 9 节。如果继续使用
+`sync-profile.sh`，必须把“装/升级/移除任何插件后重新同步并重启 dsh”写进操作流程。
+
 生产切换的完整步骤（环境变量、bundle 选择、重启、绑定会话、热切 `ai_backend`、回滚）见
 [docs/ops/dsh-production-rollout.md](../docs/ops/dsh-production-rollout.md)。
 

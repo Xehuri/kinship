@@ -966,6 +966,51 @@ sudo ls -l /etc/kinship-qq-gateway/mcp.token
 
 4. 3001 没有连接时，检查 NapCat 自身与网络；不要结束 QQ 网关进程来"重连"。
 
+## 症状 19：dsh 重启后 Kinship 面板/桥接消失（skipping profile bundle）
+
+**症状**
+
+- dsh 网页本身正常，但左侧栏没有 Kinship 面板；`127.0.0.1:18765` 无监听。
+- 后端 `/health` 为 `degraded`、`dsh.status=offline`（`ai_backend=dsh` 时）。
+- dsh 启动日志出现：
+
+  ```text
+  dsh: skipping profile bundle "kinship-harness-plugins": Error: dsh: cannot resolve profile bundle
+  "kinship-harness-plugins" from the dsh installation or <dsh-home>/profiles/<name>; ...
+  ```
+
+**判据**
+
+```bash
+journalctl -u axeuh-dsh -n 80 --no-pager | grep "skipping profile bundle"
+ls -la <dsh-home>/profiles/web/node_modules/.ignored/ | grep kinship
+DSH_HOME=<dsh-home> dsh --profile web --dump-config 2>&1 | grep -c 'id: kinship-'
+ss -lntp | grep 18765
+```
+
+- `--dump-config` 计数为 0 且 `.ignored/` 里有 `kinship-*`：确认七个包被 pnpm 当多余依赖清理了。
+- 这不是后端故障；只重启 dsh 不会恢复（包仍未在 `package.json` 声明）。
+
+**处置**
+
+1. 按 [dsh-production-rollout.md](dsh-production-rollout.md) 第 9 节把七个包装成 `link:` 依赖。
+2. 已运行的 dsh 若启动时已跳过该 bundle，在 profile 的 `cordis.patch.yml` 末尾加一行注释触发
+   HMR 重新组合，或重启 dsh。
+3. 验证：
+
+   ```bash
+   ss -lntp | grep 18765
+   TOKEN=$(cat <dsh-home>/kinship/bridge-token)
+   curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18765/v1/health
+   curl -sk https://127.0.0.1:8768/health
+   ```
+
+   期望：18765 监听、`/v1/health` 为 `bound`、后端 `status=healthy`、`dsh.status=online`。
+
+**注意**
+
+- 不要用“反复重启 dsh”当作修复；`sync-profile.sh` 拷贝的包只要该 profile 再装一次插件就会复发。
+
 ## 历史事件与已退役做法
 
 > 本节保留原《部署踩坑与注意事项》的历史事件，供追溯。它不是现行操作依据；现行处置见上文章节。
@@ -1024,3 +1069,7 @@ Loom 在部分环境下收到 SIGTERM 后不退出，systemd 会停在 `deactiva
 ### H10 旧 Windows 脚本按进程名结束端口占用进程
 
 历史 `start.ps1` 曾用按进程名结束的方式释放端口，且端口清单已过时。该做法与现行操作准则冲突，属于已知问题，不再维护。Ubuntu 生产只允许 systemd 管理服务，结束残留进程只按精确 PID。
+
+### H11 2026-11-17 dsh profile 插件安装裁掉 Kinship 包
+
+主 profile 安装 `dsh-state-notifier 0.7.0` 时，pnpm 把 `sync-profile.sh` 之前拷入、但未在 `package.json` 声明的六个插件包与 bundle 移入 `node_modules/.ignored/`（`Packages: +5 -7`）；HMR 热重载后 `kinship-bridge` 无法解析，18765 关闭，后端 00:50:55 起降级。恢复方式是改用 `link:` 依赖（见症状 19 与 [dsh-production-rollout.md](dsh-production-rollout.md) 第 9 节）；只重启 dsh 无效。

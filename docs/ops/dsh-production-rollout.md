@@ -8,6 +8,11 @@
 >
 > 状态（2026-11-15 20:24）：A–D 已完成并验证，生产 `ai_backend` 已是 `dsh`、`/health.dsh=online`，
 > Loom 已被编排器判 blocked 并停用；E 为回滚预案（现在回滚 Loom 需要重启一次后端或手动启动）。详见第 3.1 节。
+>
+> 2026-11-17 补充：当天 00:50 主 profile 安装 `dsh-state-notifier` 时，pnpm 把之前由
+> `sync-profile.sh` 拷入、但未在 `package.json` 声明的 Kinship 七个包移入
+> `node_modules/.ignored/`，HMR 热重载后 bridge 掉线（重启 dsh 无效）。已改用 `link:` 依赖恢复，
+> 机理、判据与维护流程见第 9 节；后续部署/升级 profile 前先读这一节。
 
 ## 1. 结论先行
 
@@ -310,7 +315,8 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
   `kinship-harness-plugins` 并删除 profile `node_modules/kinship-*`，重启 dsh；
   或只删 `cordis.patch.yml` 里的 `kinship-plan-scheduler` 行后重新
   `sync-profile.sh web` 再重启。bridge 与面板不受影响（面板的计划卡片会提示
-  调度器未安装）。
+  调度器未安装）。如果该 profile 已按第 9 节改成 `link:` 依赖，用
+  `dsh plugin --profile <name> remove` 卸载七个包；只删 `node_modules` 会被 pnpm 重建。
 - 回滚不碰计划文件：移植引擎是加法件，不改 `master.json`（只有面板编辑才写），
   不写日计划与 overlay。`<dsh-home>/kinship/state` 下的队列与影子文件可以留着，
   再次启用且会话 id 相同时会继续用同一队列文件。
@@ -393,7 +399,105 @@ per-script 触发频率覆盖，见第 2 步）；后端配置与 `ai_backend` �
    note/done 的回退目的地，v1 真源不动，回滚也不会改已写出的 overlay 文件。
    整体软关排班仍是 `KINSHIP_PLAN_MODE=off`（§8.4）。
 
-## 9. E 段：回滚
+## 9. profile 依赖维护：插件安装会清理本地拷贝包（2026-11-17）
+
+> 本节适用于所有在同机 dsh profile 里安装 Kinship 插件的实例（生产主实例、第二实例等）。
+> 一句话：`sync-profile.sh` 只适合一次安装或手工更新；要在 profile 里长期装插件，必须把七个包
+> 声明成 `link:` 依赖，否则该 profile 里任何一次插件安装/升级都会把它们当多余依赖清掉。
+
+### 9.1 事故与机理
+
+2026-11-17 00:50，主 profile 通过 dsh 插件管理器安装 `dsh-state-notifier 0.7.0`：
+
+- pnpm 输出 `Packages: +5 -7`，把之前由 `sync-profile.sh` 拷进 profile `node_modules/` 的六个
+  插件包和 `kinship-harness-plugins` bundle 移入 `node_modules/.ignored/`。
+- 主 profile 的组合里有 `- id: hmr`（HMR 开启），安装完成立即热重载；`kinship-bridge` /
+  `kinship-ui` / `kinship-plan-scheduler` 三行和 `preset-kinship` 无法再解析，被跳过。
+- bridge 端口 `127.0.0.1:18765` 随之关闭；后端在 00:50:55 的探针里第一次报
+  `[DshHealth] offline`。
+- dsh 进程本身没有重启（网页、会话都正常），所以故障很隐蔽。
+
+机理：`sync-profile.sh` 只把构建产物拷进 profile 的 `node_modules/`，不会在 profile 的
+`package.json` 里声明依赖。pnpm 在任何 `add` / `install` / `remove` 时会把不在依赖清单里的
+目录当 extraneous 清理，HMR 再按清理后的 profile 重组组合。
+
+### 9.2 症状与判据
+
+dsh 启动日志（重启后最明显）：
+
+```text
+dsh: skipping profile bundle "kinship-harness-plugins": Error: dsh: cannot resolve profile bundle
+"kinship-harness-plugins" from the dsh installation or <dsh-home>/profiles/<name>; ...
+```
+
+其他判据：
+
+```bash
+ss -lntp | grep 18765                       # 无监听
+ls -la <dsh-home>/profiles/<name>/node_modules/.ignored/ | grep kinship
+DSH_HOME=<dsh-home> dsh --profile <name> --dump-config 2>&1 | grep -c 'id: kinship-'
+curl -sk https://127.0.0.1:8768/health      # dsh.status=offline、status=degraded（配了 dsh 通道时）
+```
+
+`--dump-config` 计数为 0 且 `.ignored/` 里有 `kinship-*`，即可确认是依赖被清理；此时**重启
+dsh 不会恢复**，因为包仍未声明。
+
+### 9.3 处置：把七个包改成 `link:` 依赖（推荐，一次修好）
+
+先备份 profile 的三件套（`package.json`、`pnpm-lock.yaml`、`cordis.patch.yml`），再执行：
+
+```bash
+cd /mnt/d/Users/Axeuh/Desktop/Axeuh-server/server
+export PATH=/mnt/d/tools/node-v24.22.3-linux-x64/bin:$PATH
+REPO=/mnt/d/Users/Axeuh/Desktop/Axeuh-server/server/kinship/harness-plugins
+DSH_HOME=<dsh-home> dsh plugin --profile web add \
+  "link:$REPO" \
+  "link:$REPO/packages/kinship-bridge" \
+  "link:$REPO/packages/kinship-ui" \
+  "link:$REPO/packages/kinship-plan" \
+  "link:$REPO/packages/kinship-plan-scheduler" \
+  "link:$REPO/packages/kinship-compact" \
+  "link:$REPO/packages/kinship-task-compat"
+```
+
+要点：
+
+- `dsh plugin add` 会把 bundle 自动补进 `dsh.profile.bundles`（已在列表里则不变）；六个插件包
+  只是普通依赖，会打印 `declares no dsh.bundle … plain dependency` 警告，属正常。
+- 七个依赖写进 `package.json` 和 `pnpm-lock.yaml` 后，后续再在该 profile 里 `add` / `remove` /
+  `install` 插件不会再清理它们（已在隔离的临时 `DSH_HOME` 验证：模拟 add/remove 后七个链接仍在，
+  `--dump-config` 仍能解析四行，临时 dsh 实例能正常监听 bridge）。
+- 已运行的 dsh 若启动时已经跳过这个 bundle，HMR 可能不会自动重试：在 profile 的
+  `cordis.patch.yml` 末尾加一行注释触发重新组合，或重启 dsh。生产主实例 2026-11-17 12:29 就是
+  用“加注释触发 HMR”的方式恢复的：同一个 dsh 进程内 18765 重新监听、`/v1/health` 回到 `bound`，
+  后端 12:30:15 起 `[DshHealth] online`。
+- 验证：
+
+```bash
+curl -sk https://127.0.0.1:8768/health          # status=healthy、dsh.status=online
+TOKEN=$(cat <dsh-home>/kinship/bridge-token)
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18765/v1/health
+```
+
+- 更新流程：修改 `harness-plugins` 后在本仓 `npm run build`，再重启 dsh。`link:` 直接指向主仓
+  目录，不再需要 `sync-profile.sh` 拷贝。
+- 限制：`link:` 固定指向主仓路径；挪动仓库、改目录或删除 `harness-plugins` 会让加载失败。
+  dsh 升级到 bundle `engines.dsh` 范围之外时，需要重新构建/发布 bundle。
+
+### 9.4 如果继续用 `sync-profile.sh`
+
+必须把“在该 profile 里安装、升级或移除任何插件之后，重新执行 `sync-profile.sh` 并重启 dsh”
+写进操作流程；否则下一次插件操作会再次裁剪。生产主实例已按第 9.3 节改成 `link:` 依赖
+（备份后缀 `bak-kinship-link-20261117-1235`）。
+
+### 9.5 回滚
+
+- 撤销 `link:` 安装：先恢复备份的 `package.json` / `pnpm-lock.yaml` / `cordis.patch.yml`，
+  再重启 dsh；或逐个 `dsh plugin --profile <name> remove <包名>` 后移除 bundle 选择。
+- 只删 profile 的 `node_modules/kinship-*` 不够：pnpm 会按 `package.json` 把 `link:` 依赖重建
+  回来。
+
+## 10. E 段：回滚
 
 - 回滚：把 `ai_backend` 改回 `loom`（热生效）——`apply_ai_surface` 会在同一次应用里按新期望态
   拉起 Loom（`orchestrator.start("loom")`，只碰 loom 单服务），**不需要重启后端**；核对
@@ -403,9 +507,10 @@ per-script 触发频率覆盖，见第 2 步）；后端配置与 `ai_backend` �
 - `dsh.*` 可保留（不影响 loom 路径）；dsh 侧的 bundle/preset 也可保留（bridge 空闲监听无害）。
 - 彻底撤销 dsh 侧：从 profile `package.json` 的 `dsh.profile.bundles` 移除
   `kinship-harness-plugins`，删除 profile `node_modules/kinship-*`，重启 dsh；
-  环境变量可保留（只对 bundle 有意义）。
+  环境变量可保留（只对 bundle 有意义）。已按第 9 节改成 `link:` 依赖的 profile 用
+  `dsh plugin --profile <name> remove` 卸载，不要只删目录。
 
-## 10. 已知限制与注意
+## 11. 已知限制与注意
 
 - **探针生命周期跟随后端（W53 起）**：`apply_ai_surface` 在启动与热切换共用一份实现——dsh 探针
   只在 `ai_backend=dsh` 时跑、Loom 探针只在 `loom` 时跑，非当前通道保持 `unknown`（不再刷
@@ -441,8 +546,11 @@ per-script 触发频率覆盖，见第 2 步）；后端配置与 `ai_backend` �
 - **插件组合**：Kinship 会话的插件面由 preset 决定；profile 里的 auto-memory/login/market 等
   根级插件不进入该会话的工具面，但它们自己的 prompt 注入是否影响要看各自实现（当前没有
   额外 AGENTS.md 类注入）。
+- **profile 依赖维护**：Kinship 七个包必须以 `link:` 依赖声明在 profile 里（第 9 节）。
+  用 `sync-profile.sh` 拷贝时，在该 profile 里安装、升级或移除任何插件都会把它们移入
+  `node_modules/.ignored/`；dsh 热重载或重启后 bridge 消失，重启 dsh 不能修复，必须重装依赖。
 
-## 11. 相关文件
+## 12. 相关文件
 
 - [harness-plugins/README.md](../../harness-plugins/README.md)：插件、面板 API、测试
 - [harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)：计划调度器设计、配置表与移植差异
