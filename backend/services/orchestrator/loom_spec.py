@@ -68,11 +68,11 @@ def loom_instance_root(config: Config) -> Path:
 
 
 def _bypass_child_entry() -> bool:
-    """Windows 下不经 ``child_entry`` 转发，直接 spawn 目标。
+    r"""Windows 下不经 ``child_entry`` 转发，直接 spawn 目标。
 
     ``child_entry`` 以 ``os.execvp`` 交给目标进程，而 CPython 在 Windows 上
-    用 ``_wexecvp`` 拼命令行时**不会**给含空格的参数加引号：``C:\\Program Files\\
-    nodejs\\node.EXE`` 会被目标进程看成 ``C:\\Program`` + ``Files\\nodejs\\node.EXE``，
+    用 ``_wexecvp`` 拼命令行时**不会**给含空格的参数加引号：含空格的绝对路径如 ``Program Files\
+    nodejs\node.EXE`` 会被目标进程看成 ``Program`` + ``Files\nodejs\node.EXE``，
     node 于是把后半段当脚本去加载并报 ``MODULE_NOT_FOUND``，Loom 永远起不来。
 
     Windows 的父死亡保护由父进程侧 Job Object 承担（见 ``child_entry`` 模块注释），

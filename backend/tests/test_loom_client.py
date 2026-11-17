@@ -676,7 +676,7 @@ class TestInboxLetters:
         "kind": "system_note",
         "class": "notify",
         "trust": "external",
-        "principal": "qq:12345",
+        "principal": "qq:10001",
         "title": "群消息",
         "body": "有人在群里叫你",
     }

@@ -490,7 +490,7 @@ function scheduleResponse(options: {
       scheduler: {
         mode: 'live',
         planRoot: '/srv/kinship/ai/data',
-        stateDir: '/home/kinship/.dsh/kinship/state',
+        stateDir: '/srv/kinship/.dsh/kinship/state',
         timezone: 'Asia/Shanghai',
         anchors: ['05:00', '07:30'],
         planRootSource: provenance.planRootSource ?? 'pushed',

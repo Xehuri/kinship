@@ -7,10 +7,13 @@
  * copying or symlinking into any DSH_HOME profile.
  */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, symlinkSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 
-const DEFAULT_DSH_PACKAGES =
-  '/mnt/d/tools/node-v24.22.3-linux-x64/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai'
+const NODE_PREFIX = join(dirname(process.execPath), '..')
+const DEFAULT_DSH_PACKAGES = join(
+  NODE_PREFIX,
+  'lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai',
+)
 
 const source = process.env.DSH_PACKAGES_DIR ?? DEFAULT_DSH_PACKAGES
 if (!existsSync(source)) {
