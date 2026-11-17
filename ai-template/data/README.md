@@ -13,10 +13,13 @@ tags: [指南, 配置]
 | `tasks/` | 独立任务 YAML 文件 + Python 自定义脚本（每个任务一个 `.yaml`） |
 | `tasks_state.json` | 运行时状态（调度器自动管理） |
 | `task_executions.yaml` | 任务执行历史记录（调度器自动写） |
+| `tasks/AGENTS.md` | 任务 YAML / Python 脚本格式、任务声明规则与沙箱限制 |
 | `validate_tasks.py` | 旧版任务定义/执行记录检查工具；只认 `tasks.json`，当前目录模式不产出该文件，运行会报"文件不存在" |
 | `gps_cache.json` | 顶层 GPS 逆地理编码缓存（辅助脚本用；`cache/` 内另有一份） |
 | `plan/coverage.yaml` | 覆盖契约真源：默认 `merged_7` 七个检查点，`merged_6` 为可选合并档；Loom 主计划与 coverage 唤醒按它生成检查点 |
 | `plan/master.json` | Loom 主计划真源（运行期生成，gitignored）；首版由 `analysis/master_plan_seed.py --root {AI目录}/data` 播种 |
+| `index/` | 旧索引目录，自 2026-11-05 起冻结：`DEPRECATED` 是机器可读闸门，支持该标记的查询工具（新版 `query.py` 等）读到会直接报错；真源已迁到 `.stratum/`，不要继续写入 |
+| `browser/` | Playwright 技能的运行产物（截图、下载、浏览器态），gitignored，不参与记忆与注入 |
 | `users/{用户}/health/{日期}/cloud.json` | 健康真源：`HealthStore` 的 cloud 分片（小米云拉取写入）；读取统一走 `read_health_view` |
 | `daily/` | 按日期的感知数据。每个 `daily/{date}/` 含：`perception.jsonl`（后端写的原始感知，只读）、`audio_deepdive.jsonl` / `audio_deepdive_merged.jsonl`（MOSS 影子旁路产物，watcher/merge 写、只读消费，观察期与 perception 并存的独立文件）、`health.json`（历史派生视图，仅作回落；新数据见 `users/{用户}/health/{日期}/cloud.json`）、`audio/`（该日音频分片）、`事实-全天.md`（`fact_extractor.py` 生成，分时段合并）、`理解-{date}-批次-{HH}.md`（子智能体写，每批次独立）、`当日摘要-{date}.md`（脚本生成，≤24KB）/ `批次索引-{date}.md`（脚本生成，每批一行判断+观察+文件行号，≤4KB）/ `健康清单-{date}.md`（脚本生成）、`复盘-{date}.md`（复盘报告）。**注意：用户与 AI 的对话记录已不再写入日志文件**（已取消 `日志-{date}.md`），查主会话内容用 `query_chatlog.py` |
 | `reports/` | 周报（每周总结-*）和深度回顾报告 |
@@ -66,14 +69,15 @@ tags: [指南, 配置]
 
 | 智能体 | 文件 | 职责 |
 |--------|------|------|
+| 主会话 | `{AI目录}/agents/main.md` | 主会话提示词（合并版）：身份、模式判定、子智能体派发与验收、记忆纪律 |
 | 数据检查 | `{AI目录}/agents/01-data-check.md` | 逐段分析感知数据 -> 理解文件（步骤 7 反馈转达；步骤 8 挂载 `self/tasks/` 领域任务） |
-| 复盘 | `{AI目录}/agents/02-daily-review.md` | 梳理+纠错+收割记忆 -> 复盘报告 |
+| 复盘 | `{AI目录}/agents/02-daily-review.md` | 梳理+修正理解+收割记忆（ledger/notes/6 投影）-> 复盘报告 |
 | 双周回顾 | `{AI目录}/agents/03-biweekly-review.md` | 双周深度回顾 |
 | 周报 | `{AI目录}/agents/04-weekly-review.md` | 每周总结 |
 | 夜间审计 | `{AI目录}/agents/05-audit.md` | 夜间审计（模板已提供；`15-night-audit.yaml` 默认关闭） |
 | 领域任务 | 定义在 `{AI目录}/memory/self/tasks/{领域}.md` | 由 01 步骤 8 按触发条件挂载（学习/健身等自定义领域） |
 
-> 模板默认提供 01~04 四个子智能体；05 审计与领域任务为可选扩展，按需自行增删 `agents/` 下的 prompt。
+> 模板默认提供 01~05 五个子智能体 prompt 与公共件；`data-checker.md` / `reviewer.md` 只是对应 `task` 的 `agent_type` 薄壳投递件，不是完整角色说明。领域任务为可选扩展，按需自行增删 `agents/` 与 `memory/self/tasks/`。
 
 ## 辅助脚本（非任务调度）
 
@@ -94,8 +98,18 @@ tags: [指南, 配置]
 | `listen_audio.py` | 音频内容理解（供 agent 审计任意音频；基于 MiMo 多模态，复用项目安全链路） |
 | `audio_mimo_analyzer.py {date} --time HH:MM 或 --hours A~B [--json] [--output]` | MiMo 音频理解：`--time` 精确单段(60s WAV)，`--hours` 合并时段。音频经后端专用端点暴露给分析服务拉取，分析后自动清理。输出说话人/主题/时间线 Markdown |
 | `audit_collector.py {date} [--out 文件]` | 夜间审计机械采集器（05 子智能体步骤 1 调用）：分域检查项注册表，输出 PASS/FAIL/WARN/SKIP 文本；模板已提供 |
+| `query.py [--scope event/observation/report/evidence/memory/chat/all]` | 统一只读检索入口：分层或复合查询，自动分组排序去重；证据层默认随卡片折叠，`--include-linked-evidence` 才展开 |
+| `memory_retrieve.py --query <词> [--budget 6000]` | 记忆词法检索，返回带行号片段与字节预算；命中后必须回读验证 |
+| `memory_finalize.py [--root .] [--changed-from git]` | 记忆收尾门：断链、日期、PII、投影新鲜度等硬检查加软警告，产物只写 `memory/MEMORY-STATUS.json` |
+| `mi_fitness_fetch.py <start> <end> [--keys 指标] [--qr]` | 小米运动健康云端取数（按天汇总）；凭据读项目根 `config.yaml` 的 `health.cloud.*` |
+| `mimo_audio_sweep.py [--dry-run]` | 清理 `cache/mimo_audio/`：保留 Markdown 结果、保护在途任务，按天数与总量双约束 |
+| `session_context.py --list` / `--session-id` | 只读会话数据库：列子会话、导出处理时间线、抽取已发通知 |
 
+> 完整清单、参数与输出约定见 `{AI目录}/analysis/README.md`；上表只列与数据读写、检索、记忆收尾直接相关的入口。
+>
 > `listen_audio.py` / `audio_mimo_analyzer.py` 依赖后端音频理解链路；`geocode_tool.py` 需配置百度地图 AK（见占位符字典）。
+>
+> 记忆不在 `data/` 下：长期记忆在 `{AI目录}/memory/`，写入与检索口径以 `memory/PROTOCOL.md` 为准；`data/` 只放证据、报告与运行产物。
 
 ## 修改任务
 

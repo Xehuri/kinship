@@ -1,4 +1,6 @@
-> **已弃用（2026-11-05）**：旧 `data/index/*.jsonl` 不再维护、不再写入，也不再作为回退。仅在首次迁移时通过 `scripts/import-legacy-index.sh` / `.ps1` 导入 Stratum；导入后不要继续写本目录。
+> **已弃用（2026-11-05 起）**：旧 `data/index/*.jsonl` 不再维护、不再写入，也不再作为回退。真源是 `.stratum/stratum.db`，检索用 `stratum query`。
+> 本目录最后写入 2026-11-05，之后冻结，不再随数据更新；同目录的 `DEPRECATED` 是机器可读标记，支持该标记的查询工具（新版 `analysis/query.py` 等）读到会直接报错，不再对冻结导出返回空结果。下文保留为历史契约说明，新增内容一律不进本目录。
+> 仅在首次迁移时通过 `scripts/import-legacy-index.sh` / `.ps1` 导入 Stratum；导入后不要继续写本目录。
 
 # 索引层目录（data/index）
 

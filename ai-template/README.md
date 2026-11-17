@@ -1,6 +1,6 @@
-# kinship-data/ai 生产场景模板（ai-template）
+# AI 根生产场景模板（ai-template）
 
-`ai-template/` 是生产场景 `kinship-data/ai` 的脱敏模板：它以生产运行中的 AI 根为原型整理成公开骨架，发布前脱敏，不含真实数据、密钥、账号与实例绝对路径。
+`ai-template/` 是生产环境 AI 根的脱敏模板：它以实际运行中的 AI 目录为原型整理成公开骨架，发布前脱敏，不含真实数据、密钥、账号与实例绝对路径。
 
 它是模板，不是运行时 AI 目录。后端与 Loom 读写的是配置里的 AI 根（`Config.AI_ROOT`，即 `config.yaml` 的 `data.ai_root`），本目录本身不会被运行时使用。新部署把模板复制到该 AI 根，填入占位符后即可接入后端。
 
@@ -13,25 +13,23 @@
 
 ## Stratum 前置（v0.1.2+）
 
-AI 子智能体的批次入库、日报/周报 claim、review、query 通过 **Stratum CLI** 完成。Stratum 不是本仓库的 Python 依赖，也不是 git submodule；它是独立仓库和独立 CLI。
+AI 子智能体的批次入库、卡片/claim 写入、review 与 query 通过 **Stratum CLI** 完成。Stratum 不是本仓库的 Python 依赖，也不是 git submodule；它是独立仓库和独立 CLI，仓库地址与固定版本写在安装脚本里。
 
-- 仓库：<https://github.com/Xehuri/stratum>
-- v0.1.2 Release：<https://github.com/Xehuri/stratum/releases/tag/v0.1.2>
-- 契约源：<https://github.com/Xehuri/stratum/tree/v0.1.2/contracts>
-- 模板本地副本：`contracts/`（从 v0.1.2 同步，AI prompt 使用相对路径 `contracts/claim-schema.md`）
-- Python：3.11+
+- 版本：v0.1.2；Python 3.11+
+- 安装脚本：`scripts/install-stratum.sh`（Linux/macOS）、`scripts/install-stratum.ps1`（Windows），脚本内固定仓库与版本
+- 契约本地副本：`contracts/`（从 v0.1.2 同步，AI prompt 使用相对路径 `contracts/claim-schema.md`）
 
-安装固定版本：
+安装固定版本（脚本内已固化仓库安装源与 v0.1.2 版本号，并会顺带初始化 workspace）：
 
 ```bash
 # Linux / macOS
-python3 -m pip install --user "git+https://github.com/Xehuri/stratum.git@v0.1.2"
+./scripts/install-stratum.sh /path/to/ai
 
 # Windows
-py -m pip install "git+https://github.com/Xehuri/stratum.git@v0.1.2"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-stratum.ps1 -AiRoot D:\path\to\ai
 ```
 
-验证并初始化 AI 根：
+手工安装等价版本后，再单独验证并初始化 AI 根：
 
 ```bash
 stratum --version
@@ -41,19 +39,9 @@ stratum status
 
 如果 `stratum` 不在 PATH，可使用 `python3 -m stratum`，或把 Python 用户级 bin 目录加入 PATH。
 
-也可以用安装脚本（需要已存在 AI 根）：
-
-```bash
-# Linux / macOS
-./scripts/install-stratum.sh /path/to/ai
-
-# Windows
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-stratum.ps1 -AiRoot D:\kinship-data\ai
-```
-
 `.stratum/` 是运行时状态和 SQLite 数据库，必须加入 `.gitignore`，不要提交。
 
-旧 `data/index/*.jsonl` 已弃用，不再维护、不再作为回退、也不再写入。若实例已有旧索引，只在首次迁移时运行 `scripts/import-legacy-index.sh`（Windows 用 `.ps1`）；`migrate-legacy` 是一次性快照，导入后旧索引变更会报 `LEGACY_INDEX_CHANGED`，需要新建 workspace 重做。
+旧 `data/index/*.jsonl` 自 2026-11-05 起冻结：不再维护、不再写入、也不再作为回退。`data/index/DEPRECATED` 是机器可读的闸门：支持该标记的查询工具（新版 `analysis/query.py` 等）读到会直接报错，不再把冻结导出当主链回退。若实例已有旧索引，只在首次迁移时运行 `scripts/import-legacy-index.sh`（Windows 用 `.ps1`）；`migrate-legacy` 是一次性快照，导入后旧索引变更会报 `LEGACY_INDEX_CHANGED`，需要新建 workspace 重做。
 
 旧索引导入（仅首次迁移）：
 
@@ -66,27 +54,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-stratum.ps
 
 ## 复制到 AI 根（data.ai_root）
 
-复制目标是配置的 AI 根，不是固定路径 `ai/`。AI 根由 `Config.AI_ROOT` 决定（`config.yaml` 的 `data.ai_root`）；只有该键未配置时，后端才回落到默认 `<project>/ai`。私有/生产部署通常把实例放在 `kinship-data/ai`，例如（路径按你的部署替换）：
+复制目标是配置的 AI 根，不是固定路径 `ai/`。AI 根由 `Config.AI_ROOT` 决定（`config.yaml` 的 `data.ai_root`）；只有该键未配置时，后端才回落到默认 `<project>/ai`。私有/生产部署通常把 AI 根放在实例目录下，例如（路径按你的部署替换）：
 
 ```text
-/path/to/kinship-data/ai
+/path/to/ai
 ```
 
 在仓库根目录执行，先确认目标 AI 根尚不存在：
 
 ```bash
-AI_ROOT=/path/to/kinship-data/ai   # 换成你的 data.ai_root
+AI_ROOT=/path/to/ai   # 换成你的 data.ai_root
 cp -a ai-template "$AI_ROOT"
 ```
 
-也可以用安装脚本代劳，它们支持指定 AI 根，且只在目标缺失时复制：
+也可以用仓库根的安装脚本代劳，它们支持指定 AI 根，且只在目标缺失时复制：
 
 ```bash
 # Linux / macOS
 ./scripts/setup.sh --ai-root "$AI_ROOT"
 
 # Windows
-powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -AiRoot "D:\kinship-data\ai"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -AiRoot "D:\path\to\ai"
 ```
 
 两条硬约束：
@@ -100,11 +88,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -AiRoot "D:\kins
 
 复制完成后按顺序处理（以下 `{AI目录}` 均指这个已配置的 AI 根）：
 
-1. 按《占位符替换清单》替换 `{项目名称}`、`{主智能体名称}`、`{AI目录}` 等占位符。`{AI目录}` 的取值就是 `data.ai_root`，可以是绝对路径。
+1. 按《占位符替换清单》替换 `{项目名称}`、`{主智能体名称}`、`{用户称呼}`、`{AI目录}` 等占位符。`{AI目录}` 的取值就是 `data.ai_root`，可以是绝对路径。
 2. 在项目根 `config.yaml` 配置后端端口、SSL、`ai_backend` 与 `data.*` 路径，其中 `data.ai_root` 指向刚才的 AI 根；AI 目录侧只填 `{AI目录}/.loom/config.yaml`。模板不再随附 OpenCode 配置，确实要用 OpenCode 时需自行创建 `opencode.json`。
 3. 选 Loom：把 `loom-config.example.yaml` 复制为 `{AI目录}/.loom/config.yaml`，替换 Provider、模型与凭据环境变量；在项目根 `config.yaml` 设 `ai_backend: loom`。
 4. 模板不再随附 OpenCode 配置。若确实要用 OpenCode，自行创建 `{AI目录}/opencode.json`，并把 MCP 命令注册为 `python mcp/ai_mcp.py`，cwd 指向 `{AI目录}`。
-5. 启动后端（见 `启动说明.md`），然后按 `系统初始化指南.md` 完成首次初始化。
+5. 启动后端（见 `启动说明.md`），然后按 `系统初始化指南.md` 完成首次初始化。初始化前先读 `{AI目录}/agents/main.md`（主会话提示词）与 `{AI目录}/memory/PROTOCOL.md`（记忆唯一规则源）。
 
 ## 占位符表
 
@@ -112,14 +100,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -AiRoot "D:\kins
 
 | 占位符 | 含义 | 主要出现位置 |
 |--------|------|--------------|
-| `{项目名称}` | 实例/服务名 | `AGENTS.md`、`mcp/ai_mcp.py` |
-| `{主智能体名称}` | 主智能体人格名 | `AGENTS.md`、`agents/*.md` |
-| `{用户称呼}` | 用户希望被称呼的名字 | `memory/` |
+| `{项目名称}` | 实例/服务名 | `agents/main.md`、`mcp/ai_mcp.py` |
+| `{主智能体名称}` | 主智能体人格名 | `agents/main.md`、`agents/*.md` |
+| `{用户称呼}` | 用户希望被称呼的名字 | `memory/`、`agents/main.md` |
+| `{用户}` | 后端用户目录名，健康数据在 `data/users/{用户}/` 下（运行期生成） | `data/README.md`、健康数据路径、部分任务脚本 |
 | `{AI目录}` | AI 根，即 `data.ai_root` 的取值（默认 `<project>/ai`，可为绝对路径） | 全模板 |
 | `{项目根目录}` | 仓库根绝对路径 | `loom-config.example.yaml` |
 | `{后端HTTPS端口}` / `{后端HTTP端口}` | 后端监听端口 | 项目根 `config.yaml` |
 | `{OpenCode端口}` | OpenCode 服务端口 | 项目根 `config.yaml` |
-| `{Python解释器路径}` | Python 解释器绝对路径 | `loom-config.example.yaml`、项目根 `config.yaml` |
+| `{Python解释器路径}` | Python 解释器绝对路径 | `loom-config.example.yaml`、项目根 `config.yaml`、`data/tasks/` |
 | `{opencode.cmd路径}` | OpenCode 可执行文件路径 | 项目根 `config.yaml` |
 | `{SSL证书路径}` / `{SSL密钥路径}` | HTTPS 证书与私钥路径 | 项目根 `config.yaml` |
 | `{百度地图AK}` | 百度地图开放平台 AK | `analysis/geocode_tool.py` |
@@ -148,29 +137,71 @@ Loom 是独立进程，默认监听 `127.0.0.1:5100`，通过 `{AI目录}/.loom/
 
 ```text
 {AI目录}/
-├── AGENTS.md                  # 一级记忆与主智能体规则
-├── AGENTS-operations.md       # Task / coverage / plan 操作规程
+├── agents/                    # 主会话提示词与子智能体规范
+│   ├── main.md                # 主会话提示词（合并版；替代旧根 AGENTS.md 与操作规程）
+│   ├── AGENTS-lite.md         # 批次/复盘轻量注入
+│   ├── 01-data-check.md ~ 05-audit.md
+│   ├── 复盘-公共.md / 公共-操作规范.md / 规则-01-data-check.md
+│   └── data-checker.md / reviewer.md   # 投递薄壳，对应 task 的 agent_type
+├── skills/                    # 技能包：comfyui-draw、qq-cli、playwright
+├── memory/                    # 长期记忆（Phase A 骨架）
+│   ├── PROTOCOL.md            # 唯一规则源（schema/预算/归属/冻结）
+│   ├── README.md              # 导航，不重复规则
+│   ├── MEMORY-STATUS.json     # 收尾门运行期产物（gitignored），未运行属正常
+│   ├── ledger/                # facts.md / rules.md / open.md（内核真源）
+│   ├── notes/                 # observations、cases、persona、judgments、dossiers、topics、proposals
+│   ├── self/ profile/ topics/ # 投影层：必读、身份、active-tasks、state、core、topics-INDEX、SELF-INDEX
+│   ├── eval/ EPISODIC.md      # 情景记忆设计模板（B0，未启用）
+│   ├── legacy/FROZEN.md       # 旧文件冻结清单
+│   ├── anchors/ archive/ _template/
+├── data/                      # 运行时数据
+│   ├── README.md              # 数据目录与任务调度说明
+│   ├── daily/ reports/        # 按日数据、报告
+│   ├── tasks/                 # 任务 YAML 与常驻 Python 脚本（格式见 tasks/AGENTS.md）
+│   ├── plan/coverage.yaml     # 覆盖契约真源；master.json 运行期播种
+│   ├── index/                 # 已冻结的旧索引（DEPRECATED 闸门）
+│   └── cache/ uploads/ voice/ users/
+├── analysis/                  # 分析脚本（清单见 analysis/README.md）
+├── mcp/ai_mcp.py              # 4 工具 MCP（Loom 与 OpenCode 共用）
+├── contracts/                 # Stratum 契约本地副本
+├── scripts/                   # install-stratum / import-legacy-index（sh + ps1）
 ├── 系统初始化指南.md          # 首次启动的强制初始化流程
-├── README.md                  # 本文件
 ├── 启动说明.md                # 启动方式与进程管理
 ├── pyproject.toml             # ai-mcp 包元数据（声明 PyYAML）
 ├── loom-config.example.yaml   # Loom 配置示例（脱敏）
-├── .gitignore
-├── contracts/                 # Loom v1 契约本地副本
-├── scripts/                   # install / import-legacy-index（sh + ps1）
-├── mcp/                       # ai_mcp.py（4 工具 MCP，Loom 与 OpenCode 共用）
-├── agents/                    # 子智能体 prompt
-├── analysis/                  # 分析脚本
-├── data/                      # 运行时数据
-│   ├── daily/ reports/ cache/ # 按日数据、报告与缓存
-│   ├── tasks/ uploads/ voice/ # 任务脚本、上传与语音文件
-│   └── plan/                  # Loom 主计划与 coverage 契约
-├── memory/                    # 长期记忆
-│   ├── self/ profile/ fact/ archive/ topics/ _template/
-│   ├── claims/                # 断言侧车（claims.jsonl 从空文件起步）
-│   └── anchors/               # 消息锚点侧车（模板仅 .gitkeep）
-└── misc/
+└── .gitignore
 ```
+
+根目录不再有旧的 `AGENTS.md` 与独立操作规程文件：两者已合并到 `agents/main.md`（主会话提示词），任务排班规则在 `data/tasks/AGENTS.md`，记忆规则在 `memory/PROTOCOL.md`。
+
+`cache/`、`users/`、`browser/` 等目录由运行时生成，模板不预置。`.loom/`、`.stratum/`、`.playwright/`、`data/browser/`、`data/tasks/logs/` 是运行期与个人态产物，已在 `.gitignore` 中忽略。
+
+## 技能包（skills/）
+
+`{AI目录}/skills/` 放运行时可加载的技能包，每个目录一个 `SKILL.md`（带 `name` / `description` frontmatter）。模板随附三个：
+
+| 技能 | 用途 | 产物与边界 |
+|------|------|------------|
+| `comfyui-draw` | 用本机 ComfyUI 文生图（FLUX / MOSS-Image 等，支持画面中文） | 成品落 `data/images/{日期}/`；只调本机 ComfyUI（默认 `127.0.0.1:8188`），不接公网 |
+| `qq-cli` | 用 `qq` 命令行收发私聊/群聊、读历史与未读、查联系人与 QZone | 经后端 QQ 网关 IPC，不直连 NapCat；账号与 token 只写本地 gitignored 配置 |
+| `playwright` | 用固定版本 Playwright 驱动无头 Chromium：开网页、填表、截图、读控制台与网络 | profile 在 `.loom/playwright-profile`，截图与快照落 `data/browser/{日期}/`，均 gitignored |
+
+> `qq-cli` 依赖实例启用 QQ 网关，`comfyui-draw` 依赖本机 ComfyUI 服务，缺失都不影响主链。技能执行仍受 `agents/main.md` 的边界约束：`{AI目录}/` 外的操作先问。
+
+## 分析脚本（入口）
+
+完整清单、参数与输出约定见 `analysis/README.md`；这里只列出最常用的入口。
+
+| 脚本 | 用途 |
+|------|------|
+| `analysis/fact_extractor.py {date}` | 感知数据 → `data/daily/{date}/事实-全天.md`，`--update-summary` 同步当日摘要、批次索引与健康清单 |
+| `analysis/query.py` | 统一只读检索入口：event / observation / report / evidence / memory / chat 单层或复合查询 |
+| `analysis/query_chatlog.py` | 按时间窗查历史对话；缺省跟随后端 `ai_backend` |
+| `analysis/memory_retrieve.py --query <词>` | 记忆词法检索，返回带行号片段与预算 |
+| `analysis/memory_finalize.py --root . --changed-from git` | 记忆收尾门：校准/断链/PII/投影新鲜度检查，产物只写 `memory/MEMORY-STATUS.json` |
+| `analysis/health_source.py` | 健康视图共享模块（无 CLI），分片不可用时回退派生 `health.json` |
+
+记忆写入口径以 `memory/PROTOCOL.md` 为准：主会话不直接写 `ledger/`，日更由 02 日复盘统一收割。
 
 ## 验证命令
 
@@ -192,16 +223,20 @@ PY
 
 # 分析脚本可执行
 python3 analysis/check_coverage.py --help
+python3 analysis/memory_finalize.py --help
+
+# Stratum workspace 状态（初始化后）
+stratum status
 ```
 
 ## 相关文档
 
-- [Stratum v0.1.2](https://github.com/Xehuri/stratum/releases/tag/v0.1.2) - 独立 CLI 与契约源
-- [AGENTS.md](AGENTS.md) - 主智能体规则与记忆体系
-- [AGENTS-operations.md](AGENTS-operations.md) - Task / coverage / plan 操作规程
+- [agents/main.md](agents/main.md) - 主会话提示词（合并版，含身份、模式、子智能体与记忆纪律）
+- [memory/PROTOCOL.md](memory/PROTOCOL.md) - 记忆唯一规则源（Phase A）
+- [memory/README.md](memory/README.md) - 记忆分层导航与当前阶段
 - [系统初始化指南.md](系统初始化指南.md) - 首次启动流程与完整占位符清单
 - [analysis/README.md](analysis/README.md) - 分析脚本清单与编写规范
 - [data/README.md](data/README.md) - 数据目录、任务与调度
-- [memory/README.md](memory/README.md) - 记忆分层与维护规则
+- [data/tasks/AGENTS.md](data/tasks/AGENTS.md) - 任务 YAML / Python 脚本格式
 - [mcp/ai_mcp.py](mcp/ai_mcp.py) - MCP 四个工具与提醒板工作流
 - [启动说明.md](启动说明.md) - systemd / launcher.py / Loom / OpenCode

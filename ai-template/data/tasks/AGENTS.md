@@ -1,6 +1,6 @@
 # 定时任务配置
 
-> 本文件随 `ai-template` 维护（2026-10-30 对齐）；与实例不一致时，以本文件与仓库代码为准。
+> 本文件随 `ai-template` 维护（2026-11 对齐）；与实例不一致时，以本文件与仓库代码为准。
 
 此目录存放所有定时任务配置文件。
 
@@ -16,9 +16,11 @@
 | `{AI目录}/data/tasks/*.yaml` \| `*.py` | **定时任务**（排班表） | **何时**触发、发什么 prompt | 后端调度器 / FileWatcher |
 | `{AI目录}/memory/self/tasks/*.md` | **业务**（操作手册） | 挂上后**做什么**、怎么做、产出什么 | 数据检查批次（01 步骤 8） |
 | `{AI目录}/agents/*.md` | 子智能体规范 | 独立子智能体的岗位职责 | 对应子智能体会话 |
-| `{AI目录}/memory/self/任务.md` | 待办账本 | 主智能体要跟进的事 | 主智能体 |
+| `{AI目录}/memory/self/active-tasks.md` | 待办账本（投影） | 主智能体要跟进的事 | 主智能体 |
 
-**一句话判据：管时间的进 `data/tasks/`，管业务逻辑的进 `memory/self/tasks/`。**
+**一句话判据：管时间的进 `data/tasks/`，管业务逻辑的进 `memory/self/tasks/`，管岗位职责的进 `agents/`，管当前待办的进 `memory/self/active-tasks.md`。**
+
+**任务声明是强制的**：所有定时行为都必须先在 `tasks/*.yaml`（或脚本 frontmatter）里声明——`name`（人读名）、`schedule`（触发计划）、`enabled`（是否启用）、`prompt`（触发时发给主会话的正文）。没有声明过的排班＝不存在；文件在但 `enabled: false` 表示「有这个任务但没开」，不要当成任务不存在。内核固定的计划唤醒（`【计划唤醒·…】`）不受 YAML 管，YAML 里没声明的排班不要假设它存在，先 `ls data/tasks/` 核对。
 
 业务分两级（frontmatter `执行:` 字段）：
 
@@ -282,7 +284,7 @@ def run(context):
 |------|------|------|
 | `data_check_scheduler.py` | 每天 **7 窗口**（00/06/08/12/16/20/22 点；00 点读取前一天 22:00~00:00） | 回滚/legacy，默认关；生产由 Loom 主计划的 coverage 检查点 `cov-00/06/08/12/16/20/22` 取代，仅未接主计划时手动启用 |
 | `session_compactor.py` | 每天 04:00 | 向主会话发送一次"整理信息"提醒；可以压缩会话，也可以不压缩；不自动调用压缩接口 |
-| `17-wake-watch.py` | 每 45 秒轮询 | 默认关，可选。唤醒监控：长时间息屏后首次真解锁触发一次唤醒；早晨唤醒附带天气准备，其他时段提示主会话不要主动发消息；状态存 `.wake_watch_state.json` |
+| `17-wake-watch.py` | 每 45 秒轮询 | 默认关，可选。唤醒监控：长时间息屏后首次真解锁触发一次唤醒；早晨唤醒附带天气准备，其他时段只做状态准备、是否开口由主会话判断；连续使用单一应用也能判为真醒；状态存 `.wake_watch_state.json` |
 | `18-night-checkin.py` | 每天 21:00 / 22:30（脚本顶部 `SLOTS` 可配） | 默认关，可选。夜间主动联系：按配置的时间槽各触发一次主动开口；状态存 `.night_checkin_state.json` |
 | `19-health-sync-watch.py` | 每 300 秒 | 默认关，可选。健康同步回调：轮询 `users/{用户}/health/{日期}/cloud.json`，末样本前移 ≥5 分钟记一行，补上 ≥60 分钟空档时触发一次会话通知；用户目录由脚本顶部 `USER_SEGMENT` 配置；状态存 `.health_sync_state.json` |
 | `deepseek_balance_monitor.py` | 30 分钟 | 查 DeepSeek 余额，低于阈值发 App 通知；余额每累计消耗一定金额写一条 perception 数据（`type=balance`）；阈值与 key 路径可用环境变量覆盖，默认关 |

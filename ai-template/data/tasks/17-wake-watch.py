@@ -2,7 +2,7 @@
 name: 唤醒监控（长时间息屏后首解）
 enabled: false
 note: 默认关，可选任务骨架。全天盯手机状态——长时间息屏后第一次"真解锁"，就唤醒主会话一次。
-      早晨（04:00~09:30）唤醒附带天气；其他时段只做"有事才说"的准备，不主动发消息。
+      早晨（04:00~09:30）唤醒附带天气；其他时段只做"有事才说"的准备，是否开口由主会话判断。
       节流：一次唤醒后静默 3 小时；每天最多 6 次；同一解锁窗口只算一次。
 prompt: |
   【唤醒】用户刚刚把手机从长时间息屏里解锁了。
@@ -112,7 +112,11 @@ def _candidate(date):
                     and 0 <= _minutes(tt) - m <= CONFIG["confirm_minutes"]
                     and lk is False
                 ]
-                if len(seg) >= CONFIG["confirm_beats"] and len({a for _t, a in seg}) >= CONFIG["min_apps"]:
+                apps = {a for _t, a in seg}
+                # 连续用同一个 App（≥2 倍确认拍数）也算真醒：
+                # 起床后长时间只开一个应用时，单靠 min_apps 会把"真醒"误判成"没醒"。
+                continuous = len(seg) >= CONFIG["confirm_beats"] * 2
+                if len(seg) >= CONFIG["confirm_beats"] and (len(apps) >= CONFIG["min_apps"] or continuous):
                     best = (t, gap)
         last_unlocked = m
     return best
@@ -164,7 +168,8 @@ def run(context):
             else:
                 msg = (
                     f"【唤醒】{t} 解锁手机，此前息屏约 {gap // 60}h{gap % 60}m。"
-                    "**不要主动发消息**，只是把状态准备好：用户随后说话就正常接；不说话就什么都不做。"
+                    "**先把状态准备好；说不说由主会话自己判断**——有值得说的一件事就说一句，"
+                    "没有就什么都不做，不要为了打卡开口。"
                 )
 
             state["count"] = state.get("count", 0) + 1

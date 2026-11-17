@@ -61,7 +61,7 @@ def _build_prompt(trigger_hour, target_date):
     name = f"数据检查_{time_label}"
     date_hint = f"日期: {target_date}（前一天，不是今天）" if trigger_hour == 0 else f"日期: {target_date}"
 
-    # 简化prompt：子智能体参数由主智能体从 AGENTS.md 流程中获取
+    # 简化prompt：子智能体参数由主智能体从 agents/main.md 流程中获取
     return (
         f"【数据检查 - {name}】 按子智能体调度流程执行, {date_hint}, 覆盖时段: {window}。"
         "若事实文件含 `└ MOSS:` 行，按规则-01 作为辅助数据源消费，不得替代 sim/设备/指针日期做身份硬归因。"
