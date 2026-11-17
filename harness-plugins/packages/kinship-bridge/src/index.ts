@@ -37,7 +37,12 @@ import { ToolAuthClient, ToolAuthStore } from './tool-auth.js'
 import type { PushedToolAuth, ToolAuthStatus, ToolAuthView, ToolResult } from './tool-auth.js'
 import { installUiRoutes, UiError } from './ui.js'
 import type { UiConfigView, UiTokenInfo } from './ui.js'
-import type { BindingPolicy, BindingSnapshot, BridgeServerHandle } from './types.js'
+import type {
+  BindingPolicy,
+  BindingSnapshot,
+  BridgeServerHandle,
+  IsolationReport,
+} from './types.js'
 
 export type {
   PushedToolAuth,
@@ -45,6 +50,11 @@ export type {
   ToolAuthView,
   ToolResult,
 } from './tool-auth.js'
+export type {
+  IsolationReport,
+  IsolationSectionReport,
+  IsolationToolsReport,
+} from './types.js'
 export { TOOL_AUTH_SCHEMA, ToolAuthClient, ToolAuthStore } from './tool-auth.js'
 
 /** Parsed plugin configuration. */
@@ -117,6 +127,18 @@ export interface KinshipBridgeService {
     readonly style?: string
     readonly user_id?: string
   }): Promise<ToolResult>
+  /**
+   * 接收 kinship-isolation 上报的排异状态，直接替换内存里的旧报告。
+   *
+   * 报告不落盘、不写日志；面板从 `/api/kinship/ui/state` 读取同一份状态。
+   */
+  reportIsolation(report: IsolationReport): void
+  /**
+   * 只清除 instance 与参数相同的报告。
+   *
+   * HMR 会短暂出现新旧两个插件实例：旧实例卸载时不能删掉新实例刚上报的状态。
+   */
+  clearIsolation(instance: string): void
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -270,6 +292,32 @@ function tokenInfoOf(state: TokenState): UiTokenInfo {
 }
 
 /**
+ * 排异报告的内存存储。
+ *
+ * `kinship-isolation` 在 preset 作用域里执行遮蔽与工具限制，把结果通过
+ * `kinshipBridge` 服务写到这里；bridge 只保存最近一份快照，不落盘、不写日志，
+ * 面板读取它来渲染「排异」tab。
+ */
+class IsolationStore {
+  #report: IsolationReport | null = null
+
+  /** 当前报告，尚未收到上报时为 null。 */
+  current(): IsolationReport | null {
+    return this.#report
+  }
+
+  /** 用新报告替换存储（同一实例的后续同步也走这里）。 */
+  report(next: IsolationReport): void {
+    this.#report = next
+  }
+
+  /** 只在存储的实例 id 与参数一致时清除，避免旧实例卸载时覆盖新实例。 */
+  clear(instance: string): void {
+    if (this.#report !== null && this.#report.instance === instance) this.#report = null
+  }
+}
+
+/**
  * Mount the bridge HTTP server and its durable binding.
  *
  * @param ctx - host context carrying `agents`.
@@ -357,6 +405,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const toolClient = new ToolAuthClient({ auth: () => toolAuth.current() })
 
   /**
+   * 排异报告的内存存储。kinship-isolation 卸载时按实例 id 清除自己的报告，
+   * 所以 HMR 期间新旧实例不会互相覆盖。
+   */
+  const isolation = new IsolationStore()
+
+  /**
    * Accept one tool-auth push, then announce it.
    *
    * Only the token-free projection is logged and emitted: the token stays inside
@@ -435,6 +489,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     remind: input => toolClient.remind(input),
     listReminders: () => toolClient.listReminders(),
     tts: input => toolClient.tts(input),
+    reportIsolation: (report: IsolationReport) => { isolation.report(report) },
+    clearIsolation: (instance: string) => { isolation.clear(instance) },
   }), 'kinship-bridge service')
 
   // Announce the replayed document once the service can answer for it, so a
@@ -545,6 +601,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         }
       },
       bind: (sessionId) => binding.bind(sessionId, host),
+      isolation: () => isolation.current(),
     })
     ctx.logger.info('kinship-bridge: panel API registered on /api/kinship/ui')
   })

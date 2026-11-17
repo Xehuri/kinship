@@ -7,31 +7,37 @@ writes bridge configuration through that plugin's own configuration entry.
 
 ## What the page shows
 
-- **Bridge status** — listening URL, bridge and Harness versions, binding state,
-  and the bound Session's title, id, cwd, and agent status.
-- **Bearer token** — where the token comes from (environment variable, secret
-  file, or the generated harness-home file) and its length. The value itself
-  appears only after **Reveal token**; **Rotate token** writes a new value to the
-  same file and switches the running bridge immediately.
-- **Bridge configuration** — listen address and port, binding policy, the
-  startup Session id, automatic rebinding, request-body limit, and the token
-  environment variable and file path. Saving writes the active profile's plugin
-  configuration and reloads the bridge row, so the new listener is live a moment
-  later.
-- **Bindable Sessions** — every live root Session running the `kinship` preset,
-  with a bind action for each.
-- **Connect Kinship** — the `config.yaml` keys the Kinship backend needs
-  (`ai_backend: dsh`, `dsh.url`, `dsh.token`), ready to copy.
-- **Plan schedule** — the optional `kinship-plan-scheduler` row's live view:
-  mode (live/shadow/off), plan root, state directory, timezone, reconcile
-  anchors, degradation state, and the next wake-up. The master schedule table
-  lists every entry with its local time text (daily `HH:MM`, weekly
-  `星期X HH:MM`, monthly `每月 N 日 HH:MM`, once `YYYY-MM-DD HH:MM`), kind,
-  action, title, enabled toggle, next wake, and a two-step delete. Each row also
-  carries an inline `HH:MM` editor that commits on Enter or blur. A small form
-  adds daily/weekly entries, and the card ends with the wake queue (pending
-  count with the first five pending wakes, the delivered tail, and **Reconcile
-  now**).
+The page is split into five tabs, rendered under the page header; only the active
+group is mounted, so each tab carries one kind of content instead of one long
+scroll:
+
+- **Overview** — bridge status (listening URL, bridge and Harness versions,
+  binding state, and the bound Session's title, id, cwd, and agent status) and
+  the bindable Sessions list (every live root Session running the `kinship`
+  preset, with a bind action for each).
+- **Isolation** — the latest report from the `kinship-isolation` preset row: the
+  preset id and report time, every shadowed prompt section, every tool-name
+  prefix with the names already restricted (or "waiting for registration" /
+  "no match"), and any `tools.restrict()` errors. Before the first report (or on
+  an older bridge without the field) it explains that isolation is not active
+  instead of rendering stale claims.
+- **Plan** — the optional `kinship-plan-scheduler` row's live view: mode
+  (live/shadow/off), plan root, state directory, timezone, reconcile anchors,
+  degradation state, and the next wake-up. The master schedule table lists every
+  entry with its local time text (daily `HH:MM`, weekly `星期X HH:MM`, monthly
+  `每月 N 日 HH:MM`, once `YYYY-MM-DD HH:MM`), kind, action, title, enabled
+  toggle, next wake, and a two-step delete. Each row also carries an inline
+  `HH:MM` editor that commits on Enter or blur. A small form adds daily/weekly
+  entries, and the card ends with the wake queue (pending count with the first
+  five pending wakes, the delivered tail, and **Reconcile now**).
+- **Access** — the bearer token (source, length, reveal/hide, rotate) plus the
+  `config.yaml` keys the Kinship backend needs (`ai_backend: dsh`, `dsh.url`,
+  `dsh.token`), ready to copy.
+- **Settings** — the bridge configuration form: listen address and port, binding
+  policy, the startup Session id, automatic rebinding, request-body limit, and
+  the token environment variable and file path. Saving writes the active
+  profile's plugin configuration and reloads the bridge row, so the new listener
+  is live a moment later.
 
 ## Plan-schedule routes
 

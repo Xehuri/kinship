@@ -10,7 +10,7 @@
 > Loom 已被编排器判 blocked 并停用；E 为回滚预案（现在回滚 Loom 需要重启一次后端或手动启动）。详见第 3.1 节。
 >
 > 2026-11-17 补充：当天 00:50 主 profile 安装 `dsh-state-notifier` 时，pnpm 把之前由
-> `sync-profile.sh` 拷入、但未在 `package.json` 声明的 Kinship 七个包移入
+> `sync-profile.sh` 拷入、但未在 `package.json` 声明的 Kinship 八个包移入
 > `node_modules/.ignored/`，HMR 热重载后 bridge 掉线（重启 dsh 无效）。已改用 `link:` 依赖恢复，
 > 机理、判据与维护流程见第 9 节；后续部署/升级 profile 前先读这一节。
 
@@ -205,12 +205,12 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
 
 1. 构建（Node 24）：`cd harness-plugins && npm run verify`（typecheck + build +
    316 个用例 / 28 个文件）。
-2. 同步进 profile（`sync-profile.sh` 现在拷六个包 + bundle patch）：
+2. 同步进 profile（`sync-profile.sh` 现在拷八个包 + bundle patch）：
 
    ```bash
    DSH_HOME=/mnt/d/Users/Axeuh/Desktop/Axeuh-server/dsh-home \
      bash harness-plugins/scripts/sync-profile.sh web
-   # 期望输出 6 行 [sync] <package> 加 [sync] kinship-harness-plugins / [sync] profile: …
+   # 期望输出 8 行 [sync] <package> 加 [sync] kinship-harness-plugins / [sync] profile: …
    ```
 
 3. bundle 行：`cordis.patch.yml` 已新增 `id: kinship-plan-scheduler`（带
@@ -316,7 +316,7 @@ stdout/journal（`journalctl -u axeuh-dsh` 里只有每行的 `dsh web:`），�
   或只删 `cordis.patch.yml` 里的 `kinship-plan-scheduler` 行后重新
   `sync-profile.sh web` 再重启。bridge 与面板不受影响（面板的计划卡片会提示
   调度器未安装）。如果该 profile 已按第 9 节改成 `link:` 依赖，用
-  `dsh plugin --profile <name> remove` 卸载七个包；只删 `node_modules` 会被 pnpm 重建。
+  `dsh plugin --profile <name> remove` 卸载八个包；只删 `node_modules` 会被 pnpm 重建。
 - 回滚不碰计划文件：移植引擎是加法件，不改 `master.json`（只有面板编辑才写），
   不写日计划与 overlay。`<dsh-home>/kinship/state` 下的队列与影子文件可以留着，
   再次启用且会话 id 相同时会继续用同一队列文件。
@@ -353,7 +353,7 @@ per-script 触发频率覆盖，见第 2 步）；后端配置与 `ai_backend` �
 
 1. 构建与同步：`cd harness-plugins && npm run verify`（typecheck + build + 316 个用例
    / 28 个文件）→ `DSH_HOME=<dsh-home> bash harness-plugins/scripts/sync-profile.sh web`
-   （现在拷六个包，新增 `kinship-compact`）。
+   （现在拷八个包，含 `kinship-compact`、`kinship-tools` 与 `kinship-isolation`）。
 2. 重启 dsh：`sudo systemctl restart axeuh-dsh`。`/etc/axeuh-dsh/env` 不用改；
    `presets/kinship.patch.yml` 的 compaction 组里新行 `compact-context` 随 profile
    patch 生效，`--dump-config` 的 preset 展开里能看到它。
@@ -402,14 +402,14 @@ per-script 触发频率覆盖，见第 2 步）；后端配置与 `ai_backend` �
 ## 9. profile 依赖维护：插件安装会清理本地拷贝包（2026-11-17）
 
 > 本节适用于所有在同机 dsh profile 里安装 Kinship 插件的实例（生产主实例、第二实例等）。
-> 一句话：`sync-profile.sh` 只适合一次安装或手工更新；要在 profile 里长期装插件，必须把七个包
+> 一句话：`sync-profile.sh` 只适合一次安装或手工更新；要在 profile 里长期装插件，必须把八个包
 > 声明成 `link:` 依赖，否则该 profile 里任何一次插件安装/升级都会把它们当多余依赖清掉。
 
 ### 9.1 事故与机理
 
 2026-11-17 00:50，主 profile 通过 dsh 插件管理器安装 `dsh-state-notifier 0.7.0`：
 
-- pnpm 输出 `Packages: +5 -7`，把之前由 `sync-profile.sh` 拷进 profile `node_modules/` 的六个
+- pnpm 输出 `Packages: +5 -7`，把之前由 `sync-profile.sh` 拷进 profile `node_modules/` 的八个
   插件包和 `kinship-harness-plugins` bundle 移入 `node_modules/.ignored/`。
 - 主 profile 的组合里有 `- id: hmr`（HMR 开启），安装完成立即热重载；`kinship-bridge` /
   `kinship-ui` / `kinship-plan-scheduler` 三行和 `preset-kinship` 无法再解析，被跳过。
@@ -442,7 +442,7 @@ curl -sk https://127.0.0.1:8768/health      # dsh.status=offline、status=degrad
 `--dump-config` 计数为 0 且 `.ignored/` 里有 `kinship-*`，即可确认是依赖被清理；此时**重启
 dsh 不会恢复**，因为包仍未声明。
 
-### 9.3 处置：把七个包改成 `link:` 依赖（推荐，一次修好）
+### 9.3 处置：把八个包改成 `link:` 依赖（推荐，一次修好）
 
 先备份 profile 的三件套（`package.json`、`pnpm-lock.yaml`、`cordis.patch.yml`），再执行：
 
@@ -457,15 +457,17 @@ DSH_HOME=<dsh-home> dsh plugin --profile web add \
   "link:$REPO/packages/kinship-plan" \
   "link:$REPO/packages/kinship-plan-scheduler" \
   "link:$REPO/packages/kinship-compact" \
+  "link:$REPO/packages/kinship-tools" \
+  "link:$REPO/packages/kinship-isolation" \
   "link:$REPO/packages/kinship-task-compat"
 ```
 
 要点：
 
-- `dsh plugin add` 会把 bundle 自动补进 `dsh.profile.bundles`（已在列表里则不变）；六个插件包
+- `dsh plugin add` 会把 bundle 自动补进 `dsh.profile.bundles`（已在列表里则不变）；八个插件包
   只是普通依赖，会打印 `declares no dsh.bundle … plain dependency` 警告，属正常。
-- 七个依赖写进 `package.json` 和 `pnpm-lock.yaml` 后，后续再在该 profile 里 `add` / `remove` /
-  `install` 插件不会再清理它们（已在隔离的临时 `DSH_HOME` 验证：模拟 add/remove 后七个链接仍在，
+- 八个依赖写进 `package.json` 和 `pnpm-lock.yaml` 后，后续再在该 profile 里 `add` / `remove` /
+  `install` 插件不会再清理它们（已在隔离的临时 `DSH_HOME` 验证：模拟 add/remove 后链接仍在，
   `--dump-config` 仍能解析四行，临时 dsh 实例能正常监听 bridge）。
 - 已运行的 dsh 若启动时已经跳过这个 bundle，HMR 可能不会自动重试：在 profile 的
   `cordis.patch.yml` 末尾加一行注释触发重新组合，或重启 dsh。生产主实例 2026-11-17 12:29 就是
@@ -543,10 +545,14 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18765/v1/health
 - **面板保存语义**：从面板保存桥接配置会写 profile 的完整覆盖，bundle patch 里 env 驱动的字段
   会被固定成保存值；长期用 env 管理就不要点保存。
 - **bridge 不出网**：不要把它挂到 Caddy/frps；公网只暴露 dsh UI。
-- **插件组合**：Kinship 会话的插件面由 preset 决定；profile 里的 auto-memory/login/market 等
-  根级插件不进入该会话的工具面，但它们自己的 prompt 注入是否影响要看各自实现（当前没有
-  额外 AGENTS.md 类注入）。
-- **profile 依赖维护**：Kinship 七个包必须以 `link:` 依赖声明在 profile 里（第 9 节）。
+- **插件组合**：Kinship 会话的插件面由 preset 的行决定，但 host 级插件对共享注册表的贡献
+  （提示词段、工具）对所有 Agent 可见，preset 不能单方面删除。2026-11-17 实测：dsh-auto-memory
+  的记忆索引段（`memory:index`，约 3-4 KiB/请求）和 7 个 `memory_*` 工具会进入 Kinship 会话及
+  其子智能体；`kinship-isolation` 用「preset 作用域同名空段 + `tools.restrict()`」把这两类贡献
+  从 Kinship 会话里减掉，host 面板与你自己的 dsh 会话不受影响。其他 host 插件（login/market/
+  login 等）的贡献如需同样处理，在 `kinship-isolation` 的 `sections` / `toolPrefixes` 配置里加。
+  它的生效结果可在面板「排异」页查看。
+- **profile 依赖维护**：Kinship 八个包必须以 `link:` 依赖声明在 profile 里（第 9 节）。
   用 `sync-profile.sh` 拷贝时，在该 profile 里安装、升级或移除任何插件都会把它们移入
   `node_modules/.ignored/`；dsh 热重载或重启后 bridge 消失，重启 dsh 不能修复，必须重装依赖。
 

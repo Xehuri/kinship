@@ -11,7 +11,11 @@ import {
   UiError,
 } from '../../packages/kinship-bridge/src/ui.js'
 import type { UiApiDeps, UiConfigView, UiTokenInfo } from '../../packages/kinship-bridge/src/ui.js'
-import type { BindingSnapshot, SessionCatalogRow } from '../../packages/kinship-bridge/src/types.js'
+import type {
+  BindingSnapshot,
+  IsolationReport,
+  SessionCatalogRow,
+} from '../../packages/kinship-bridge/src/types.js'
 
 const CONFIG: UiConfigView = {
   host: '127.0.0.1',
@@ -25,6 +29,18 @@ const CONFIG: UiConfigView = {
 }
 
 const TOKEN: UiTokenInfo = { source: 'env', env: 'KINSHIP_BRIDGE_TOKEN', path: null, length: 14 }
+
+/** 一份 kinship-isolation 上报，字段与共享契约一致。 */
+const ISOLATION: IsolationReport = {
+  schema: 1,
+  instance: 'instance-a',
+  active: true,
+  preset: 'kinship',
+  updatedAt: 1_794_759_000_000,
+  sections: [{ name: 'memory:index', shadowed: true }],
+  tools: [{ prefix: 'memory_', denied: ['memory_search'], pending: false }],
+  errors: [],
+}
 
 function row(id: string, createdAt: number, extra: Partial<SessionCatalogRow> = {}): SessionCatalogRow {
   return { id, createdAt, preset: 'kinship', isRoot: true, status: 'idle', title: null, cwd: null, ...extra }
@@ -45,6 +61,7 @@ function harness(options: {
   readonly editable?: boolean
   readonly save?: (next: UiConfigView) => Promise<void>
   readonly bind?: (sessionId: string) => BindingSnapshot
+  readonly isolation?: () => IsolationReport | null
 } = {}): Harness {
   const saved: UiConfigView[] = []
   const binding = options.binding ?? snapshot('session-a')
@@ -73,6 +90,7 @@ function harness(options: {
       await options.save?.(next)
     },
     bind: options.bind ?? (() => binding),
+    isolation: options.isolation ?? (() => null),
   }
   return { deps, saved }
 }
@@ -108,6 +126,28 @@ describe('kinship panel state', () => {
     expect(answer['token']).toEqual(TOKEN)
     expect(answer['config']).toEqual(CONFIG)
     expect(answer['editable']).toBe(true)
+    // 还没收到 kinship-isolation 上报时，排异状态是显式的 null。
+    expect(answer['isolation']).toBeNull()
+  })
+
+  it('returns the latest isolation report the bridge service holds', async () => {
+    let current: IsolationReport | null = null
+    const { deps } = harness({ isolation: () => current })
+    const routes = createUiRoutes(deps)
+
+    const empty = await body(await routes.state())
+    expect(empty).toHaveProperty('isolation')
+    expect(empty['isolation']).toBeNull()
+
+    current = ISOLATION
+    const reported = await body(await routes.state())
+    expect(reported['isolation']).toEqual(ISOLATION)
+    // 报告是只读快照，不是可变的内部引用。
+    expect(JSON.parse(JSON.stringify(reported['isolation']))).toEqual(ISOLATION)
+
+    current = null
+    const cleared = await body(await routes.state())
+    expect(cleared['isolation']).toBeNull()
   })
 
   it('brackets an IPv6 listener and reports a missing bound Session', async () => {

@@ -1,6 +1,6 @@
 # harness-plugins
 
-Kinship 的 dsh 侧集成。六个独立插件包加一个 preset patch，全部是普通 Cordis
+Kinship 的 dsh 侧集成。八个独立插件包加一个 preset patch，全部是普通 Cordis
 插件，不改 dsh 主循环，不写 `backend/`、`frontend/`、`kinship-data/` 或生产
 `dsh-home`。
 
@@ -24,6 +24,7 @@ harness-plugins/
     kinship-plan-scheduler/ # Loom 计划调度器的 dsh 移植：母版/覆盖层 + 唤醒队列
     kinship-compact/        # compact_context：模型可调用的手动压缩（回合结束后执行）
     kinship-tools/          # 手机通知 / 提醒板 / TTS 原生工具（经 bridge 直连后端）
+    kinship-isolation/      # preset 级排异：遮蔽 host 提示词段 + 限制 host 工具
     kinship-task-compat/    # task / todowrite / MCP aliases
   tests/
     unit/
@@ -43,7 +44,7 @@ export PATH=/mnt/d/tools/node-v24.22.3-linux-x64/bin:$PATH
 cd harness-plugins
 npm install
 npm run link:dsh   # 把安装机的 @deepseek-ai/* 链到本 workspace node_modules
-npm run verify     # typecheck + build + tests（364 个用例，30 个文件）
+npm run verify     # typecheck + build + tests（375 个用例，32 个文件）
 ```
 
 `link:dsh` 默认读取
@@ -51,7 +52,7 @@ npm run verify     # typecheck + build + tests（364 个用例，30 个文件）
 可用 `DSH_PACKAGES_DIR` 覆盖。它只写本 workspace 的 `node_modules`，不碰任何
 DSH_HOME。
 
-集成测试会创建临时 `DSH_HOME`，复制七个包和 bundle patch，运行
+集成测试会创建临时 `DSH_HOME`，复制八个包和 bundle patch，运行
 `dsh --profile kinship-test --dump-config`；测试结束删除临时目录。生产
 `dsh-home`、systemd、正在运行的 dsh 都不会被访问。
 
@@ -85,10 +86,11 @@ DSH_HOME=/path/to/dsh-home dsh plugin --profile web add \
   "link:$REPO/packages/kinship-plan-scheduler" \
   "link:$REPO/packages/kinship-compact" \
   "link:$REPO/packages/kinship-tools" \
+  "link:$REPO/packages/kinship-isolation" \
   "link:$REPO/packages/kinship-task-compat"
 ```
 
-七个插件包会提示 `declares no dsh.bundle … plain dependency`，属正常（bundle 在
+八个插件包会提示 `declares no dsh.bundle … plain dependency`，属正常（bundle 在
 `dsh.profile.bundles`，插件包只是普通依赖）。事故细节、判据与恢复步骤见
 [docs/ops/dsh-production-rollout.md](../docs/ops/dsh-production-rollout.md) 第 9 节。如果继续使用
 `sync-profile.sh`，必须把“装/升级/移除任何插件后重新同步并重启 dsh”写进操作流程。
@@ -98,7 +100,8 @@ DSH_HOME=/path/to/dsh-home dsh plugin --profile web add \
 
 装进真实 profile 后，启动 `dsh web`，左侧栏会出现 **Kinship** 页：桥接地址、
 token（显示/复制/轮换）、桥接配置、绑定会话、计划排班卡片和待粘贴的 `config.yaml`
-片段都在那里，不需要手改 profile 文件。本 README 后面的表格是面板背后的字段与端点细节。
+片段都在那里，不需要手改 profile 文件。面板按「概览 / 排异 / 计划 / 接入 / 设置」分页，
+一次只显示一类内容。本 README 后面的表格是面板背后的字段与端点细节。
 
 ## kinship-bridge
 
@@ -654,6 +657,28 @@ preset 级的四个原生工具，替代 `ai_mcp` MCP 进程：`inject = ['tools
 - 别名：Loom prompt 里的 `mcp_ai_mcp_*` 名字由 `kinship-task-compat` 映射到这四个
   原生名（fallback 保留旧的 `mcp__ai_mcp__*`，MCP server 还在时仍可用）。
 
+## kinship-isolation
+
+preset 级排异插件：不改 host 配置，只让 `kinship` preset 下的会话看不到指定的 host 贡献。
+
+- 提示词段：在 preset 作用域注册同名空段，遮蔽 host 插件的同名段（默认 `memory:index`，
+  即 dsh-auto-memory 的记忆索引段）；dsh 的提示词注册表按名字让作用域段覆盖全局段。
+- 工具：在 preset 作用域调用 `ctx.tools.restrict({deny})`，隐藏名字匹配指定前缀的 host
+  工具（默认 `memory_`，即 auto-memory 的 7 个记忆工具）。schema、描述与执行一起消失，
+  不是只在 UI 上隐藏。
+- 启动顺序：preset 可能早于 host 插件激活，工具限制在 `tools/change` 上增量同步，不依赖
+  profile bundle 的加载顺序；`restrict()` 会拒绝尚未注册的名字，所以不能只在 apply 时按
+  硬编码名单调一次。
+- 作用范围：只影响挂载它的 preset 的 Agent 及其子智能体；host 面板、其他 preset 和主机
+  会话不受影响。
+- 面板：排异结果经 `kinshipBridge.reportIsolation` 报告，在 Kinship 面板的「排异」页显示
+  每个段/前缀的状态（已遮蔽、已限制 N 个、等待注册、未匹配）与错误。
+- 配置：`sections`（默认 `["memory:index"]`）、`toolPrefixes`（默认 `["memory_"]`）、
+  `presetId`（默认 `kinship`）。段名与工具前缀是宿主插件的实现细节，升级
+  dsh-auto-memory 后要在面板确认结果仍为「已遮蔽 / 已限制」。
+- 生效时机：preset 插件组合按会话冻结；已存在的 Kinship 会话保留旧组合，改动要等新建
+  会话/重新绑定后才看得到。
+
 ## kinship preset
 
 `presets/kinship.patch.yml` 插入：
@@ -667,13 +692,14 @@ preset 级的四个原生工具，替代 `ai_mcp` MCP 进程：`inject = ['tools
   `tool-result-pruner`；该组 `isolate` 了 `compaction` 与 `toolResultPruner`，
   所以工具拿到的是本会话自己的压缩服务）、`kinship-plan`、`kinship-task-compat`、
   `kinship-tools`（手机通知/提醒板/TTS 四个原生工具，见
-  [kinship-tools](#kinship-tools)）
+  [kinship-tools](#kinship-tools)）、`kinship-isolation`（preset 级排异：遮蔽 host
+  提示词段并限制 host 工具，见 [kinship-isolation](#kinship-isolation)）
 - 不挂 `kinship-memory`、`kinship-context-watch`、`kinship-qq`
 
 现有 shipped presets（standard=1、ptc=2、minimal=3、cordis=4）不变。
 
 profile 使用方式：profile 的 `dsh.profile.bundles` 加
-`kinship-harness-plugins`，并让 bundle 引用的七个包在 profile 的 `node_modules`
+`kinship-harness-plugins`，并让 bundle 引用的八个包在 profile 的 `node_modules`
 可解析（`scripts/sync-profile.sh` 会一次拷全）。`--dump-config` 会显示 host 的
 `kinship-bridge`、`kinship-ui`、`kinship-plan-scheduler` 三行和 `preset-kinship` 行
 （preset 展开后含 `compaction-basic` / `command-compact` / `compact-context` /

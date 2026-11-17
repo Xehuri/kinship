@@ -145,6 +145,56 @@ export interface CompactionSnapshot {
   readonly running?: boolean
 }
 
+/*
+ * 排异（isolation）契约。
+ *
+ * preset 级插件 `kinship-isolation` 在 kinship preset 作用域里遮蔽 host 的
+ * 提示词段、并按工具名前缀限制 host 工具调用，然后把执行结果通过桥接的 host
+ * 服务上报给面板。下面的字段名是跨插件共享契约，改动前必须同步
+ * `packages/kinship-isolation`。
+ */
+
+/** 一条提示词段的遮蔽结果。 */
+export interface IsolationSectionReport {
+  /** 段名，与 host 级插件注册的段同名。 */
+  readonly name: string
+  /** 已注册同名空段（能遮蔽 host 的同名段）。 */
+  readonly shadowed: boolean
+}
+
+/** 一个工具名前缀的限制结果。 */
+export interface IsolationToolsReport {
+  /** 例如 "memory_" */
+  readonly prefix: string
+  /** 已经被 restrict 隐藏的工具名。 */
+  readonly denied: readonly string[]
+  /** 配置了前缀但当前注册表里还没有匹配工具。 */
+  readonly pending: boolean
+}
+
+/**
+ * 一份排异状态快照。
+ *
+ * 它只存在 bridge 进程的内存里：不落盘、不写日志，harness 重启后由
+ * kinship-isolation 重新上报。
+ */
+export interface IsolationReport {
+  /** 线上 schema 版本，当前固定为 1。 */
+  readonly schema: 1
+  /** 每次插件实例激活生成的随机 id，用于卸载时只清除自己的报告。 */
+  readonly instance: string
+  /** 排异规则是否已生效。 */
+  readonly active: boolean
+  /** 例如 "kinship" */
+  readonly preset: string
+  /** epoch 毫秒 */
+  readonly updatedAt: number
+  readonly sections: readonly IsolationSectionReport[]
+  readonly tools: readonly IsolationToolsReport[]
+  /** 限制失败等错误，旧的在前面。 */
+  readonly errors: readonly string[]
+}
+
 /** The only host surface the HTTP server needs. */
 export interface BridgeHost {
   listSessions(): readonly SessionInfo[]

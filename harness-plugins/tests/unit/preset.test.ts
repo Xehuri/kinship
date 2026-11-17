@@ -42,6 +42,7 @@ describe('kinship preset patch', () => {
       'kinship-plan',
       'kinship-task-compat',
       'kinship-tools',
+      'kinship-isolation',
     ]) {
       expect(source).toContain(`id: ${id}`)
     }

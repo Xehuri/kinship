@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Kinship panel",
-    "description": "Kinship bridge status, configuration, Session binding, and the plan schedule in the Web sidebar.",
+    "description": "Kinship bridge status and isolation results, configuration, Session binding, and the plan schedule, in Overview / Isolation / Plan / Access / Settings tabs.",
     "detail": "docs/DETAIL.md"
   }
 }

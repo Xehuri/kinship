@@ -89,3 +89,5 @@
               provider: spawn
           - id: kinship-tools
             name: 'kinship-tools'
+          - id: kinship-isolation
+            name: 'kinship-isolation'

@@ -76,6 +76,15 @@ window.__ModuleLoader__.load({
     const ROOT_SOURCE_IDS = ['pushed', 'config', 'env', 'default']
     /** Anchor origins the scheduler reports; an unknown value renders as default. */
     const ANCHOR_SOURCE_IDS = ['config', 'master', 'default']
+    /**
+     * 面板顶部的 tab 顺序，也是卡片分组的固定划分：
+     * 概览=状态+会话，排异=IsolationCard，计划=PlanScheduleCard，
+     * 接入=令牌+接入片段，设置=桥接配置。
+     */
+    const TAB_IDS = ['overview', 'isolation', 'plan', 'access', 'settings']
+    /** DOM id 前缀，把 tab 按钮与它控制的面板关联起来（aria-controls）。 */
+    const TAB_ELEMENT_ID = 'kui-tab-'
+    const TAB_PANEL_ID = 'kui-tabpanel-'
 
     const zh = {
       panel: 'Kinship',
@@ -93,6 +102,12 @@ window.__ModuleLoader__.load({
       'action.cancel': '取消',
       'action.bind': '绑定此会话',
       'action.bound': '当前绑定',
+      'tab.label': '面板分区',
+      'tab.overview': '概览',
+      'tab.isolation': '排异',
+      'tab.plan': '计划',
+      'tab.access': '接入',
+      'tab.settings': '设置',
       'state.loading': '正在读取桥接状态',
       'state.loadFailed': '读取桥接状态失败',
       'state.unreachable': '桥接插件未响应。确认 kinship-bridge 已启用且 dsh 正在运行。',
@@ -143,6 +158,24 @@ window.__ModuleLoader__.load({
       'sessions.title': '可选会话',
       'sessions.note': '只列出运行 kinship 预设的根会话。',
       'sessions.empty': '当前没有运行 kinship 预设的根会话',
+      'isolation.title': '排异状态',
+      'isolation.note': 'kinship-isolation 在 kinship 预设作用域里遮蔽 host 提示词段、并按前缀限制 host 工具；下面显示它最近一次上报的结果。',
+      'isolation.missing': '排异未激活（未收到 kinship-isolation 报告）',
+      'isolation.state': '状态',
+      'isolation.active': '已生效',
+      'isolation.inactive': '未生效',
+      'isolation.preset': '预设',
+      'isolation.updated': '上报时间',
+      'isolation.sections': '提示词段',
+      'isolation.sections.empty': '没有需要遮蔽的段',
+      'isolation.section.shadowed': '已注册遮蔽段',
+      'isolation.section.unshadowed': '未注册',
+      'isolation.tools': '工具限制',
+      'isolation.tools.empty': '没有配置工具前缀',
+      'isolation.tools.denied': '已限制 {count} 个：{names}',
+      'isolation.tools.pending': '等待工具注册',
+      'isolation.tools.none': '未发现匹配工具',
+      'isolation.errors': '错误',
       'snippet.title': '接入 Kinship',
       'snippet.note': '把下面这段写入 kinship 侧 config.yaml（或对应的配置项）即可连到本桥接。',
       'snippet.placeholder': '<点击上方「显示令牌」后粘贴>',
@@ -258,6 +291,12 @@ window.__ModuleLoader__.load({
       'action.cancel': 'Cancel',
       'action.bind': 'Bind this Session',
       'action.bound': 'Bound now',
+      'tab.label': 'Panel sections',
+      'tab.overview': 'Overview',
+      'tab.isolation': 'Isolation',
+      'tab.plan': 'Plan',
+      'tab.access': 'Access',
+      'tab.settings': 'Settings',
       'state.loading': 'Reading bridge status',
       'state.loadFailed': 'Could not read the bridge status',
       'state.unreachable': 'The bridge plugin did not answer. Check that kinship-bridge is enabled and dsh is running.',
@@ -308,6 +347,24 @@ window.__ModuleLoader__.load({
       'sessions.title': 'Bindable Sessions',
       'sessions.note': 'Only root Sessions running the kinship preset appear here.',
       'sessions.empty': 'No root Session is running the kinship preset',
+      'isolation.title': 'Isolation',
+      'isolation.note': 'kinship-isolation shadows host prompt sections and restricts host tools by prefix inside the kinship preset; this shows its latest report.',
+      'isolation.missing': 'Isolation is not active (no kinship-isolation report yet)',
+      'isolation.state': 'State',
+      'isolation.active': 'Active',
+      'isolation.inactive': 'Inactive',
+      'isolation.preset': 'Preset',
+      'isolation.updated': 'Reported',
+      'isolation.sections': 'Prompt sections',
+      'isolation.sections.empty': 'No section needs shadowing',
+      'isolation.section.shadowed': 'Shadow registered',
+      'isolation.section.unshadowed': 'Not registered',
+      'isolation.tools': 'Tool restrictions',
+      'isolation.tools.empty': 'No tool prefix configured',
+      'isolation.tools.denied': '{count} restricted: {names}',
+      'isolation.tools.pending': 'Waiting for tool registration',
+      'isolation.tools.none': 'No matching tool found',
+      'isolation.errors': 'Errors',
       'snippet.title': 'Connect Kinship',
       'snippet.note': 'Add this to the Kinship side’s config.yaml, or to the equivalent configuration keys.',
       'snippet.placeholder': '<reveal the token above, then paste it here>',
@@ -688,6 +745,54 @@ window.__ModuleLoader__.load({
         children)
     }
 
+    /**
+     * 顶部 tab 栏：在头部下方切换当前显示的卡片分组，默认「概览」。
+     *
+     * 采用标准的 tablist 键盘模型：只有选中的按钮在 Tab 顺序里，左右方向键在
+     * 分区之间移动焦点并切换，Home/End 跳到首尾。按钮本身沿用 kui-button 的
+     * 尺寸与焦点环，选中态用 kui-tab-active 明确区分。
+     */
+    function TabBar({ t, active, onChange }) {
+      const focusAt = (event, index) => {
+        const scope = event.currentTarget.parentElement
+        if (scope === null || typeof scope.querySelector !== 'function') return
+        const button = scope.querySelector('[data-kui-tab="' + TAB_IDS[index] + '"]')
+        if (button !== null && typeof button.focus === 'function') button.focus()
+      }
+      const select = (event, index) => {
+        event.preventDefault()
+        onChange(TAB_IDS[index])
+        focusAt(event, index)
+      }
+      const move = (event, delta) => {
+        const index = TAB_IDS.indexOf(active)
+        if (index < 0) return
+        select(event, (index + delta + TAB_IDS.length) % TAB_IDS.length)
+      }
+      return h('div', {
+        className: 'kui-tabs',
+        role: 'tablist',
+        'aria-label': t('tab.label'),
+      }, TAB_IDS.map(id => h('button', {
+        key: id,
+        type: 'button',
+        role: 'tab',
+        id: TAB_ELEMENT_ID + id,
+        'data-kui-tab': id,
+        tabIndex: active === id ? 0 : -1,
+        'aria-selected': active === id ? 'true' : 'false',
+        'aria-controls': TAB_PANEL_ID + id,
+        className: active === id ? 'kui-tab kui-tab-active' : 'kui-tab',
+        onClick: () => { onChange(id) },
+        onKeyDown: event => {
+          if (event.key === 'ArrowRight') move(event, 1)
+          else if (event.key === 'ArrowLeft') move(event, -1)
+          else if (event.key === 'Home') select(event, 0)
+          else if (event.key === 'End') select(event, TAB_IDS.length - 1)
+        },
+      }, t('tab.' + id))))
+    }
+
     const styles = [
       '.kui-page{display:flex;flex-direction:column;width:100%;height:100%;min-width:0;min-height:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-size:14px;line-height:1.6}',
       '.kui-scroll{flex:1;min-height:0;overflow:auto;--dsh-scrollbar-width:9px;--dsh-scrollbar-thumb-border:2px}',
@@ -697,6 +802,13 @@ window.__ModuleLoader__.load({
       '.kui-title{margin:0;font-size:20px;font-weight:600;letter-spacing:.01em}',
       '.kui-sub{margin:4px 0 0;color:var(--dsw-alias-label-tertiary);font-size:13px}',
       '.kui-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+      '.kui-tabs{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
+      '.kui-tab{height:32px;padding:0 14px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;transition:background .12s ease,color .12s ease,border-color .12s ease}',
+      '.kui-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
+      '.kui-tab:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}',
+      '.kui-tab.kui-tab-active{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font-weight:600}',
+      '.kui-tab.kui-tab-active:hover{background:var(--dsw-alias-bg-module-platform)}',
+      '.kui-tabpanel{display:flex;flex-direction:column;gap:16px;min-width:0}',
       '.kui-button{height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;transition:background .12s ease,border-color .12s ease}',
       '.kui-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}',
       '.kui-button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}',
@@ -734,6 +846,12 @@ window.__ModuleLoader__.load({
       '.kui-chips{display:flex;flex-wrap:wrap;gap:6px}',
       '.kui-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}',
       '.kui-subcard{display:flex;flex-direction:column;gap:10px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l1)}',
+      '.kui-iso-list{display:flex;flex-direction:column}',
+      '.kui-iso-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--dsw-alias-border-l1)}',
+      '.kui-iso-row:first-child{border-top:0;padding-top:0}',
+      '.kui-iso-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;word-break:break-all;min-width:0}',
+      '.kui-iso-result{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;color:var(--dsw-alias-label-secondary);font-size:12px;text-align:right;word-break:break-word}',
+      '.kui-iso-errors{margin:6px 0 0;padding-left:18px;word-break:break-word}',
       '.kui-subtitle{margin:0;font-size:13px;font-weight:600}',
       '.kui-table-wrap{width:100%;overflow-x:auto;overscroll-behavior-x:contain}',
       '.kui-table{width:100%;min-width:620px;border-collapse:collapse;font-size:12px;white-space:nowrap}',
@@ -1256,8 +1374,80 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The Kinship page: bridge status, token handling, editable configuration,
-     * the live Session catalog, and the snippet the Kinship side needs.
+     * 排异卡片：显示 kinship-isolation 最近一次上报的遮蔽段、工具限制和错误。
+     *
+     * 数据来自 `/api/kinship/ui/state` 的 `isolation` 字段。旧版 bridge 没有这个
+     * 字段（undefined），这里按 null 处理，只显示「未激活」提示，不让面板崩溃。
+     */
+    function IsolationCard({ t, isolation }) {
+      const report = isRecord(isolation) ? isolation : null
+      if (report === null) {
+        return h(Card, { title: t('isolation.title') },
+          h('div', { className: 'kui-hint' }, t('isolation.note')),
+          h('div', { className: 'kui-alert', role: 'status' }, t('isolation.missing')))
+      }
+
+      const active = report.active === true
+      const sections = Array.isArray(report.sections) ? report.sections.filter(isRecord) : []
+      const tools = Array.isArray(report.tools) ? report.tools.filter(isRecord) : []
+      const errors = Array.isArray(report.errors)
+        ? report.errors.filter(message => typeof message === 'string' && message !== '')
+        : []
+      const preset = typeof report.preset === 'string' && report.preset !== '' ? report.preset : '—'
+
+      const sectionRows = sections.length === 0
+        ? [h('div', { key: 'sections-empty', className: 'kui-hint' }, t('isolation.sections.empty'))]
+        : sections.map((section, index) => {
+          const name = typeof section.name === 'string' && section.name !== '' ? section.name : '—'
+          const shadowed = section.shadowed === true
+          return h('div', { key: 'section-' + String(index), className: 'kui-iso-row' },
+            h('span', { className: 'kui-iso-name' }, name),
+            h('span', { className: 'kui-iso-result' },
+              h('span', { className: shadowed ? 'kui-badge kui-badge-ok' : 'kui-badge' },
+                shadowed ? t('isolation.section.shadowed') : t('isolation.section.unshadowed'))))
+        })
+
+      const toolRows = tools.length === 0
+        ? [h('div', { key: 'tools-empty', className: 'kui-hint' }, t('isolation.tools.empty'))]
+        : tools.map((tool, index) => {
+          const prefix = typeof tool.prefix === 'string' && tool.prefix !== '' ? tool.prefix : '—'
+          const denied = Array.isArray(tool.denied)
+            ? tool.denied.filter(name => typeof name === 'string')
+            : []
+          const result = denied.length > 0
+            ? t('isolation.tools.denied', { count: String(denied.length), names: denied.join(', ') })
+            : tool.pending === true ? t('isolation.tools.pending') : t('isolation.tools.none')
+          return h('div', { key: 'tool-' + String(index), className: 'kui-iso-row' },
+            h('span', { className: 'kui-iso-name' }, prefix),
+            h('span', { className: 'kui-iso-result' }, result))
+        })
+
+      return h(Card, { title: t('isolation.title') },
+        h('div', { className: 'kui-hint' }, t('isolation.note')),
+        h('div', { className: 'kui-rows' },
+          h(Row, { label: t('isolation.state') },
+            h('span', { className: active ? 'kui-badge kui-badge-ok' : 'kui-badge kui-badge-warn' },
+              active ? t('isolation.active') : t('isolation.inactive'))),
+          h(Row, { label: t('isolation.preset') }, h('span', { className: 'kui-mono' }, preset)),
+          h(Row, { label: t('isolation.updated') }, h('span', null, formatTime(report.updatedAt)))),
+        h('div', { className: 'kui-subcard' },
+          h('h3', { className: 'kui-subtitle' }, t('isolation.sections')),
+          h('div', { className: 'kui-iso-list' }, sectionRows)),
+        h('div', { className: 'kui-subcard' },
+          h('h3', { className: 'kui-subtitle' }, t('isolation.tools')),
+          h('div', { className: 'kui-iso-list' }, toolRows)),
+        errors.length === 0
+          ? null
+          : h('div', { className: 'kui-alert kui-alert-error', role: 'alert' },
+            h('div', { style: { fontWeight: 600 } }, t('isolation.errors')),
+            h('ul', { className: 'kui-iso-errors' },
+              errors.map((message, index) => h('li', { key: 'error-' + String(index) }, message)))))
+    }
+
+    /**
+     * The Kinship page: a tab bar over five fixed card groups — overview
+     * (bridge status and Sessions), isolation, plan schedule, access (token and
+     * the Kinship-side snippet), and settings.
      */
     function KinshipPanel({ t }) {
       const [snapshot, setSnapshot] = useState(null)
@@ -1271,6 +1461,8 @@ window.__ModuleLoader__.load({
       const [copied, setCopied] = useState(null)
       const [plan, setPlan] = useState(null)
       const [planError, setPlanError] = useState(null)
+      /** 当前 tab；只渲染这一组的卡片，默认「概览」。 */
+      const [tab, setTab] = useState('overview')
       const alive = useRef(true)
 
       useEffect(() => () => { alive.current = false }, [])
@@ -1480,7 +1672,7 @@ window.__ModuleLoader__.load({
                 onClick: () => { void bind(row.id) },
               }, t('action.bind')))))
 
-      const cards = [
+      const allCards = [
         h(Card, { key: 'status', title: t('status.title') },
           h('div', { className: 'kui-rows' },
             h(Row, { label: t('status.url') },
@@ -1658,10 +1850,36 @@ window.__ModuleLoader__.load({
         }),
       ]
 
+      // 固定分组：只把当前 tab 的卡片放进渲染树，其余卡片只是未使用的元素对象。
+      // allCards 的顺序固定为：状态、令牌、配置、会话、接入片段、计划。
+      const [statusCard, tokenCard, configCard, sessionsCard, snippetCard, planCard] = allCards
+      const cardGroups = {
+        overview: [statusCard, sessionsCard],
+        isolation: [h(IsolationCard, {
+          key: 'isolation',
+          t,
+          // 旧版 bridge 没有 isolation 字段，undefined 与 null 一样按未激活处理。
+          isolation: isRecord(snapshot.isolation) ? snapshot.isolation : null,
+        })],
+        plan: [planCard],
+        access: [tokenCard, snippetCard],
+        settings: [configCard],
+      }
+      const cards = cardGroups[tab] === undefined ? cardGroups.overview : cardGroups[tab]
+
       return h('div', { className: 'kui-page' },
         h('style', null, styles),
         h('div', { className: 'kui-scroll' },
-          h('div', { className: 'kui-content' }, head, noticeNode, cards)))
+          h('div', { className: 'kui-content' },
+            head,
+            h(TabBar, { t, active: tab, onChange: setTab }),
+            noticeNode,
+            h('div', {
+              className: 'kui-tabpanel',
+              role: 'tabpanel',
+              id: TAB_PANEL_ID + tab,
+              'aria-labelledby': TAB_ELEMENT_ID + tab,
+            }, cards))))
     }
     return {
       inject: ['slots', 'locale'],

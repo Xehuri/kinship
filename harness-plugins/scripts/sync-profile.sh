@@ -33,7 +33,7 @@ if [ ! -d "$PROFILE" ]; then
   echo "[sync] no such profile: $PROFILE" >&2
   exit 1
 fi
-for pkg in kinship-bridge kinship-plan kinship-task-compat kinship-plan-scheduler kinship-compact kinship-tools; do
+for pkg in kinship-bridge kinship-plan kinship-task-compat kinship-plan-scheduler kinship-compact kinship-tools kinship-isolation; do
   if [ ! -f "$REPO/packages/$pkg/dist/index.js" ]; then
     echo "[sync] missing $REPO/packages/$pkg/dist/index.js; run: npm run build" >&2
     exit 1
@@ -64,6 +64,7 @@ copy_pkg kinship-task-compat dist package.json
 copy_pkg kinship-plan-scheduler dist package.json
 copy_pkg kinship-compact dist package.json
 copy_pkg kinship-tools dist package.json
+copy_pkg kinship-isolation dist package.json
 
 BUNDLE="$MODULES/kinship-harness-plugins"
 mkdir -p "$BUNDLE/presets"

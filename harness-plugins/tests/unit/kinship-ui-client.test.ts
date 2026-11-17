@@ -230,6 +230,22 @@ function findButton(node: unknown, label: string): Element | undefined {
   return findElement(node, element => element.type === 'button' && walkText(element.children).trim() === label)
 }
 
+/**
+ * 打开顶部 tab 并返回切换后的渲染树。
+ *
+ * 面板默认只渲染「概览」分组的卡片；plan/isolation/接入/设置 的卡片只在对应
+ * tab 激活时进入渲染树，所以这些断言前先点一下 tab 按钮。
+ */
+async function openTab(runtime: Runtime, tree: Element, label: string): Promise<Element> {
+  const button = findButton(tree, label)
+  if (button === undefined) throw new Error(`tab "${label}" is missing`)
+  const onClick = button.props['onClick']
+  if (typeof onClick !== 'function') throw new Error(`tab "${label}" has no click handler`)
+  const trigger = onClick as () => void
+  trigger()
+  return await runtime.settle()
+}
+
 function sameDeps(left: readonly unknown[] | undefined, right: readonly unknown[] | undefined): boolean {
   if (left === undefined || right === undefined) return false
   return left.length === right.length && left.every((value, index) => Object.is(value, right[index]))
@@ -423,7 +439,7 @@ function stubEnvironment(handler: (call: FetchCall) => StubAnswer): { calls: Fet
   }
 }
 
-function stateAnswer(): StubAnswer {
+function stateAnswer(isolation?: unknown): StubAnswer {
   return {
     status: 200,
     body: {
@@ -444,6 +460,8 @@ function stateAnswer(): StubAnswer {
       },
       editable: true,
       sessions: [],
+      // 不传时整个字段缺失，模拟没有排异通道的旧版 bridge。
+      ...(isolation === undefined ? {} : { isolation }),
     },
   }
 }
@@ -577,10 +595,14 @@ describe('kinship-ui plan schedule card', () => {
       return stateAnswer()
     })
     try {
-      const text = walkText(await runtime.render(page.component, { t: page.t }))
+      const overviewTree = await runtime.render(page.component, { t: page.t })
+      const overview = walkText(overviewTree)
+      expect(overview).toContain('桥接状态')
+      // 计划卡片属于「计划」tab，默认不渲染。
+      expect(overview).not.toContain('计划排班')
+      const text = walkText(await openTab(runtime, overviewTree, '计划'))
       expect(text).toContain('计划排班')
       expect(text).toContain('计划调度器未安装或未启用')
-      expect(text).toContain('桥接状态')
     } finally {
       environment.restore()
     }
@@ -593,7 +615,8 @@ describe('kinship-ui plan schedule card', () => {
       ? scheduleResponse({ version: 0, entries: [], master: false })
       : stateAnswer())
     try {
-      const text = walkText(await runtime.render(page.component, { t: page.t }))
+      const tree = await runtime.render(page.component, { t: page.t })
+      const text = walkText(await openTab(runtime, tree, '计划'))
       expect(text).toContain('未初始化')
       expect(text).toContain('创建默认排班')
       expect(text).toContain('实时')
@@ -619,7 +642,8 @@ describe('kinship-ui plan schedule card', () => {
       })
       : stateAnswer())
     try {
-      const text = walkText(await runtime.render(page.component, { t: page.t }))
+      const tree = await runtime.render(page.component, { t: page.t })
+      const text = walkText(await openTab(runtime, tree, '计划'))
       expect(text).toContain('日计划')
       expect(text).toContain('05:00')
       expect(text).toContain('星期')
@@ -652,7 +676,8 @@ describe('kinship-ui plan schedule card', () => {
     })
     try {
       const tree = await runtime.render(page.component, { t: page.t })
-      const toggle = findElement(tree, node => node.type === 'input'
+      const planTree = await openTab(runtime, tree, '计划')
+      const toggle = findElement(planTree, node => node.type === 'input'
         && node.props['type'] === 'checkbox'
         && String(node.props['aria-label'] ?? '').startsWith('启用 '))
       if (toggle === undefined) throw new Error('the enable toggle is missing')
@@ -691,7 +716,8 @@ describe('kinship-ui plan schedule card', () => {
     })
     try {
       const tree = await runtime.render(page.component, { t: page.t })
-      const button = findButton(tree, '立即对账')
+      const planTree = await openTab(runtime, tree, '计划')
+      const button = findButton(planTree, '立即对账')
       if (button === undefined) throw new Error('the reconcile button is missing')
       const onClick = button.props['onClick']
       if (typeof onClick !== 'function') throw new Error('the reconcile button has no handler')
@@ -718,7 +744,8 @@ describe('kinship-ui plan schedule card', () => {
       ? scheduleResponse({ version: 5, entries: [dailyEntry()] })
       : stateAnswer())
     try {
-      const text = walkText(await runtime.render(page.component, { t: page.t }))
+      const tree = await runtime.render(page.component, { t: page.t })
+      const text = walkText(await openTab(runtime, tree, '计划'))
       expect(text).toContain('/srv/kinship/ai/data')
       expect(text).toContain('来源：kinship 后端推送')
       expect(text).toContain('来自母版')
@@ -744,7 +771,8 @@ describe('kinship-ui plan schedule card', () => {
       })
       : stateAnswer())
     try {
-      const text = walkText(await runtime.render(page.component, { t: page.t }))
+      const tree = await runtime.render(page.component, { t: page.t })
+      const text = walkText(await openTab(runtime, tree, '计划'))
       expect(text).toContain('来源：默认（等待 kinship 后端推送）')
       expect(text).toContain('默认')
       // No master: the plugin row's timezone is the effective one.
@@ -765,9 +793,125 @@ describe('kinship-ui plan schedule card', () => {
       })
       : stateAnswer())
     try {
-      const text = walkText(await runtime.render(page.component, { t: page.t }))
+      const tree = await runtime.render(page.component, { t: page.t })
+      const text = walkText(await openTab(runtime, tree, '计划'))
       expect(text).toContain('路径推送有问题')
       expect(text).toContain('relative/plan')
+    } finally {
+      environment.restore()
+    }
+  })
+})
+
+describe('kinship-ui tabs and isolation card', () => {
+  it('renders one tab group at a time and defaults to the overview', async () => {
+    const runtime = createRuntime()
+    const page = mainPanel(activate(runtime.React))
+    const environment = stubEnvironment(() => stateAnswer(null))
+    try {
+      const tree = await runtime.render(page.component, { t: page.t })
+      const overview = walkText(tree)
+      for (const label of ['概览', '排异', '计划', '接入', '设置']) {
+        expect(overview).toContain(label)
+      }
+      expect(overview).toContain('桥接版本')
+      expect(overview).toContain('可选会话')
+      // 其它分组的卡片不在渲染树里。
+      expect(overview).not.toContain('访问令牌')
+      expect(overview).not.toContain('桥接配置')
+      expect(overview).not.toContain('排异状态')
+
+      const isolationText = walkText(await openTab(runtime, tree, '排异'))
+      expect(isolationText).toContain('排异状态')
+      expect(isolationText).not.toContain('桥接版本')
+      expect(isolationText).not.toContain('访问令牌')
+
+      const accessText = walkText(await openTab(runtime, await runtime.settle(), '接入'))
+      expect(accessText).toContain('访问令牌')
+      expect(accessText).toContain('接入 Kinship')
+      expect(accessText).not.toContain('排异状态')
+    } finally {
+      environment.restore()
+    }
+  })
+
+  it('explains an inactive isolation state when the report is missing', async () => {
+    for (const isolation of [undefined, null]) {
+      const runtime = createRuntime()
+      const page = mainPanel(activate(runtime.React))
+      const environment = stubEnvironment(() => stateAnswer(isolation))
+      try {
+        const tree = await runtime.render(page.component, { t: page.t })
+        const text = walkText(await openTab(runtime, tree, '排异'))
+        expect(text).toContain('排异未激活（未收到 kinship-isolation 报告）')
+      } finally {
+        environment.restore()
+      }
+    }
+  })
+
+  it('renders sections, tool restrictions and errors of an active report', async () => {
+    const runtime = createRuntime()
+    const page = mainPanel(activate(runtime.React))
+    const environment = stubEnvironment(() => stateAnswer({
+      schema: 1,
+      instance: 'instance-a',
+      active: true,
+      preset: 'kinship',
+      updatedAt: 1_700_000_000_000,
+      sections: [
+        { name: 'memory:index', shadowed: true },
+        { name: 'tools:index', shadowed: false },
+      ],
+      tools: [
+        { prefix: 'memory_', denied: ['memory_search', 'memory_write'], pending: false },
+        { prefix: 'task_', denied: [], pending: true },
+        { prefix: 'gone_', denied: [], pending: false },
+      ],
+      errors: ['restrict failed: unknown tool platform_x'],
+    }))
+    try {
+      const tree = await runtime.render(page.component, { t: page.t })
+      const text = walkText(await openTab(runtime, tree, '排异'))
+      expect(text).toContain('已生效')
+      expect(text).toContain('kinship')
+      expect(text).toContain('memory:index')
+      expect(text).toContain('已注册遮蔽段')
+      expect(text).toContain('tools:index')
+      expect(text).toContain('未注册')
+      expect(text).toContain('memory_')
+      expect(text).toContain('已限制 2 个：memory_search, memory_write')
+      expect(text).toContain('task_')
+      expect(text).toContain('等待工具注册')
+      expect(text).toContain('gone_')
+      expect(text).toContain('未发现匹配工具')
+      expect(text).toContain('错误')
+      expect(text).toContain('restrict failed: unknown tool platform_x')
+    } finally {
+      environment.restore()
+    }
+  })
+
+  it('marks an inactive report without failing on empty lists', async () => {
+    const runtime = createRuntime()
+    const page = mainPanel(activate(runtime.React))
+    const environment = stubEnvironment(() => stateAnswer({
+      schema: 1,
+      instance: 'instance-b',
+      active: false,
+      preset: 'kinship',
+      updatedAt: 0,
+      sections: [],
+      tools: [],
+      errors: [],
+    }))
+    try {
+      const tree = await runtime.render(page.component, { t: page.t })
+      const text = walkText(await openTab(runtime, tree, '排异'))
+      expect(text).toContain('未生效')
+      expect(text).toContain('没有需要遮蔽的段')
+      expect(text).toContain('没有配置工具前缀')
+      expect(text).not.toContain('错误')
     } finally {
       environment.restore()
     }

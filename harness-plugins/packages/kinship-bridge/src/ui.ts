@@ -14,7 +14,12 @@ import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { BridgeError } from './errors.js'
-import type { BindingController, BindingSnapshot, BridgeHost } from './types.js'
+import type {
+  BindingController,
+  BindingSnapshot,
+  BridgeHost,
+  IsolationReport,
+} from './types.js'
 
 /** Absolute route below `/api` that returns one panel snapshot. */
 export const UI_STATE_PATH = '/api/kinship/ui/state'
@@ -98,6 +103,13 @@ export interface UiState {
   readonly editable: boolean
   /** Live root Sessions running the `kinship` preset. */
   readonly sessions: readonly UiSessionRow[]
+  /**
+   * 最近一次 kinship-isolation 上报的排异状态。
+   *
+   * 报告只存在内存里：未收到上报时是 null，旧版 bridge 没有这个字段时面板按
+   * null 处理。
+   */
+  readonly isolation: IsolationReport | null
 }
 
 /** Result of revealing or rotating the token. */
@@ -117,6 +129,8 @@ export interface UiApiDeps {
   readonly token: (action: 'reveal' | 'rotate') => UiTokenAction
   readonly saveConfig: (next: UiConfigView) => Promise<void>
   readonly bind: (sessionId: string) => BindingSnapshot
+  /** 当前排异报告；未收到 kinship-isolation 上报时为 null。 */
+  readonly isolation: () => IsolationReport | null
 }
 
 /** Fetch-shaped handlers, one per route. */
@@ -303,6 +317,7 @@ export function createUiRoutes(deps: UiApiDeps): UiRoutes {
           config: deps.config(),
           editable: deps.editable(),
           sessions,
+          isolation: deps.isolation(),
         }
         return json(200, body)
       } catch (error) {

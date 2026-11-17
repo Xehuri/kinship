@@ -1,0 +1,30 @@
+{
+  "name": "kinship-isolation",
+  "version": "0.1.0",
+  "description": "Preset-scoped isolation for the Kinship dsh preset: shadow host prompt sections and restrict host tools without touching the host configuration.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
+  "engines": {
+    "dsh": ">=0.2.2-rc.1 <0.2.3"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.19.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-system-prompt": ">=0.2.2-rc.1 <0.2.3",
+    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.1 <0.2.3"
+  }
+}

@@ -1,7 +1,7 @@
 # Kinship for DeepSeek Harness
 
 Turns a DeepSeek Harness profile into Kinship's AI runtime. The bundle patches
-the profile with four cooperating pieces:
+the profile with five cooperating pieces:
 
 - **`presets/kinship.patch.yml`** — the `kinship` agent preset. It mounts the
   Kinship persona from `$KINSHIP_AI_ROOT/agents/main.md` (prefix only, the file is
@@ -17,9 +17,16 @@ the profile with four cooperating pieces:
   wake text into the bound Session through the bridge's `deliver` service. Its
   design and its differences from Loom are documented in
   [`packages/kinship-plan-scheduler/docs/DETAIL.md`](../packages/kinship-plan-scheduler/docs/DETAIL.md).
-- **`kinship-ui`** (browser) — the **Kinship** page in the Web sidebar, which
-  shows live bridge state, edits the bridge configuration through the same
-  authenticated channel the GUI uses, and carries the **Plan schedule** card.
+- **`kinship-ui`** (browser) — the **Kinship** page in the Web sidebar, split
+  into Overview / Isolation / Plan / Access / Settings tabs: live bridge state,
+  isolation results, the plan schedule, the token and connect snippet, and the
+  bridge configuration form.
+- **`kinship-isolation`** (preset) — subtracts host contributions inside the
+  `kinship` preset: an empty same-name section shadows `memory:index`
+  (`dsh-auto-memory`'s index) and `tools.restrict()` hides the `memory_*` tools for
+  that preset's Agents and subagents. It syncs on `tools/change` so it does not
+  depend on profile row order, and reports each rule and its result to the panel
+  through `kinshipBridge.reportIsolation`.
 
 `kinship-plan`, `kinship-compact`, `kinship-tools` and `kinship-task-compat` carry
 the planning store, the model-callable compaction tool, the notification /
@@ -98,6 +105,25 @@ self-signed certificate on loopback), uses plain `http` otherwise, times out aft
 `ok:false` with a short message whose token occurrences are redacted. With no
 push yet the tools answer a readable text instead of throwing, so a session whose
 backend is down still works.
+
+## Isolation from host plugins
+
+`kinship-isolation` keeps host-level plugins out of the Kinship Sessions without
+editing the host configuration. dsh merges scoped prompt sections by name, so an
+empty section registered in the preset scope with the host section's name shadows
+it for every Agent under that preset. `ctx.tools.restrict({ deny })` on the preset
+scope does the same for inherited host tools: the schema, description and executor
+disappear together, and the restriction reaches the preset's subagents through the
+scope chain.
+
+The default targets are `memory:index` and tools starting with `memory_` - the
+`dsh-auto-memory` plugin, whose index and write guidance otherwise ride into every
+Kinship request. `tools.restrict()` rejects names that are not registered yet, and
+a preset may activate before the host plugin, so the plugin re-syncs on
+`tools/change` and denies names as they appear. Results are reported through the
+bridge service and rendered in the panel's **Isolation** tab; a rule that never
+matched a host contribution stays visible as pending instead of silently doing
+nothing. Sibling presets, the host Sessions and the memory panel keep the plugin.
 
 ## Compaction
 
