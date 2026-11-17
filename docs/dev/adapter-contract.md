@@ -1,6 +1,6 @@
 # Kinship AI 运行时适配器契约
 
-> 状态：稳定后端侧边界（2026-11-15）。[`kinship-bridge`](../../harness-plugins/packages/kinship-bridge/src/server.ts) 是 dsh 的参考实现。其他 harness 可以实现同一契约，也可以提供一个等价的适配层。dsh 只是一个实现，不是唯一答案。
+> 状态：稳定后端侧边界（2026-11-15）。`harness-plugins/packages/kinship-bridge/src/server.ts` 是 dsh 的参考实现（该目录当前不随公开树导出，公开读者按契约自行实现）。其他 harness 可以实现同一契约，也可以提供一个等价的适配层。dsh 只是一个实现，不是唯一答案。
 
 ## 1. 范围
 
@@ -90,7 +90,16 @@
 | `GET /v1/models` | `200 {providers:[{id,name,models:[{id,name}]}]}` | 运行时模型目录（空目录也返回 200） |
 | `GET /v1/session/context` | `200 {session_id, provider, model, contextWindow, usedTokens, projectedTokens}` | 当前模型路由与上下文占用；未知字段为 `null` |
 | `POST /v1/session/compact` | `202 {accepted, session_id, status:"compacting"}` | 手动压缩受理；`409 compaction_busy`（会话非 idle）、`500 compaction_unavailable`（运行时无该能力） |
-| `GET /v1/session/compaction` | `200 {session_id, status:"none"\|"active", covered_count, summary_text, anchor_message_id, anchor_timestamp_ms}` | 最近一次压缩边界快照 |
+| `GET /v1/session/compaction` | `200 {session_id, status:"none"\|"active", covered_count, summary_text, anchor_message_id, anchor_timestamp_ms, running}` | 最近一次压缩边界快照 |
+
+参考实现还提供两条由 Kinship 后端主动推送的可选端点（不属于能力探测，后端按推送失败降级；其他实现可省略）：
+
+| 端点 | 请求体 | 用途 |
+| --- | --- | --- |
+| `POST /v1/kinship/paths` | `{schema:1, ai_root, data_dir, plan_root, plan_master?, source, generated_at}` | 数据/计划路径推送；bridge 原子写 `$DSH_HOME/kinship/paths.json`，`GET` 返回已存文档（未推过为 404） |
+| `POST /v1/kinship/tool-auth` | `{schema:1, base_url, token, source, generated_at}` | 原生工具回调凭据，仅存内存、不落盘；`GET` 只回脱敏状态 |
+
+后端客户端 `DshClient.push_kinship_paths()` / `push_tool_auth()` 已覆盖这两条；路径与工具授权只影响参考实现的计划调度器与原生工具，不影响本契约的最小会话面。
 
 ### 4.1 健康检查
 
@@ -101,6 +110,8 @@
 `POST /v1/session/messages` 在下一个回合边界投递消息，返回 `202` 表示已受理，不表示回合已经完成。`source` 是可选的调用方标签，用于诊断。
 
 `POST /v1/inbox` 的 `class` 必须匹配 `[a-z][a-z0-9_-]{0,31}`。当 `class` 为 `interrupt` 且当前回合正在运行时，消息在下一步投递；其他情况在下一回合投递。`target` 返回值会说明实际选择。
+
+当前 Kinship 后端的 dsh 客户端（`DshClient`）不调用 `POST /v1/inbox`：任务 letter 投递仍只走 Loom 收件箱路径。该端点保留给需要对齐 Loom 信箱语义的适配层，后续接入方可按契约实现。
 
 ### 4.3 历史消息
 
@@ -155,7 +166,9 @@ Kinship 公开模板只承诺两条 AI 运行时路径：
 
 token 读取顺序：`dsh.token` > `dsh.token_file` > 环境变量 `DSH_TOKEN`，兼容别名 `KINSHIP_BRIDGE_TOKEN`。token 只出现在后端进程内，不返回给前端，也不写入日志。
 
-切换 `ai_backend` 或修改 `dsh` 连接参数后，按 [system-config-hot-reload.md](../ops/system-config-hot-reload.md) 确认生效方式；客户端是单例，必要时重启后端。
+模板默认 `ai_backend: loom`（`config.example.yaml`）；私有实例可显式改为 `dsh`（本机生产实例 2026-11-15 起使用 `dsh`），这不改变模板默认，也不改变本契约的端点面。
+
+`ai_backend` 与 `dsh.*` 在配置 schema 中都是 `hot` 策略：保存后 `apply_ai` 重建客户端与事件 hub，无需重启后端；生效细节见 [system-config-hot-reload.md](../ops/system-config-hot-reload.md)。
 
 ### 5.1 适配器自己的配置界面（可选）
 

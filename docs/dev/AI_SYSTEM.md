@@ -1,6 +1,6 @@
 # Kinship AI 系统（Loom 默认版）
 
-> 状态：现行（2026-10-22 重写；2026-11-15 补充运行时选择说明）。Loom 仍是默认的完整工作流，生产助手宿主为 `127.0.0.1:5100`。dsh 是可选的外部 harness 适配路径，不是默认；运行时选择见 [ai-runtimes.md](ai-runtimes.md)。
+> 状态：现行（2026-10-22 重写；2026-11-17 对齐最新代码与运行实例）。本文描述 **Loom 路径**：Loom 是公开模板默认的完整工作流，模板默认 `ai_backend: loom`，稳定拓扑下由后端编排器托管在 `127.0.0.1:5100`。本机生产实例 2026-11-15 起 `ai_backend: dsh`（`/health` 报 dsh online 且已绑定会话），`axeuh-loom` 单元为 failed/停用（仅回滚），因此本文的 Loom 调度与收件箱在该实例当前**不运行**；dsh 适配路径见 [ai-runtimes.md](ai-runtimes.md) 与 [adapter-contract.md](adapter-contract.md)。Loom 未被废弃。
 
 ---
 - [1. 架构概览](#1-架构概览)
@@ -35,7 +35,7 @@ graph TB
         LOOM --> S1[脚本层] --> S2[子智能体层] --> S3[主智能体层]
     end
     subgraph 旁路
-        MW[axeuh-moss-watch] --> DD[ai/data/daily/date/audio_deepdive.jsonl]
+        MW[MOSS watcher（后端托管）] --> DD[ai/data/daily/date/audio_deepdive.jsonl]
         MS[axeuh-moss vLLM 8100] --- MW
     end
     PER -.只读.-> S1
@@ -50,9 +50,10 @@ AI 不采集数据，也不参与采集实现。后端负责接收、存储、�
 | 进程 | 绑定 | 说明 |
 |---|---|---|
 | 后端（HTTP 与 HTTPS 同端口） | `8768` | 对外入口与本地开发；`ssl.enabled` 决定协议 |
-| Loom 助手 | `127.0.0.1:5100` | 默认助手宿主，systemd `axeuh-loom` |
+| Loom 助手 | `127.0.0.1:5100` | 模板默认助手宿主；稳定拓扑由后端编排器托管（`loom_spec`），systemd `axeuh-loom` 仅回滚 |
 | 音频内核 | `127.0.0.1:<动态>` | 闭源 `axeuh_kernel`，后端按需 spawn，端口写入 pidfile |
 | MOSS serve | `127.0.0.1:8100` | vLLM，卡2 3060 Ti，fp8；转正执行中，loopback + `--max-num-seqs 1` |
+| MOSS watcher | 无监听端口 | `tools/moss-shadow/watcher.py --loop`，后端编排器 `moss_watcher` 托管（`moss.enabled` 闸门） |
 | QQ 网关 IPC | `127.0.0.1:8770` | HTTP + Bearer token，供 qq CLI 调用 |
 
 核心约束：后端运行时零 ML、零算法实现；音频算法全部在闭源内核。内核只监听 loopback、只做本地计算，接收音频并返回结果，不上传任何数据到外部服务（包括音频和用户数据）；音频由 App 上传，后端负责接收、落盘与业务写入，内核的本地状态只在 `--state-dir` 下（数据边界见 [kernel/README.md](../kernel/README.md#data-boundary)）。MOSS 转正执行中、QQ 网关是可选旁路，故障不改变 `perception.jsonl` 与主分析链。数据文件是契约，分析结论必须可回溯到文件与时间。
@@ -60,7 +61,7 @@ AI 不采集数据，也不参与采集实现。后端负责接收、存储、�
 ---
 ## 2. 助手宿主：Loom
 
-Loom 是公开模板默认的助手宿主，固定为 `127.0.0.1:5100`，由 systemd `axeuh-loom` 管理；初始化引导（onboarding）写入 `ai/.loom/config.yaml`，会话与状态保存在 `ai/.loom/`。后端经 `services/ai_client_factory.py` 的 `acquire_ai_client()` 获取 Loom 客户端，任务、QQ 与通知统一投递到该宿主。
+Loom 是公开模板默认的助手宿主，固定为 `127.0.0.1:5100`：稳定拓扑下由后端编排器作为受管子进程托管（`backend/services/orchestrator/loom_spec.py` 的 gate 要求 `ai_backend=loom`），systemd `axeuh-loom` 仅迁移与回滚。初始化引导（onboarding）写入 `ai/.loom/config.yaml`，会话与状态保存在 `ai/.loom/`。后端经 `services/ai_client_factory.py` 的 `acquire_ai_client()` 获取 Loom 客户端，任务、QQ 与通知统一投递到该宿主。本机生产实例当前 `ai_backend=dsh`，Loom 不运行。
 
 ### Loom 运行时能力
 
@@ -85,7 +86,7 @@ AI 处理任何数据都遵循“脚本层 → 子智能体层 → 主智能体�
 
 ### 数据检查批次流程
 
-1. `data_check_scheduler.py` 到点生成带日期与窗口的 prompt，经 `trigger_task` 投给主会话。
+1. master 的 `coverage.run` 锚点（7 个固定窗）到点生成带日期与窗口的 prompt，经 PlanScheduler/WakeQueue 投给主会话；旧 `data_check_scheduler.py` 已 `enabled: false`、保留回滚。
 2. 主会话运行 `python ai/analysis/fact_extractor.py {date} --hours {start}~{end}`，把原始感知合并进 `事实-全天.md`。
 3. 主会话派 `data_checker`（或 `01_data_check`）子智能体，按 `ai/agents/01-data-check.md` 逐段写 `理解-{date}-批次-{HH}.md`。
 4. 运行 `python ai/analysis/check_coverage.py {date}` 复核覆盖；未过则回补缺口。
@@ -93,7 +94,7 @@ AI 处理任何数据都遵循“脚本层 → 子智能体层 → 主智能体�
 
 ### 每日复盘流程
 
-00:40 的 `12-daily-review.yaml` 先跑 `check_coverage.py` 验证昨天数据完整，再把昨天交给 `reviewer` 执行 `ai/agents/02-daily-review.md`：读取当天全部批次理解文件，做跨日对比、异常检测与记忆收割，写 `复盘-{date}.md`，更新 `fact/{月}.md`、`memory/ledger/`、`memory/notes/` 与投影后提交；主会话验收文件存在与 commit 概要。
+00:40 的日复盘（master `daily-review` 条目，旧 `12-daily-review.yaml` 已停发）先跑 `check_coverage.py` 验证昨天数据完整，再把昨天交给 `reviewer` 执行 `ai/agents/02-daily-review.md`：读取当天全部批次理解文件，做跨日对比、异常检测与记忆收割，写 `复盘-{date}.md`，更新 `fact/{月}.md`、`memory/ledger/`、`memory/notes/` 与投影后提交；主会话验收文件存在与 commit 概要。
 
 分析产出类任务（01 批次分析、02/03/04 复盘）必须独立完成，禁止嵌套孙代理；待办、调研、信息收集类任务可以派孙代理辅助，委托型业务由批次按 01 步骤 8 自行派发。
 
@@ -137,7 +138,9 @@ ai/
 ---
 ## 5. 任务调度
 
-Loom 调度已于 2026-10-28 06:45 切到 master + WakeQueue + PlanScheduler 的 live 路径。旧固定时刻 YAML 与 `data_check_scheduler.py` 已停用但保留回滚；事件驱动 watcher、MOSS systemd 和常驻脚本仍在外部。完整契约与执行记录保留在私有运维文档。
+> 本节描述 Loom 路径的调度设计；本机生产实例当前 `ai_backend=dsh`，Loom 调度不运行（见文首状态）。
+
+Loom 调度已于 2026-10-28 06:45 切到 master + WakeQueue + PlanScheduler 的 live 路径。旧固定时刻 YAML 与 `data_check_scheduler.py` 已停用但保留回滚；事件驱动 watcher、MOSS serve（systemd `axeuh-moss`）与常驻脚本仍在外部；MOSS watcher 由后端编排器托管，不进入 Loom master。完整契约与执行记录保留在私有运维文档。
 
 Loom 同时按单主会话运行（2026-10-28）：`GET /sessions/main` 是唯一主会话查询面，返回单个对象；`GET /sessions` 默认 404 `session_list_disabled`，仅 `server.sessionList: true` 开放。主会话优先级为 `server.mainSessionId` > 标记 `{stateRoot}/session/main-session.json` > `scheduling.sessionId` > 首个持久化会话 > 新生成。后端 Web 绑定写 `loom:main-task`，裸 `main-task` 留给语音/QQ；部署与回滚见 [OPERATIONS.md](../ops/OPERATIONS.md)。
 
@@ -157,7 +160,7 @@ Loom 同时按单主会话运行（2026-10-28）：`GET /sessions/main` 是唯�
 - 主会话与调度：主会话为 `ses_6320...`（历史转录，已 unarchive），config 不写 `mainSessionId`/`sessionId`，由 marker 固定并由调度回落；`loom_main` 仍 archive，旧队列退休。
 - 07:00 天气已由 live 路径投递；07:30 复核由 review timer + PlanScheduler 触发。旧 05/07 YAML、12/13/14/16 与 `data_check_scheduler.py`/`session_compactor.py` 已 `enabled: false`。
 
-固定时刻的 Loom 任务由 master 接管，包括 7 个 coverage、00:40 复盘、02:00 夜间审计、周一 03:00 周报、04:00 压缩与探针、07:00 天气、08:30 fleet、每月 1/15 18:30 双周，以及 05:00/07:30 计划锚。MOSS systemd 单元、事件驱动 watcher 与常驻脚本继续留在外部，不进入 master；旧 YAML 停发但文件保留回滚。
+固定时刻的 Loom 任务由 master 接管，包括 7 个 coverage、00:40 复盘、02:00 夜间审计、周一 03:00 周报、04:00 压缩与探针、07:00 天气、08:30 fleet、每月 1/15 18:30 双周，以及 05:00/07:30 计划锚。MOSS serve（systemd `axeuh-moss`）、事件驱动 watcher 与常驻脚本继续留在外部，不进入 master（MOSS watcher 由后端编排器托管）；旧 YAML 停发但文件保留回滚。
 
 ### 旧 TaskScheduler（T15 后停发，保留回滚）
 
@@ -176,7 +179,7 @@ prompt: |-
 
 ### 数据检查窗口（7 个）
 
-由常驻脚本 `data_check_scheduler.py` 驱动，状态写入 `.data_check_state.json`，重启后不重复触发。00 点窗口归属前一天。
+由 master 的 7 个 `coverage.run` 锚点驱动（旧常驻脚本 `data_check_scheduler.py` 已 `enabled: false`，保留回滚），00 点窗口归属前一天。
 
 | 触发 | 覆盖时段 |
 |---|---|
@@ -188,7 +191,7 @@ prompt: |-
 | 20:00 | 16:00~20:00 |
 | 22:00 | 20:00~22:00 |
 
-> T15 后这 7 个固定窗由 master 的 `coverage.run` 锚点接管；切换时必须停掉 `data_check_scheduler.py` 的旧窗提示，否则会双跑。
+> 这 7 个固定窗已由 master 的 `coverage.run` 锚点接管；旧 `data_check_scheduler.py` 已停用（`enabled: false`），不要重新启用以免双跑。
 
 ### 周期性任务
 
@@ -203,17 +206,17 @@ prompt: |-
 | `15-night-audit.yaml` | 每天 02:00 | 夜间审计：`audit_collector.py` + `05-audit`；任务定义保留，当前 `enabled: false` |
 | `16-weather-morning.yaml` | 每天 07:00 | 早间天气播报，按 `memory/self/tasks/天气播报.md` 执行 |
 
-> `05-plan-wake.yaml` / `07-plan-review.yaml` 由后端 TaskScheduler 投递到 Loom 主会话；消息首行是 `【定时任务】{任务名}`，prompt 正文首行是 `【系统通知·日计划】` / `【系统通知·计划复核】`。模式规则见 `ai/AGENTS-operations.md`。
+> `05-plan-wake.yaml` / `07-plan-review.yaml` 由后端 TaskScheduler 投递到 Loom 主会话；消息首行是 `【定时任务】{任务名}`，prompt 正文首行是 `【系统通知·日计划】` / `【系统通知·计划复核】`。模式规则见 `ai/agents/公共-操作规范.md`（AI 根内文件，私有侧）。
 >
 > T15 后上表固定时刻任务由 master 接管，05/07 两个 YAML 与其余固定任务文件保留为回滚件但停发；`session_compactor.py` 的 04:00 提醒由 master 的 `session.compact` 取代。
 
 ### 常驻 Python 脚本
 
-`data_check_scheduler.py`（7 窗口）、`session_compactor.py`（04:00 提醒）、`17-wake-watch.py`（长息屏后首次真解锁唤醒，早晨附天气，3 小时节流/每天最多 6 次）、`18-night-checkin.py`（21:00 / 22:30 夜间主动找用户，当天去重）、`19-health-sync-watch.py`（每 5 分钟轮询 `cloud.json`，补上 ≥60 分钟空档时通知）、`foreground_watch.py`（按设备×应用统计连续前台亮屏时长）。`deepseek_balance_monitor.py`、`music_tracker.py`、`xiaomi_cloud_health.py` 当前 `enabled: false`。
+`data_check_scheduler.py`（7 窗口；已 `enabled: false`，由 master 接管）、`session_compactor.py`（04:00 提醒；已 `enabled: false`，由 master 的 `session.compact` 取代）、`17-wake-watch.py`（长息屏后首次真解锁唤醒，早晨附天气，3 小时节流/每天最多 6 次）、`18-night-checkin.py`（21:00 / 22:30 夜间主动找用户，当天去重）、`19-health-sync-watch.py`（每 5 分钟轮询 `cloud.json`，补上 ≥60 分钟空档时通知）、`foreground_watch.py`（按设备×应用统计连续前台亮屏时长）。`deepseek_balance_monitor.py`、`music_tracker.py`、`xiaomi_cloud_health.py` 当前 `enabled: false`。
 
 脚本 frontmatter 至少包含 `name`、`enabled`，可选 `note`、`prompt`。运行时 `context` 提供 `log`、`trigger_task`、`alert`、`read_file`、`heartbeat`；自循环脚本必须每 300 秒至少调用一次 `heartbeat()`。沙箱做 AST 静态检查，禁止 `subprocess`、`threading`、`asyncio`、`importlib` 等导入，内存上限 256MB，`trigger_task` 限速 1 次/分钟。脚本异常写日志与审计，FileWatcher 负责热加载与故障重启。
 
-事件驱动的常驻脚本（`17-wake-watch.py`、`18-night-checkin.py`、`19-health-sync-watch.py`、`foreground_watch.py`、`qq_private_relay.py`）与 MOSS systemd 单元继续留在外部，不进入 Loom master。
+事件驱动的常驻脚本（`17-wake-watch.py`、`18-night-checkin.py`、`19-health-sync-watch.py`、`foreground_watch.py`、`qq_private_relay.py`）与 MOSS serve（systemd）继续留在外部，不进入 Loom master；MOSS watcher 由后端编排器托管。
 
 ---
 ## 6. 子智能体
@@ -283,7 +286,7 @@ python ai/analysis/check_coverage.py 2026-10-22
 | `ai/data/users/{user}/health/{date}/phone.json` | 手机端健康源分片 | `HealthStore.write` |
 | `ai/data/users/{user}/health/{date}/cloud.json` | 小米健康云源分片 | 云端拉取任务 |
 | `ai/data/daily/{date}/health.json` | 历史派生兼容视图，2026-10-08 起停止新写 | 仅迁移/历史 |
-| `ai/data/daily/{date}/audio_deepdive.jsonl` | MOSS 旁路深读，一行一 JSON | `axeuh-moss-watch` |
+| `ai/data/daily/{date}/audio_deepdive.jsonl` | MOSS 旁路深读，一行一 JSON | MOSS watcher（后端托管） |
 
 健康数据读取一律走 `HealthStore.read_view(user_id, date)`：cloud 先、phone 后，同时间戳后写覆盖；派生 `health.json` 只作为历史存量兼容。音频上传走无缝流：后端按 `device_id` 维护虚拟连续流，静音切分委托内核 WS `mode:"segment"`；唤醒流不写 `perception.jsonl`，`audio.stream.persist_perception` 仅为调试开关。
 
@@ -380,16 +383,16 @@ daily/{date}/audio/*.wav|*.flac
   → daily/{date}/audio_deepdive.jsonl（append-only）
 ```
 
-| 单元 | 内容 |
+| 单元/进程 | 内容 |
 |---|---|
 | `axeuh-moss.service` | vLLM serve，`127.0.0.1:8100`（仅回环），卡2 3060 Ti，fp8，`max-model-len 3072`，`--max-num-seqs 1` 串行化 |
-| `axeuh-moss-watch.service` | watcher，文件订阅 + 单线程顺序处理，默认 `--loop` |
+| MOSS watcher（后端编排） | `tools/moss-shadow/watcher.py --loop`，文件订阅 + 单线程顺序处理；由 `moss_watcher` ServiceSpec 托管（`moss.enabled` 闸门、`critical=false`），旧 `axeuh-moss-watch.service` 已停用、仅回滚 |
 | `axeuh-moss-regression.timer` | 每日 05:00 quick 18 窗（周日 full 34 段）；报告写 `tools/moss-shadow/state/regression/` |
 | `axeuh-moss-alert.timer` | hourly 磁盘/日志/GPU/服务/质量告警；通知走后端 `/api/notification/send` |
 
 产物 `audio_deepdive.jsonl` 一行一 JSON，主键 `audio` 指向 `daily/{date}/audio/{name}.{wav|flac}`，与 `voice` 行同址 join；成功行、短路行（`_sc:true`）、错误行（`_error`）三类。`merge.py` 生成 `audio_deepdive_merged.jsonl` 供门读数；`fact_extractor` 只读消费：事实文件只渲染 `静音/无语音` 或 `src=ambient` 的 `└ MOSS:` 子行；human/mixed/device/error 留在 deepdive 审计，不进入事实文件。
 
-边界：对生产后端零依赖、零 import、零契约变更；watcher 或 serve 挂掉，生产照常运行。`perception.jsonl` 一字不改；`audio_deepdive.jsonl` 是独立旁路文件。已知盲区：无缝流中 `speech_ratio < 0.05` 的静音段在被分析前丢弃、不落盘，因此进不了 deepdive；静音钩子（未实施）才会覆盖这一层。七步已完成，待两日回归 + 七天观察；转正验收见 `docs/moss-formalization-plan-2026-10-22.md` §12。
+边界：数据链是旁路，watcher 由后端编排器托管（`moss_watcher`，`critical=false`，启动顺序 kernel → moss_watcher → loom、停止逆序），不 import 后端业务、不改契约；watcher 或 serve 挂掉，主链照常运行。`perception.jsonl` 一字不改；`audio_deepdive.jsonl` 是独立旁路文件。已知盲区：无缝流中 `speech_ratio < 0.05` 的静音段在被分析前丢弃、不落盘，因此进不了 deepdive；静音钩子（未实施）才会覆盖这一层。七步已完成，待两日回归 + 七天观察；转正验收见 `docs/moss-formalization-plan-2026-10-22.md` §12。
 
 ---
 ## 11. QQ 网关
@@ -439,8 +442,8 @@ QQ ←→ NapCat ←— 单条 forward WS —→ qq_gateway
 
 - 任务完成、发现异常、需要确认时主动推送通知；疑问直接在通知中提出。
 - 每日复盘包含自优化：检查脚本是否过时、子智能体 prompt 是否漏步骤。
-- 代码/工具问题登记到 `self/任务.md` 待办，复盘不当场改代码；经验/踩坑写入 `self/纠错.md`、`self/认知.md`。
-- 跨会话待办与提醒板在 `ai/memory/self/任务.md`，只 grep 当前活账，不整文件读。
+- 代码/工具问题与经验按记忆协议 Phase A 写入 `memory/ledger/` 或 `memory/notes/`（主会话只写 `notes/proposals/`），复盘不当场改代码；`self/任务.md`、`self/纠错.md`、`self/认知.md` 自 2026-11-14 起冻结只读。
+- 跨会话待办看投影 `self/active-tasks.md` 与 `memory/ledger/open.md` 的活账，不整文件读。
 
 ### 边界
 

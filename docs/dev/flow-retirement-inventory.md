@@ -1,7 +1,9 @@
 # Flow 面退役清单（Phase A 禁用/归档，Phase B 删码）
 
+> 状态（2026-11-17 复核）：**Phase A 已生效**——生产 `kinship-data/ai/.loom/config.yaml` 的 `flow.enabled` 已为 `false`（`retireConverge: true`）；**Phase B 未执行**——`loom-harness` 的 `core/src/flow/`、`server/src/flow/`、`checkFlow` 校验与 boot 接线仍在，`boot.ts` 只在 `flow.enabled=false` 时零装配并打印残留 WARN。下文为 2026-11 的设计清单，行号是当时快照（当前有偏移）；`wake-queue` 来源现为 plan/flow/special/inbox 四项。
+>
 > 依据：`boot.ts:283-311`（`flow.enabled === true` 才构造 FlowStore/观察窗；`flow.enabled=false` = 零扫描零文件，旧行为逐字节）。
-> 生产配置：`kinship-data/ai/.loom/config.yaml:18-20` 当前 `flow.enabled: true, retireConverge: true`。
+> 生产配置：`kinship-data/ai/.loom/config.yaml:18-20` 当前 `flow.enabled: false, retireConverge: true`（设计时为 `true`）。
 > 检索方法：grep `flow`/`Flow` 全仓 `loom-harness`，逐文件确认落点；Phase A = 改配置关闭 + 保留代码，Phase B = 删源码。
 
 ## 0. 退役策略分级
@@ -59,7 +61,7 @@
 
 ## 5. wake-queue 源 / 动作 / 渲染（保持既有）
 
-- `WAKE_QUEUE_SOURCES = ["plan","flow","special"]`（`wake-queue.ts:21`）：三来源是唤醒队列自身契约，
+- `WAKE_QUEUE_SOURCES = ["plan","flow","special"]`（`wake-queue.ts:21`，设计时值；2026-11-17 复核已扩为 plan/flow/special/inbox）：三来源是唤醒队列自身契约，
   Phase A/B 均保留——关闭 Flow 后仅无人写入 `source:"flow"` 条目（boot 的 reconcile 分支在 Phase B 删除）。
 - `toWakeEntry` 中 `renderSource`（`wake-queue.ts:488-499`）保留 `flow` 分支。
 - `plan-scheduler.ts:6` 仅对 `source:"plan"` 做 `reconcileSource`，**不碰** flow/special——与退役无冲突。
@@ -87,8 +89,8 @@
 
 ## 8. 生产配置（Phase A 切换点）
 
-- `kinship-data/ai/.loom/config.yaml:18-20`：`flow.enabled: true, retireConverge: true`。
-- Phase A：改为 `flow.enabled: false`（保留 `retireConverge` 亦可，boot 已约定 `retireConverge 仅 enabled=true 时采纳`，`section-checks.ts:843`）。
+- `kinship-data/ai/.loom/config.yaml:18-20`：设计时 `flow.enabled: true, retireConverge: true`；2026-11-17 复核已为 `flow.enabled: false, retireConverge: true`。
+- Phase A：已改为 `flow.enabled: false`（保留 `retireConverge` 亦可，boot 已约定 `retireConverge 仅 enabled=true 时采纳`，`section-checks.ts:843`）。
 - 本任务**不修改**该生产配置（见 MUST NOT DO）。
 
 ## 9. 风险与依赖

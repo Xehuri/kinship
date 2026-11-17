@@ -4,15 +4,16 @@
 > 所有字段/语义均对照现有代码落点，引用格式 `文件:行`。
 > 生产代码落点：`loom-harness/packages/server/src/session-api/registry.ts`（send ~586、deliverWake ~423）、
 > `loom-harness/packages/core/src/main-loop/boundary.ts`（deliver ~79、remind ~91）。
+>
+> 2026-11-17 复核：T3/T4 已落地（`inbox/routes.ts`、`inbox/tools.ts`），T8 任务结果端点已加（§6.1/§10 已更新）；flow 已按 Phase A 停用（`flow.enabled: false`），代码仍在。文中行号是 2026-11-02 冻结时的落点（当前有少量偏移），语义以上述更新与当前代码为准。
 
 ## 0. 动机与范围
 
-在改动 `send` / `deliverWake` / `boundary` 行为之前，先冻结契约并用表征测试（characterization test）
-证明当前行为。本文档只描述**目标契约**；实现该契约后，既有 `send`/`deliverWake` 的语义被复用而非替换：
+撰写时先冻结契约并用表征测试（characterization test）证明既有行为；实现已落地（§10），本文档转为**现行契约**。既有 `send`/`deliverWake` 的语义被复用而非替换：
 
 - `interrupt`（抢占式）→ 走 `registry.send()`（`registry.ts:586`），`interruptOnSend === true` 时 abort 当前轮。
 - `notify`（通知）→ 走 `registry.deliverWake()`（`registry.ts:423`），**永不 abort**。
-- `digest`（摘要）→ 入账 ledger + 一次计划摘要唤醒，pull-only。
+- `digest`（摘要）→ 入账 ledger + 一次摘要唤醒（WakeQueue `inbox` 来源），pull-only。
 
 ## 1. Letter schema（信体）
 
@@ -48,7 +49,7 @@
 |-------|----------|----------------------|----------|--------|
 | `interrupt` | `registry.send()`（`registry.ts:586`） | 是：仅当 `interruptOnSend === true`，`busy` 时 unshift 队首 + `loop.abort("send:interrupt")`（`registry.ts:589-595`），返回 `interrupted:true` | durable user 消息（进 `loop.messages`、`session.messages`、HWM） | 实时推 |
 | `notify` | `registry.deliverWake()`（`registry.ts:423`） | **否**：直接 `push` 入 send 队列，`running===null` 时 `#drainQueue` 立即起轮（`registry.ts:443`），busy 时等当前轮收尾后 `#drainQueue`，绝不 abort | durable user 消息（同 interrupt 落盘面） | 实时推 + 待发可见 |
-| `digest` | ledger 入账 + 一次计划摘要唤醒（`wake-queue.ts` 计划来源） | 否 | 仅 ledger（pull 实体），不入实时推送 | pull-only |
+| `digest` | ledger 入账 + 一次摘要唤醒（`wake-queue.ts` 的 `inbox` 来源，`inbox/digest.ts` 对账） | 否 | 仅 ledger（pull 实体），不入实时推送 | pull-only |
 
 落盘形态对照：`TurnBoundary.deliver()`（`boundary.ts:79`）入 `_inbox`，在 `onTurnStart` 边界
 经 `ctx.appendMessage` 持久注入（进 `session.messages`，随 HWM 落盘，resume 可见）——这是
@@ -62,7 +63,7 @@
    （`TurnBoundary.deliver` 拒收非 user role，`boundary.ts:81-86` fail-loud）。
 2. **bounded preview + counts + included_ids + still_pending**：信封携带摘要预览、包含条数、
    已含 letter id 列表、尚未投递条数（对应 `WakeQueueSnapshot` `wake-queue.ts:95` 的 entries/delivered 形态）。
-3. **外部内容 fence + label**：`external` 内容必须围栏并标注来源（如 `[external:QQ:12345]`），
+3. **外部内容 fence + label**：`external` 内容必须围栏并标注来源（如 `[external:QQ:10001]`），
    明确区分"模型自述"与"外部转述"。
 4. **transient 提醒不进信封正文**：`remind()` 注入走 `additionalContext`（`boundary.ts:126-129`），
    只进下一次 LLM call 的 messages view 尾部、不落 `session.messages`/转录（`boundary.ts:15-19`）。
@@ -91,17 +92,33 @@
 
 | 状态码 | 含义 | 触发条件 |
 |--------|------|----------|
-| 202 | accepted | 入箱成功，将异步投递/入账 |
-| 200 | duplicate | `dedupe_key` 命中已投递（`wake-queue.ts:439` suppressed/duplicate 口径） |
-| 400 | validation | 字段非法/缺失/`class` 未知 |
-| 401 | auth | 缺/错 Bearer（与既有 `session-api` 路由 401 同门，见 `session-api.test.ts:407`） |
-| 403 | source/trust | 来源或信任级别不被该 inbox 实例允许 |
-| 413 | body too large | `body` 超 `inbox.limits.maxBodyBytes` |
-| 429 | rate limited | 超过 `inbox.sources.<key>.ratePerMinute` 或 `inbox.limits.maxLettersPerMinute` |
-| 503 | inbox disabled | `.loom/config.yaml` `inbox.mode === off` 或实例未装配 |
+| 200 | duplicate | `dedupe_key` 命中已投递（`wake-queue.ts` suppressed/duplicate 口径） |
+| 202 | accepted / coalesced / observed | 入箱成功、合并到已有信件，或 shadow 模式只观测（`route=observed`） |
+| 400 | `invalid_letter` / `dedupe_key_required` / `source_max_class` / `quiet_hours` / `notify_burst` | 字段非法/缺失/`class` 未知，或政策在入箱前拒绝 |
+| 401 | auth | 缺/错 Bearer（与既有 `session-api` 路由同门） |
+| 403 | `source_unregistered` / `trust_ceiling` | 来源未注册，或 trust 超过 `maxTrust`（只向下钳制） |
+| 410 | `letter_expired` | `expires_at` 已过 |
+| 413 | `letter_body_too_large` | `body` 超 `inbox.limits.maxBodyBytes` |
+| 429 | `rate_limited` / `inbox_full` | 超过 `inbox.sources.<key>.ratePerMinute`、`inbox.limits.maxLettersPerMinute` 或 `maxPending`；`Retry-After` 给出秒数 |
+| 503 | `inbox_disabled` | `.loom/config.yaml` `inbox.mode === off` 或实例未装配 |
 
-当前代码尚无 `/inbox/letters` 路由（grep 全仓无命中），本表为目标契约；路由层可复用
-`registerSessionRoutes`（`routes.ts:148`）与 `respondSend`（`routes.ts:96`）的 202/409 框架。
+路由已落地：`POST /inbox/letters` 与 `GET /inbox/status` 注册在
+`loom-harness/packages/server/src/inbox/routes.ts`（`registerInboxRoutes`），响应映射以
+`inbox/ingress.ts` 顶部注释为准；`off` 模式仍注册路由但一律 503（用于区分"未装配"与"路由不存在"）。
+
+### 6.1 任务结果端点（T8）
+
+`GET /inbox/results/:correlation_id` 供后端任务轮询（`LoomClient.get_inbox_result()`）：
+
+| 状态码 | 含义 |
+|--------|------|
+| 200 | `{correlation_id, found, letter_id, source, kind, state, attempts, status, outcome, evidence_ref, created_at, updated_at}` |
+| 404 | `result_not_found`：该 `correlation_id` 没有关联信件 |
+| 503 | `inbox_disabled` |
+
+`status` 取 `pending` / `completed` / `failed` / `observed`。同一 `correlation_id` 有多封时优先
+`kind=task.trigger` 的最新一封。响应不含正文与 `principal`；200 只表示查到记录，**不代表任务完成**，
+404/传输失败只表示"下轮再试"。
 
 ## 7. 配置键（`.loom/config.yaml` 的 `inbox` 段）
 
@@ -156,7 +173,7 @@
    与 `/inbox/letters` 是两个端点；用户直接输入走 `registry.send`，绝不经 inbox 路由。
 2. **plan anchors 不进收件箱**：计划锚点（`anchor_targets.yaml`、Plan mode、`plan-scheduler.ts`）是
    独立的计划/唤醒来源（`wake-queue.ts` `source:"plan"`），按 `WAKE_QUEUE_SOURCES`（`wake-queue.ts:21`）
-   三来源（plan/flow/special）路由，**不**经 inbox 分类器。
+   四来源（plan/flow/special/inbox）路由，**不**经 inbox 分类器。
 3. **不新增第二调度器/队列/数据库**：复用既有 `WakeQueue`（`wake-queue.ts:523`）、`SessionRegistry`
    的 send/deliverWake、`TurnBoundary`，**不**另起 scheduler/queue/DB（对照 Flow 退役后"无第二队列"纪律）。
 
@@ -164,11 +181,11 @@
 
 - `interrupt` 复用 `send()` 的 `interrupted:true` 返回面（`types.ts:478`、`respondSend` `routes.ts:103`）。
 - `notify` 复用 `deliverWake()` 的 durable queue + idle 直起轮（`registry.ts:440-443`）。
-- `digest` 复用 `WakeQueue` 计划来源与 `reconcileSource`（`plan-scheduler.ts:6` 仅对 plan 来源对账）。
+- `digest` 复用 `WakeQueue` 的 `inbox` 来源与 `reconcileSource`（`inbox/digest.ts`）；`plan-scheduler.ts:6` 只对 plan 来源对账，不碰 flow/special/inbox。
 - 信封"仅 user-role"复用 `TurnBoundary.deliver` 的 role 守卫（`boundary.ts:81-86`）。
 - 外部内容围栏复用既有 `delivery.notify` 帧属性通道（`registry.ts:408` `reminderNotifyProps` 同款）。
 
-## 10. T2/T3 落地范围（2026-11-02）
+## 10. T2/T3/T4/T8 落地范围（2026-11-02）
 
 T2 交付收件箱核心：配置 schema（`inbox` 段 + `checkInbox`）、信件类型与边界校验、
 事件账本（`<stateRoot>/inbox/<sessionId>.jsonl`）、纯 policy、shadow 观测与测试。
@@ -177,8 +194,10 @@ T3（同日）已落地：`POST /inbox/letters`、`GET /inbox/status`、interrup
 投递路由（复用 `registry.send` / `registry.deliverWake`）、digest 经既有 WakeQueue 的
 单条目排班、boot 装配与 `LoomClient.send_letter`。
 
-**仍未包含**：模型 pull 工具（`inbox_list/read/ack/defer`）与 batch-ack 生命周期——
-这些属于 T4；账本是 ledger，不新增 scheduler/queue/DB。
+T4（同日）已落地模型 pull 工具（`inbox/tools.ts`：`inbox_list` / `inbox_read` /
+`inbox_ack` / `inbox_defer`）与 batch 生命周期（`inbox/batch.ts`）；T8（2026-11-02）
+新增 `GET /inbox/results/:correlation_id` 任务结果对账（§6.1）。账本是 ledger，
+不新增 scheduler/queue/DB。
 
 ## 11. 线程（thread）视图（2026-11-02）
 
@@ -218,7 +237,7 @@ T3（同日）已落地：`POST /inbox/letters`、`GET /inbox/status`、interrup
   "threads": [
     {
       "source": "qq",
-      "thread_id": "123456789",
+      "thread_id": "12345678",
       "thread_name": "某群",
       "thread_kind": "group",
       "unread": 5,

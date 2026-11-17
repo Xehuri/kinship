@@ -3,6 +3,8 @@
 > 状态：2026-11-17。本文是 AI 运行时选择与定位的唯一真源。适配器接口见 [adapter-contract.md](adapter-contract.md)。
 >
 > 一句话：Loom 是 Kinship 的默认运行时和完整工作流；dsh 是给已经拥有自己 harness 的用户准备的可选接入路径；其他 harness 按适配器契约接入。
+>
+> 模板默认 vs 本机现状（2026-11-17 实测）：公开模板默认 `ai_backend: loom`（`config.example.yaml`），onboarding 也写 `loom`；本机私有生产实例已切到 `dsh`——`/health` 报 `ai_backend=dsh`、`dsh.status=online` 且已绑定会话，`axeuh-loom.service` 为 failed/停用（`disabled`，仅回滚）。Loom 未被废弃，模板与文档的主路径仍是 Loom；实例现状不改变默认值。
 
 ## 1. 边界
 
@@ -42,7 +44,7 @@ Loom 的定位：
 
 dsh 是另一条可选路径，面向已经运行 dsh、并且愿意安装 Kinship 插件包的用户。接入层在 `harness-plugins/`，包含：
 
-- `kinship-bridge`：loopback HTTP 与 SSE，只服务一个绑定的 Kinship 会话；同时转发实时助手流（`kinship/assistant-stream`），并提供手动压缩、模型目录、上下文窗口四个可选端点。
+- `kinship-bridge`：loopback HTTP 与 SSE，只服务一个绑定的 Kinship 会话；同时转发实时助手流（`kinship/assistant-stream`），并提供手动压缩、模型目录、上下文窗口四个可选端点；另有两条由后端推送的端点（`/v1/kinship/paths` 数据/计划路径、`/v1/kinship/tool-auth` 原生工具回调凭据）。
 - `kinship-plan`：提供 plan 工具和每日计划。
 - `kinship-plan-scheduler`：Loom 计划调度器的 dsh 移植——读同一份母版与当日覆盖层，按锚点/看门狗对账，把每日计划唤醒投递进绑定会话（见 3.1）。
 - `kinship-task-compat`：提供与 Loom 工具名兼容的任务工具。
@@ -67,12 +69,12 @@ dsh 是 Loom 之外的另一条可选路径。选择 dsh 的理由通常是你�
 
 dsh 现在也有计划排班。`kinship-plan-scheduler` 是 Host 级插件，读的就是 Loom 那套文件——`{planRoot}/plan/master.json` 与 `{planRoot}/daily/{date}/plan-{date}.overlay.json`——引擎从 `loom-harness/packages/server/src/plan/plan-scheduler.ts` 与 `serve/wake-queue.ts` 移植而来。所以切换运行时不会出现第二份排班真源，也不会改写对方的计划文件。
 
-- 路径（2026-11-15 晚起）：**dsh 侧不需要配计划根**。Kinship 后端在启动、`data_paths` 配置应用、切到 `ai_backend=dsh`、以及 dsh 健康探针 `offline→online` 时，经 bridge 的 `POST /v1/kinship/paths` 推送 `data.ai_root` / `data.dir`；bridge 以 0600 原子写落 `$DSH_HOME/kinship/paths.json` 并发 `kinship/paths` 事件，调度器启动读文件、收到事件重新解析（根变则原地重启引擎）。优先级：推送的 `plan_root` > 行配置 > `KINSHIP_PLAN_ROOT` > `KINSHIP_AI_ROOT/data`。状态目录仍在 `$DSH_HOME/kinship/state`（dsh 私有运行态，不由后端推）。
+- 路径（2026-11-15 晚起）：**dsh 侧不需要配计划根**。Kinship 后端在启动、`data_paths` 配置应用、切到 `ai_backend=dsh`、以及 dsh 健康探针 `offline→online` 时，经 bridge 的 `POST /v1/kinship/paths` 推送 `ai_root` / `data_dir` / `plan_root` / `plan_master`（取自 `data.ai_root` / `data.dir`，计划根默认等于数据根）；bridge 以 0600 原子写落 `$DSH_HOME/kinship/paths.json` 并发 `kinship/paths` 事件，调度器启动读文件、收到事件重新解析（根变则原地重启引擎）。优先级：推送的 `plan_root` > 行配置 > `KINSHIP_PLAN_ROOT` > `KINSHIP_AI_ROOT/data`。状态目录仍在 `$DSH_HOME/kinship/state`（dsh 私有运行态，不由后端推）。
 - 对账：启动一次、每日锚点（默认取母版 `plan.build`/`plan.review` 的时刻，退 05:00 与 07:30）、60 秒看门狗、面板「立即对账」。窗口是 `now-24h` 到 `now+48h`；8 小时内的迟到档保留原时刻，更早的非覆盖档按 `now+60s` 补投，更早的覆盖检查点按日合并成一条补做条目；`plan.build` / `plan.review` 每天各最多一条。时区以母版 `timezone` 为准。
 - 投递：每条到点条目先落到 `{stateDir}/session/wake-queue/{sessionId}.json`（schema 2、原子写、进程级实例锁），再由 `kinship-bridge` 的 `deliver` 作为普通用户消息注入绑定会话（冷会话会先恢复）；投递失败重试一次（30s），再失败归档 `failed`。`plan` 条目保留 48 小时。
 - 唤醒行契约：`【计划唤醒·<action>】HH:MM · <title>` + 指令 + `条目：<id>` + 尾行 + `不发用户通知，除非条目要求。`。尾行（W59 起）恢复 Loom 的 `完成后执行 plan done（date=…, id=…）`，合并补做条目逐条列 slot id；原因是 `kinship-plan` 的 note/done 现在会在当日 v1 账不可服务（缺失 / closed / 不含目标 id）时写回当日覆盖层 `plan-{date}.overlay.json`，并新增 `plan_overlay_read` 让模型先看生效计划的 id 与覆盖层版本。`plan.build` / `plan.review` 仍写「完成后只写当日计划，不需要 plan done。」。写回要求当日 `plan/master.json` 至少有一个 anchor 条目；`plan done` / `plan note` 在当日 v1 账缺失或 closed 时可省略 `expected_version`，v1 仍 open 时工具会返回带当前版本的校验错误。
 - 面板：Kinship 页的「计划排班」卡片可启停条目、改时间、增删条目、立即对账、创建默认排班；并标出计划根来源（backend 推送 / 行配置 / env / 默认）与最近同步时间。写操作走 owner-only 的 `/api/kinship/ui/plan*`，每次带版本号，冲突返回 409 而不是覆盖。
-- 与 Loom 的差异：当日存在 v1 `plan-{date}.json` 时仍排母版条目（Loom 会用旧计划整体替换当日视图）；只实现 `plan` 唤醒来源（没有 special / inbox 生产者）；状态根默认 `$DSH_HOME/kinship/state`。完整清单见 [harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)。
+- 与 Loom 的差异：当日存在 v1 `plan-{date}.json` 时仍排母版条目（Loom 会用旧计划整体替换当日视图）；只实现 `plan` 唤醒来源（没有 special / inbox 生产者）；状态根默认 `$DSH_HOME/kinship/state`。完整清单见 `harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md`（仓库内路径；该目录当前不随公开树导出）。
 
 验证与关闭：
 
@@ -152,5 +154,5 @@ dsh 或其他 harness 的接入不是点一个开关。至少需要：
 - [AI_SYSTEM.md](AI_SYSTEM.md)：Loom 现行架构、任务、记忆与数据流。
 - [PROJECT_MAP.md](PROJECT_MAP.md)：目录结构与子系统路由。
 - [../ops/CONFIGURATION.md](../ops/CONFIGURATION.md)：`ai_backend`、`loom` 与 `dsh` 配置键。
-- [../../harness-plugins/README.md](../../harness-plugins/README.md)：dsh 插件包、面板路由与计划调度器配置表。
+- `harness-plugins/README.md`（仓库内路径；该目录当前不随公开树导出）：dsh 插件包、面板路由与计划调度器配置表。
 - [../../loom-harness/docs/06-Loom使用文档.md](../../loom-harness/docs/06-Loom使用文档.md)：Loom 使用文档。
