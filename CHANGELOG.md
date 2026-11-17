@@ -6,6 +6,12 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 新增
 
+- **dsh 排异 host 记忆插件 + 面板分页（2026-11-17）**：Kinship 会话此前会吃到 host 级 `dsh-auto-memory` 的记忆索引段（`memory:index`，实测约 3-4 KiB/请求）和 7 个 `memory_*` 工具，与 `ai/memory/` 自己的记忆体系并行；新增 preset 级排异插件把它减掉，并把面板拆成分页。
+  - 机制：`kinship-isolation` 在 kinship preset 作用域注册同名空段遮蔽 host 提示词段（默认 `memory:index`），并调用 `ctx.tools.restrict({deny})` 隐藏名字匹配前缀的 host 工具（默认 `memory_`）；`tools.restrict()` 会拒绝尚未注册的名字，所以工具限制在 `tools/change` 上增量同步，不依赖 profile bundle 加载顺序。限制沿作用域链下传到子智能体，兄弟 preset 与主机会话不受影响。
+  - 面板：`kinship-bridge` 新增内存态排异报告（`reportIsolation` / `clearIsolation`，按实例 id 清除，HMR 新旧实例不互相覆盖），由 `/api/kinship/ui/state` 的 `isolation` 字段暴露；`kinship-ui` 改成「概览 / 排异 / 计划 / 接入 / 设置」五个 tab，排异页显示每个段/前缀的状态（已遮蔽、已限制 N 个、等待注册、未匹配）与错误。
+  - 验证：真实 dsh 服务栈（`SystemPrompt` + `ToolsService` + native executor + `dsh-scope` + 真实 auto-memory）上验证遮蔽/限制/启动顺序/兄弟 preset/卸载恢复；临时 `DSH_HOME` 启动真实 `dsh web` 后 `/api/kinship/ui/state` 返回 `isolation` 报告（`sections=[{memory:index, shadowed:true}]`、工具前缀 pending、0 错误），证明 preset Loader 路径与 bridge 通道可用；bridge 与面板路由单测覆盖 report/clear/state；`harness-plugins` 375 个用例 / 32 个文件、typecheck、build 全绿。提交：`0df55dc`。
+  - 生效范围：preset 组合按会话冻结，已存在的 Kinship 会话保留旧组合，需新建会话/重新绑定后才生效；host 的 auto-memory 面板与你自己的 dsh 会话保持原样。
+
 - **dsh 计划写回 + 模型可调用压缩 + QQ 入站修复（2026-11-16，W59）**：dsh 会话终于能把计划完成状态写回当日计划，补上 Loom 主会话的手动压缩工具，并修掉 QQ 入站投递与 `qq` CLI 的部署路径问题。
   - 计划写回（`kinship-plan`）：新增 `src/overlay.ts`（`createOverlayPlanSupport` / `ensureOverlay` / `note` / `done` / `readEffective`）与 `plan_overlay_read` 工具。`plan_note` / `plan_done` 在 v1 真源 `plan-{date}.json` 缺失、已 closed 或不含目标 id 时改写当日 `plan-{date}.overlay.json`：创建时 `base_version` 取母版 `version`、`coverage` 为 `merged_7` + 母版 anchor id 检查点（要求母版至少一个 anchor），done patch 为 `{status, evidence, done_at ISO}`、同一 id 只保留一个 op（已有 add 就地 patch、已有 update 合并、被 remove 的 id 拒绝），CAS 覆盖层 `version`，每次写追加一行 `source: "plan"` 的 `plan-ledger.jsonl`。返回的 mutation view 带 `source: "overlay"` 与覆盖层版本。`plan` 别名走同一处理器与同一回退。
   - 写回边界：v1 的 `plan_conflict` 仍是 conflict（不被吞掉）；`plan_commit` / `plan_close` 只写 v1；计划工具从不写母版；`verify=coverage` 仍未实现（覆盖层的 coverage 块只是排班检查点清单）。
