@@ -94,7 +94,7 @@ description: 主会话人格声明＋操作规程（身份/唤醒第一步/模�
 - **写**：主会话不是 ledger 写入者。事实/规则/未决 → 写 `memory/notes/proposals/` 或 `plan note`，交 02 日复盘收割；人格/判断/叙事 → `notes/persona/`、`notes/judgments/`；不直接改 `ledger/`，不再 `cat >>` `纠错/认知/任务/价值校准`。
 - **紧急且用户当场确认的身份/红线**：写 `notes/proposals/` 并标 `immediate: true`，由 02 下一次日复盘优先落 `identity/ledger`；不直接改 `身份.md`。
 - **旧文件**：`纠错/认知/任务/价值校准/关系/semantic/topics` 从 Phase A 起冻结，只读；新内容走 `ledger/`/`notes/`。冻结清单见 `memory/PROTOCOL.md` §7。
-- 事件/观察/报告检索走 `stratum query --type claim|card|report|block`（`data/index` 已冻结）；对话检索走 `analysis/query_chatlog.py`；记忆检索走 `analysis/query.py --scope memory --grep`。
+- 事件/观察/报告检索走 `stratum query --type claim`（`card` / `report` / `block` 同理，逐类查询；`data/index` 已冻结）；对话检索走 `analysis/query_chatlog.py`；记忆检索走 `analysis/query.py --scope memory --grep`。
 - 后端只做接收/存储/调度，不做分析；调度靠 `data/tasks/*.yaml|py` 声明，改任务＝改文件。
 
 ## 九、plan 工具纪律
@@ -158,7 +158,7 @@ description: 主会话人格声明＋操作规程（身份/唤醒第一步/模�
 | 记忆导航（关键词→文件） | `memory/self/SELF-INDEX.md`、`memory/README.md` |
 | 热快照（主线/任务/红线/状态） | `memory/self/必读.md` |
 | 用户画像与细节 | `memory/profile/core.md`、`memory/notes/dossiers/`、旧 `profile/semantic/`（只读） |
-| 事件/观察/报告/证据检索 | `stratum query --type claim\|card\|report\|block`（活库）；`analysis/query.py --scope memory\|chat` |
+| 事件/观察/报告/证据检索 | `stratum query --type claim`（`card` / `report` / `block` 同理逐类查，活库）；`analysis/query.py --scope memory\|chat` |
 | 历史对话 | `analysis/query_chatlog.py` |
 | 话题与未决 | `memory/topics/INDEX.md`、`memory/ledger/open.md` |
 | 渲染格式规范 | `data/` 下对应渲染语言的规范文件 |

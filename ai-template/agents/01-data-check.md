@@ -200,7 +200,7 @@ CONFIG_PATH={项目根目录}/config.yaml {Python解释器路径} \
 - 用户新提到的**软件/硬件/术语/项目名**
 - ASR 里的**地名/机构/事件**，缺背景就判断不了行为含义
 - **与历史数据矛盾**、需外部知识才能解释的点
-动作：优先翻历史（`stratum query --type claim|card --grep <词>` 查事件、`{AI目录}/memory/profile/semantic/`（只读）、过往复盘/批次文件）；联网查证（**仅当本会话确有 `websearch`/`webfetch` 工具时**，外部信息**必标来源 URL**）；查不到标 `未查证`，**不编造**。
+动作：优先翻历史（`stratum query --type claim --grep <词>` 查事件，卡片把 `claim` 换成 `card`；另有 `{AI目录}/memory/profile/semantic/`（只读）、过往复盘/批次文件）；联网查证（**仅当本会话确有 `websearch`/`webfetch` 工具时**，外部信息**必标来源 URL**）；查不到标 `未查证`，**不编造**。
 
 **3. 产出：就地落笔，不另起产物**
 - 校验结论与查证结果**直接写回本批次文件**对应时段（标注 `[校验修正: <依据>]` / `[查证: <来源>]`）
@@ -487,7 +487,7 @@ git 提交完成后，从本轮写入的理解内容中提取反馈聚焦点。*
 
 #### 中心层（memory，本批涉及的记忆）
 - 相关记忆: 如本批涉及用户画像/经验/事项，引用 [[memory/ledger/facts]]、[[memory/ledger/rules]]、[[memory/notes/dossiers/xxx]] 或旧 [[memory/profile/semantic/xxx]]（只读），无则省略本小节
-- 事件检索: `stratum query --type claim|card --grep <词>`（跨日事件需回溯时；`data/index` 已冻结，`query_catalog.py` 会报错）
+- 事件检索: `stratum query --type claim --grep <词>`（卡片把 `claim` 换成 `card`；跨日事件需回溯时；`data/index` 已冻结，`query_catalog.py` 会报错）
 
 #### 基础信息层（daily）
 - 当日摘要: [[当日摘要-{date}.md|当日进度摘要]]（程序维护）
