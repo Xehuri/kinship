@@ -1132,6 +1132,16 @@ class Config:
         return raw or 'moss-audio-4b'
 
     @property
+    def MOSS_DATA_ROOT(self) -> str:
+        """MOSS watcher 数据根；空 = 编排 spec 回落后端 DATA_DIR。"""
+        return str(self._section('moss').get('data_root') or '').strip()
+
+    @property
+    def MOSS_STATE_DIR(self) -> str:
+        """MOSS watcher 状态根；空 = watcher 自带默认（tools/moss-shadow/state）。"""
+        return str(self._section('moss').get('state_dir') or '').strip()
+
+    @property
     def CLIENTS_ANDROID_URL(self) -> str:
         return str(self._section('clients').get('android_url') or '').strip()
 

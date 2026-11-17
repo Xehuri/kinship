@@ -8,6 +8,7 @@ PID 判活/信号记录验证 SIGTERM -> SIGKILL。真实生命周期由 QA 用�
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -153,6 +154,9 @@ def test_start_argv_uses_child_entry_configured_python_and_watcher_path(
     assert argv[3:5] == ("--target", sys.executable)
     assert watcher == project_root() / "tools" / "moss-shadow" / "watcher.py"
     assert argv[6] == "--loop"
+    # 未配置 moss.data_root / moss.state_dir：数据根回落后端 DATA_DIR，状态根不传。
+    assert argv[7:] == ("--data-root", os.path.abspath(cfg.DATA_DIR))
+    assert "--state-root" not in argv
     assert captured["kwargs"]["cwd"] == str(project_root())
     assert "stdout" not in captured["kwargs"]
     assert "stderr" not in captured["kwargs"]
@@ -164,6 +168,101 @@ def test_start_argv_uses_child_entry_configured_python_and_watcher_path(
         token in ("axeuh-moss", "vllm", "systemctl", "systemd")
         for token in argv
     )
+
+
+def test_build_start_command_two_args_defaults_data_root_to_backend_data_dir(
+    tmp_path, monkeypatch
+):
+    data_dir = tmp_path / "instance-data"
+    monkeypatch.setattr(
+        moss_spec, "get_config", lambda: Config({"data": {"dir": str(data_dir)}})
+    )
+
+    argv = moss_spec.build_start_command(sys.executable, tmp_path / "watcher.py")
+
+    assert argv[:7] == [
+        sys.executable,
+        "-m",
+        "services.orchestrator.child_entry",
+        "--target",
+        sys.executable,
+        str(tmp_path / "watcher.py"),
+        "--loop",
+    ]
+    assert argv[7:] == ["--data-root", str(data_dir)]
+    assert "--state-root" not in argv
+
+
+def test_build_start_command_appends_state_root_only_when_non_empty(tmp_path):
+    data_root = tmp_path / "data"
+    state_root = tmp_path / "state"
+
+    without_state = moss_spec.build_start_command(
+        sys.executable,
+        tmp_path / "watcher.py",
+        data_root=data_root,
+        state_root="",
+    )
+    assert without_state[-2:] == ["--data-root", str(data_root)]
+    assert "--state-root" not in without_state
+
+    with_state = moss_spec.build_start_command(
+        sys.executable,
+        tmp_path / "watcher.py",
+        data_root=data_root,
+        state_root=state_root,
+    )
+    assert with_state[-4:] == [
+        "--data-root",
+        str(data_root),
+        "--state-root",
+        str(state_root),
+    ]
+
+
+def test_build_start_command_normalizes_relative_roots_to_absolute(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+
+    argv = moss_spec.build_start_command(
+        sys.executable,
+        "watcher.py",
+        data_root="rel-data",
+        state_root="rel-state",
+    )
+
+    assert argv[argv.index("--data-root") + 1] == str(tmp_path / "rel-data")
+    assert argv[argv.index("--state-root") + 1] == str(tmp_path / "rel-state")
+
+
+def test_start_argv_passes_instance_data_and_state_roots(tmp_path, monkeypatch):
+    data_root = tmp_path / "inst" / "data"
+    state_root = tmp_path / "inst" / "state"
+    cfg = Config(
+        {
+            "moss": {
+                "enabled": True,
+                "python": sys.executable,
+                "data_root": str(data_root),
+                "state_dir": str(state_root),
+            }
+        }
+    )
+    captured: dict = {}
+
+    async def _fake_spawn(*argv, **kwargs):
+        captured["argv"] = argv
+        return _FakeProcess(pid=4321)
+
+    monkeypatch.setattr(moss_spec, "get_config", lambda: cfg)
+    monkeypatch.setattr(moss_spec, "_create_subprocess_exec", _fake_spawn)
+
+    asyncio.run(moss_spec.build_moss_spec().start())
+
+    argv = captured["argv"]
+    assert argv[argv.index("--data-root") + 1] == str(data_root)
+    assert argv[argv.index("--state-root") + 1] == str(state_root)
 
 
 def test_start_returns_ok_false_when_gate_python_missing(monkeypatch):
@@ -272,3 +371,19 @@ def test_python_candidates_use_scripts_on_windows(tmp_path):
 def test_config_moss_python_property_is_trimmed_raw_value():
     assert Config({"moss": {"python": "  /tmp/python  "}}).MOSS_PYTHON == "/tmp/python"
     assert Config({"moss": {}}).MOSS_PYTHON == ""
+
+
+def test_config_moss_data_root_property_is_trimmed_raw_value():
+    assert (
+        Config({"moss": {"data_root": "  /srv/inst/data  "}}).MOSS_DATA_ROOT
+        == "/srv/inst/data"
+    )
+    assert Config({"moss": {}}).MOSS_DATA_ROOT == ""
+
+
+def test_config_moss_state_dir_property_is_trimmed_raw_value():
+    assert (
+        Config({"moss": {"state_dir": "  /srv/inst/state  "}}).MOSS_STATE_DIR
+        == "/srv/inst/state"
+    )
+    assert Config({"moss": {}}).MOSS_STATE_DIR == ""

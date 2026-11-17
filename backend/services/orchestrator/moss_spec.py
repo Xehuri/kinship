@@ -7,7 +7,9 @@ watcher 不是 vLLM 推理服务：它只是 ``tools/moss-shadow/watcher.py --lo
 - ``gate``：``moss.enabled`` 为真且解释器可执行；``python`` 缺失时给出
   ``gate_failed: python_missing``，不探活 vLLM；
 - ``start``：经 ``child_entry`` 包一层父死亡保护后 spawn watcher，cwd 固定
-  仓库根，绝不启动/停止 ``axeuh-moss.service``；
+  仓库根，绝不启动/停止 ``axeuh-moss.service``；spawn 时透传本实例的数据根
+  （``moss.data_root`` -> 后端 ``DATA_DIR``）与可选状态根（``moss.state_dir``），
+  vLLM 服务地址不参与 argv，仍由 watcher 配置指向共享推理服务；
 - ``stop``：按精确 PID SIGTERM -> ``TimeoutStopSec`` 30 秒 -> SIGKILL。
 
 注册由 ``main.py`` 在 ``orchestrator.start_all()`` 之前显式调用；runtime 不
@@ -120,9 +122,22 @@ def _gate(cfg: Config) -> tuple[bool, str]:
     return True, ""
 
 
-def build_start_command(python: str, watcher_path: Path | str) -> list[str]:
-    """构造 spawn argv；``child_entry`` 只做父死亡保护，不重定向 stdio。"""
-    return [
+def build_start_command(
+    python: str,
+    watcher_path: Path | str,
+    data_root: Path | str | None = None,
+    state_root: Path | str | None = None,
+) -> list[str]:
+    """构造 spawn argv；``child_entry`` 只做父死亡保护，不重定向 stdio。
+
+    数据根始终显式透传绝对路径：``data_root`` 未给时回落后端 ``DATA_DIR``，
+    保证旧两参调用仍可用且 watcher 不会误用仓库全局默认。``state_root`` 为空
+    则不传，沿用 watcher 自带默认（config.toml 的 ``[paths].state_root`` 或
+    ``tools/moss-shadow/state``）；非空时同样转绝对路径。
+    """
+    if data_root is None:
+        data_root = get_config().DATA_DIR
+    argv = [
         python,
         "-m",
         CHILD_ENTRY_MODULE,
@@ -130,7 +145,12 @@ def build_start_command(python: str, watcher_path: Path | str) -> list[str]:
         python,
         str(watcher_path),
         "--loop",
+        "--data-root",
+        os.path.abspath(str(data_root)),
     ]
+    if state_root:
+        argv.extend(["--state-root", os.path.abspath(str(state_root))])
+    return argv
 
 
 def build_start_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -244,7 +264,13 @@ async def _start_moss_watcher() -> dict[str, Any]:
     python = resolve_moss_python(cfg)
     root = project_root()
     watcher_path = root / WATCHER_RELPATH
-    argv = build_start_command(python, watcher_path)
+    # 实例隔离：数据根默认后端 DATA_DIR（生产等于仓库 ai/data，主实例行为不变），
+    # 状态根默认留空交给 watcher 自带默认；两者都按绝对路径透传。
+    data_root = os.path.abspath(cfg.MOSS_DATA_ROOT or cfg.DATA_DIR)
+    state_root = os.path.abspath(cfg.MOSS_STATE_DIR) if cfg.MOSS_STATE_DIR else ""
+    argv = build_start_command(
+        python, watcher_path, data_root=data_root, state_root=state_root
+    )
     env = build_start_env()
     try:
         process = await _spawn_watcher(argv, cwd=str(root), env=env)

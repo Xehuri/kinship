@@ -79,9 +79,9 @@ def test_schema_version_is_one():
     assert SCHEMA_VERSION == 1
 
 
-def test_core_fields_exactly_56_and_unique():
-    assert len(CORE_FIELDS) == 56
-    assert len({f.path for f in CORE_FIELDS}) == 56
+def test_core_fields_exactly_58_and_unique():
+    assert len(CORE_FIELDS) == 58
+    assert len({f.path for f in CORE_FIELDS}) == 58
 
 
 def test_all_field_paths_unique():
@@ -144,6 +144,8 @@ def test_core_paths_match_approved_list():
         "moss.python",
         "moss.base_url",
         "moss.model",
+        "moss.data_root",
+        "moss.state_dir",
         "health.cloud_poll_interval_min",
         "audio.store.upload_ext",
         "audio.stream.silence_cut_s",
@@ -592,6 +594,8 @@ def test_advanced_type_inference_spot_checks():
         ("p2p.webrtc.enabled", "reconnect"),
         ("kernel.device", "respawn"),
         ("kernel.state_dir", "respawn"),
+        ("moss.data_root", "respawn"),
+        ("moss.state_dir", "respawn"),
         ("launcher.conda_python", "deployment"),
         ("launcher.opencode_cmd", "deployment"),
     ],
