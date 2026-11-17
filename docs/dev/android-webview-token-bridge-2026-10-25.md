@@ -2,6 +2,8 @@
 
 > 状态：已实现并部署生产（2026-10-25 13:49 CST 原子替换前端；APK 需手动安装）。
 >
+> 2026-11-17 复核：`WebTokenBridge.kt` 仍在 `app/src/main/java/com/xehuri/kinship/web/`（包名 `com.xehuri.kinship`），实现与本文一致（监听 `auth_token`、`onPageFinished`/`onResume`/token 变化注入、`stop()` 代际号作废在途注入、`JSONObject.quote` 转义）；文中无过期行号，路径已是最新。
+>
 > 目标：App 内 WebView 复用原生后台采集进程持有的后端 token；原生 401 自动重登后网页自动续期，不再反复要求手动登录。
 
 ## 背景
@@ -75,6 +77,8 @@ AppHttpClient 401
 - 独立 reviewer 结论：APPROVE WITH NOTES，无阻塞项。
 
 ## 生产部署与回滚
+
+> 下表是 2026-10-25 上线当时的产物哈希与备份目录，属**历史记录**（数值保留不改）；当前 `frontend/mobile/dist/` 已多次替换，回滚前先核对实际目录。
 
 | 项 | 值 |
 | --- | --- |

@@ -31,7 +31,7 @@ backend/services/qq_gateway/
   qzone_parse.py QZone JSONP/动态/评论解析、Cookie 解析、djb2 g_tk
   qzone_client.py QZone 动态/评论/回复/删除评论/点赞 HTTP 客户端
   qzone.py       QZone 能力门禁、Cookie 缓存、读写限速
-  delivery.py    按序投递 loom，失败重试
+  delivery.py    按序投递主会话（经 get_ai_client() 随 ai_backend 路由），失败重试
   ipc.py         127.0.0.1 + Bearer token 的 HTTP action 面
   service.py     生命周期、事件编排、健康状态
   __main__.py    独立进程入口
@@ -153,7 +153,7 @@ qq water list
 
 ## qq CLI
 
-`qq`（仓库根可执行脚本，实现位于 `ai/skills/qq-cli/qq_cli.py`）是网关 IPC 的薄客户端，覆盖全部 23 个 QQ 操作，不直连 NapCat。token 取 `QQ_GATEWAY_MCP_TOKEN_FILE`（默认 `/etc/kinship-qq-gateway/mcp.token`），IPC 地址默认 `http://127.0.0.1:8770`。
+`qq`（仓库根可执行脚本，实现位于 `ai/skills/qq-cli/qq_cli.py`）是网关 IPC 的薄客户端，覆盖全部 23 个 QQ 操作，不直连 NapCat。token 取 `QQ_GATEWAY_MCP_TOKEN_FILE`：未设置时用脚本内置默认（公开模板 `ai-template/skills/qq-cli/qq_cli.py` 为 `/etc/qq-gateway/mcp.token`，本机实例按其部署改过默认值）；按“启动”一节把 token 放在自定义路径时，必须同时导出该环境变量，并与 `qq_gateway.mcp.token_file` 保持一致。IPC 地址默认 `http://127.0.0.1:8770`（可用 `QQ_GATEWAY_MCP_BASE_URL` 覆盖）。
 
 ```bash
 qq tools
@@ -167,7 +167,7 @@ qq history --friend 1000000001 --unread --compact
 
 `qq tools` 列出全部操作和字段；`qq call <tool> --input <json|->` 调用其余操作，`--input -` 从 stdin 读 JSON。默认 Markdown 文本；结构化输出加 `--json`（等价 `--format json`）。`--unread` 按上节水位过滤，`--mark-read` 显式推进水位。
 
-`--unread --compact` 会自动为图片/文件调用网关 `/v1/media`，把媒体下载到 `qq_gateway.media.dir`（默认 `data/qq_gateway/media/`），并在 `[图片]` / `[文件:name]` 后附本地绝对路径；`--json` 的每条消息额外带 `media` 路径数组。媒体下载失败只保留占位符，不影响文字历史。
+`--unread --compact` 会自动为图片/文件调用网关 `/v1/media`，把媒体下载到 `qq_gateway.media.dir`（代码默认 `data/qq_gateway/media`，模板 `config.example.yaml` 设为 `ai/data/qq_gateway/media`），并在 `[图片]` / `[文件:name]` 后附本地绝对路径；`--json` 的每条消息额外带 `media` 路径数组。媒体下载失败只保留占位符，不影响文字历史。
 
 `--unread --compact` 会解析引用消息（`get_msg`）和合并转发（`get_forward_msg`），递归渲染其中的文本/图片/文件；媒体仍经 `/v1/media` 下载并附本地路径；深度上限 2，避免循环。
 
@@ -204,15 +204,16 @@ qq history --friend 1000000001 --unread --compact
 - 提醒不含正文。Loom 收到后按提示命令拉未读，再决定读不读、回不回。
 - 图片/文件不随提醒发送；拉未读时由网关下载并返回本地绝对路径，Loom 可直接用 `read` 打开。
 
-## 当前运行态（2026-10-30）
+## 当前运行态（2026-10-30 快照，2026-11-17 复核）
 
 - `enabled: true`
-- `inbound.shadow: true`：只连、只计数，不投递 Loom；`inbound.groups: false`
-- `outbound.enabled: true`、`outbound.private: true`、`outbound.groups: true`，群白名单 `["1000000002"]`
+- `inbound.shadow: true`：只连、只计数，不投递主会话；`inbound.groups: false`
+- `outbound.enabled: true`、`outbound.private: true`、`outbound.groups: true`；群白名单为多个白名单群（具体群号以本机 `config.yaml` 的 `outbound.group_allowlist` 为准，文档不记录）。2026-11-17 复核时已不是 2026-10-30 快照里的单一群。
 - qq-mcp 已退役；23 个操作由 qq CLI 覆盖（`qq tools`）
 - QZone：`enabled: true`、`mode: http_sidecar`、`allow_read: true`、`allow_send: true`、`allow_delete: true`，写入 10 次/小时
 - relay 仍在跑并承担入站：私聊仅发元数据提醒（`【QQ私聊·提醒】`，不含正文；Loom 调 `qq history --friend <QQ> --unread --compact` 后回复）；群聊仅 @我/引用我/文本含“小贺”时发元数据提醒（不含正文）；water 模式按评分自动提醒（每群 60 秒），mute 不发；详见“私聊提醒契约”“群聊提醒契约”与“水群模式”
-- `ss -tnp | grep :3001` 应只有两条：gateway + relay
+- relay 的投递通道是脚本 `context.trigger_task("main-task", ...)`，由后端 ScriptRunner 按 `ai_backend` 路由到主会话（本机生产当前 `ai_backend=dsh`，模板默认 `loom`）；网关自身的 `delivery.py` 走 `get_ai_client()`，同一路由。
+- `ss -tnp | grep :3001` 应只有两条：gateway + relay（2026-11-17 实测为后端 gateway 与 relay 各一条 ESTAB）
 
 ## QQ 操作（23 个，qq CLI 覆盖）
 
@@ -382,7 +383,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 `qq` CLI（先列操作，再读动态）：
 
 ```bash
-cd /opt/kinship
+cd <repo-root>
 ./qq tools
 ./qq call qq_get_login_info --input '{}'
 ./qq call qq_get_qzone_feeds --input '{"target_qq":"123456789","limit":3,"response_format":"json"}'
@@ -437,11 +438,11 @@ ss -tnp | grep :3001
 
 ```bash
 cd backend
-/opt/kinship/.venv-health/bin/python -m pytest tests/test_qq_gateway_*.py tests/test_qq_mcp_*.py -q
+/opt/venvs/axeuh-health/bin/python -m pytest tests/test_qq_gateway_*.py tests/test_qq_mcp_*.py -q
 ```
 
-当前：**129 passed**。
+当前（2026-11-17 实跑）：**168 passed**。
 
-QZone 相关分文件计数：`test_qq_gateway_qzone_parse.py` 25、`test_qq_gateway_qzone_client.py` 30、`test_qq_gateway_qzone.py`（服务层）31、`test_qq_gateway_ipc.py` 3、`test_qq_mcp_qzone.py` 7。
+QZone 相关分文件计数（同一日 `--collect-only`）：`test_qq_gateway_qzone_parse.py` 25、`test_qq_gateway_qzone_client.py` 30、`test_qq_gateway_qzone.py`（服务层）31、`test_qq_gateway_ipc.py` 6、`test_qq_mcp_qzone.py` 7。
 
 覆盖：echo/乱序/stream/断线、SQLite 去重/重启、路由矩阵、3 层转发展开、retcode/dry-run/indeterminate、收藏表情 list/save/update/delete、QZone JSONP/动态/评论解析（含宽松 JS 字面量回退）、Cookie 缓存与 g_tk、读写/删除门禁与限速、评论/回复/删除评论/点赞请求体、IPC 401/200 与 QZone 错误信封、MCP QZone 工具参数映射、fake NapCat → fake loom 端到端。

@@ -1,8 +1,9 @@
 # Loom Feature Plugin P2b：沙箱化外部插件运行时
 
-状态：设计完成；2026-11-03 决定暂缓实现  
-范围：`trust: "sandboxed"` 外部插件的独立进程 runtime、capability RPC、Linux 沙箱  
+状态：设计完成；2026-11-03 决定暂缓实现
+范围：`trust: "sandboxed"` 外部插件的独立进程 runtime、capability RPC、Linux 沙箱
 不包含：npm/git 安装、lockfile、市场索引/API/UI（P2c）、Windows/macOS 沙箱实现
+复核：2026-11-17 仍未实现——`loom-harness` 的 plugin-host 只有 P0/P2a（`loader.ts` 拒绝 `trust: "sandboxed"`），本文保持设计快照，不改写设计论证。
 
 ## 0. 当前决策（2026-11-03）
 

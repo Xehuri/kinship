@@ -9,6 +9,8 @@ scope: 主会话优先；分析批次后续
 
 > 公开脱敏版。个人对话、运行数据、私有记忆路径已省略；完整研究记录保存在私有运行区。
 
+> 2026-11-17 复核：本文依赖的 Loom flow/convergence 机制已退役（生产 `ai/.loom/config.yaml` 为 `flow.enabled: false`、`retireConverge: true`，见 `docs/dev/flow-retirement-inventory.md`），文中 flow state / flow note 相关假设不再对应当前实现；研究结论保持 2026-10-30 原样，不改写。
+
 ## 0. 摘要
 
 这份文档记录为 Loom 主会话增加“慢思考 / 回复质量”机制的研究与设计。

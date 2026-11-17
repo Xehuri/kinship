@@ -1,11 +1,13 @@
 # Windows 兼容性核对（onboarding 存储 / 内核 / Loom / 客户端，2026-10-26）
 
-范围：提交 `54fce767` / `6b12fec1` / `9c603ec7` / `c7a190f7` 新增的存储根、内核模型注入、Loom 运行时与客户端回退。本文只列 Windows 专属核对项；安装步骤见 `docs/INSTALL.md`，设计见 `docs/onboarding-redesign-2026-10-26.md`。
+状态：2026-11-17 复核——自动化矩阵仍全绿（`test_windows_parity.py` 37 passed），原「残余风险」未在真机复测。两处机制变化：① 内核改由编排器在 boot 时 spawn（`backend/services/orchestrator/kernel_spec.py` → `kernel_client.ensure_async()`），不再是首次音频请求懒启动；② Windows 进程面已抽成 `backend/services/win_process.py`（Win32 入口为模块级 seam，Linux 假句柄单测覆盖），真机仍未运行。`CHANGELOG.md` 未见 2026-10-26 之后的 Windows 兼容性修复条目。
+
+范围：提交 `54fce767` / `6b12fec1` / `9c603ec7` / `c7a190f7` 新增的存储根、内核模型注入、Loom 运行时与客户端回退。本文只列 Windows 专属核对项；安装步骤见 `docs/ops/INSTALL.md`，设计见 `docs/dev/onboarding-v4-2026-10-27.md`。
 
 ## 自动化矩阵
 
 - 文件：`backend/tests/test_windows_parity.py`
-- 命令：`cd backend && /opt/kinship/.venv-health/bin/python -m pytest tests/test_windows_parity.py -q`
+- 命令：`cd backend && /opt/venvs/axeuh-health/bin/python -m pytest tests/test_windows_parity.py -q`
 - 方式：Linux 上以平台标志、假路径与假进程句柄模拟 Windows，不启动真实进程、服务管理器或网络。
 - 覆盖：
   - `config.paths` 的盘符 / UNC 绝对路径与项目根相对解析。
@@ -18,7 +20,7 @@
 
 1. 路径：`AXEUH_DATA_ROOT=D:\...`、UNC `\\nas\share\...`、相对值 `runtime-data` 都落在预期位置；确认没有引用 `/home/...` 的 `models.dir`。
 2. 模型：用后端下载时权重落在 `<models_root>\.cache\axeuh-kernel\models`（或显式 `kernel.model_dir` / `AXEUH_KERNEL_MODEL_DIR`），`%LOCALAPPDATA%\axeuh-kernel` 不应出现后端下载产物。
-3. 内核：首次音频请求触发懒启动；`backend\data\kernel_state\kernel.pid` 存在时巡检只探活，不终止进程。
+3. 内核：由编排器在 boot 时 `ensure_async()` spawn（不再是首次音频请求触发懒启动）；`backend\data\kernel_state\kernel.pid` 存在且 `/v1/health` 探通时只复用，不终止进程。
 4. 内核解释器：`kernel.python` / `AXEUH_KERNEL_PYTHON` > `.venv-kernel\Scripts\python.exe` > 后端解释器。
 5. Loom 模式：无 `systemctl` 时为 child（node + dist 均在）或 none（缺任一）；none 时页面给出手工命令，不应尝试 `systemctl`。
 6. Loom child：启动后无控制台窗口，`var\logs\loom.log` 有输出；停止走 `TerminateProcess`，pidfile 指纹不符时拒绝操作。
@@ -33,6 +35,6 @@
 - Windows 无 SIGTERM：child 停止不是优雅退出，Loom 可能来不及 flush；停止后需看 health 与日志。
 - `_write_secret_env` 的目录 fsync 在 Windows 被跳过（异常已捕获）。
 - `Popen(cwd=UNC)` 在 Windows 可能被拒绝；项目根建议放在本地盘。
-- Windows 进程身份 / `TerminateProcess` 分支本次只在 Linux 上用假句柄验证，未在真机运行。
+- Windows 进程身份 / `TerminateProcess` 分支现已抽成 `backend/services/win_process.py`（Win32 入口为可注入 seam，Linux 单测注入假 DLL），但仍只在 Linux 上验证，未在真机运行。
 - `startup` 验证平面未纳入本次 Windows 自动化矩阵；其探针复用跨平台路径与 in-process 服务，仍需在真机确认无 systemd 时的行为。
 - 本次范围外：`backend/services/phi4_client.py` 与 `backend/scripts/qa_config_staging.py` 仍用 `os.kill(pid, 0)`，属于既有代码，不在 onboarding 新链路。

@@ -135,3 +135,7 @@ P2b 才引入 `trust: "sandboxed"`、独立进程 runtime、capability RPC、安
 **当前状态（2026-11-03）**：P2b 设计完成并通过 Oracle 安全评审，但决定暂缓实现；
 P2a 的 `trust: "trusted"` 仍是 Loom 唯一的外部插件入口。详见
 [`plugin-host-p2b.md`](plugin-host-p2b.md)。
+
+**2026-11-17 复核仍成立**：`loom-harness/packages/server/src/plugin-host/` 仍只有 P0/P2a
+实现（`loader.ts` 明确拒绝 `trust: "sandboxed"`，无独立进程 runtime、无 capability RPC）；
+P2b 仍处暂缓，设计未落地。

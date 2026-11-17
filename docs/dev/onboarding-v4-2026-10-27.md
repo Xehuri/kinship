@@ -12,15 +12,15 @@ v4 共 11 步，顺序固定。`preflight` 与 `startup` 不再是可见步骤�
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `welcome` | 欢迎 | true | false | none | 无 |
 | 2 | `account` | 管理员账号 | true | false | setup_token | 创建首个管理员，密码哈希写入 `backend/config/auth.json` |
-| 3 | `dependencies` | 依赖检查 | true | false | bearer | 记录下载/拒绝选择；下载作业写入运行资产，不写 `config.yaml` |
-| 4 | `kernel` | 音频内核 | true | true | password | 安装或复用音频内核；不写 `config.yaml` |
-| 5 | `kernel_models` | 内核模型 | true | true | password | 下载/校验模型；可经 storage API 写 `models.dir` |
-| 6 | `xiaomi` | 小米健康云 | true | true | password | 写健康云开关与扫码凭据；不启动拉取线程 |
-| 7 | `qq` | QQ 网关 | true | true | password | 写 `qq_gateway.*`，token 落独立密钥文件；不启动网关 |
+| 3 | `dependencies` | 依赖检查 | true | false | bearer | 只读检查发行资产清单与依赖；配置意图进草稿：`onboarding.allow_model_download`（step data `choice=download\|decline`）、`onboarding.model_tiers`、`models.dir`（`tiers` / `models_dir`） |
+| 4 | `kernel` | 音频内核 | true | true | password | 安装或复用音频内核；配置意图进草稿：`kernel.python`、`kernel.device`、`kernel.torch_index_url`（同名 step data 键） |
+| 5 | `kernel_models` | 内核模型 | true | true | password | 下载/校验模型；配置意图进草稿：`onboarding.model_tiers`、`models.dir`（模型根在本步选择） |
+| 6 | `xiaomi` | 小米健康云 | true | true | password | 写健康云开关（草稿 `health.cloud.enabled`）与扫码凭据；不启动拉取线程 |
+| 7 | `qq` | QQ 网关 | true | true | password | 写 `qq_gateway.*`（草稿：`qq_gateway.enabled`、`account.self_qq`、`account.ws_url`），token 落独立密钥文件；不启动网关 |
 | 8 | `moss` | MOSS 深度音频 | true | true | password | 只写 `moss.enabled`、`moss.base_url`、`moss.model` |
-| 9 | `loom` | AI 助手 | true | true | password | 写 `ai/.loom/config.yaml`、`loom.url`、`loom.token_file`、`ai_backend=loom` |
+| 9 | `loom` | AI 助手 | true | true | password | 双通道：Loom 通道经 `POST /loom/setup` 写 `ai/.loom/config.yaml`、`loom.url`、`loom.token_file`、`ai_backend=loom`；dsh 通道只把 `ai_backend=dsh`、`dsh.url` 写进草稿，不写 `loom.*` |
 | 10 | `clients` | 客户端 | true | false | bearer | 无；只读取客户端下载目录 |
-| 11 | `finish` | 完成 | true | false | bearer | 执行预检、集成校验、启动校验、promote/commit，并记录完成 |
+| 11 | `finish` | 完成 | true | false | bearer | 应用配置草稿、预检、就绪审计，并记录完成 |
 
 说明：
 
@@ -31,6 +31,7 @@ v4 共 11 步，顺序固定。`preflight` 与 `startup` 不再是可见步骤�
 - `kernel`、`kernel_models`、`xiaomi`、`qq`、`moss`、`loom` 允许跳过。跳过表示用户明确不配置，不是自动完成。
 - `welcome` 是 passive 步骤。后续任一非 passive 步骤推进时，服务端会自动把 `welcome` 补为 `completed`。
 - `clients` 是 finish 之前最后一个内容步骤。它不提供 PC 感知采集器内容。
+- 除密钥外，步骤表里的配置键都先落在**配置草稿**：`POST /api/system/onboarding/state` 只把 `onboarding_service.step_config_changes()` 的返回值 `ConfigStore.stage()` 进草稿，不 apply、不写 `config.yaml`；`finish` 时一次性应用（`config_reconciler.apply_staged`）。密钥类值仍由各步骤专用端点写独立密钥文件。
 
 ## 2. state v4 与迁移
 
@@ -62,7 +63,7 @@ v3 进行中安装：
 - 已有的 completed/skipped 保留。
 - `xiaomi` 与 `qq` 自动记为 `skipped`，避免新插入的可选步骤卡住升级用户。
 - `current_step` 按新的 v4 顺序重算。例如原先完成到 `loom`，当前步骤变为 `clients`。
-- 因为未完成，`finish` 仍必须真实执行预检、集成校验、启动校验与 promote/commit。
+- 因为未完成，`finish` 仍必须真实执行预检、应用配置草稿与就绪审计，不因迁移跳过门禁。
 
 ### 2.3 v2 / v1 迁移
 
@@ -113,7 +114,7 @@ v1：
 - `POST /qr/poll` 单次轮询扫码结果，失败返回 502 `xiaomi_qr_poll_failed`；成功时凭据写入健康云配置，但 `start_pull=false`。
 - `phase` 取值包括 `disabled`、`unconfigured`、`auth_expired`、`error`、`ok`、`syncing`。
 - `userid` 只返回掩码；`passToken` 永不返回。
-- `finish` 时若 `enabled=true` 且 `configured=false`，会产生 blocking 项 `xiaomi_not_configured`。
+- `xiaomi_not_configured` 是该步自身端点的错误码（`backend/routers/onboarding_xiaomi.py`），不参与 finish 的就绪审计；finish 不再重跑 Xiaomi 集成校验。
 
 ### 3.3 QQ
 
@@ -135,7 +136,7 @@ v1：
 - 写入新 token 后会清除旧的内联 `qq_gateway.account.ws_token`；MCP token 同样清除旧内联 `qq_gateway.mcp.token`，避免旧值优先级覆盖 token_file。
 - 关闭网关时只写 `qq_gateway.enabled=false`，不写其他字段。
 - `/config` 不启动网关、不触发配置应用器。网关在 `finish` 后由服务面启动。
-- `finish` 时若网关已启用但 `QQGatewayConfig.validate()` 报错，会产生 blocking 项，错误按字段映射为 `qq_ws_url`、`qq_ws_token`、`qq_group_allowlist`、`qq_mcp`、`qq_qzone` 等。
+- QQ 配置校验只在 `/validate` 与 `/config` 内发生（失败 422 `qq_config_invalid`，`errors` 按字段返回）；finish 的就绪审计只看编排器 `critical` 服务，不再重跑 `QQGatewayConfig.validate()`，也不再按字段映射 blocking 项。
 
 ### 3.4 MOSS
 
@@ -158,9 +159,12 @@ v1：
 
 MOSS 的边界见第 5 节。
 
-### 3.5 Loom setup
+### 3.5 AI 助手（Loom / dsh 双通道）
 
-v4 的 Loom 步骤只有一个可见动作：`POST /api/system/onboarding/loom/setup`，界面上对应「启动并应用」。
+`loom` 步骤（标题「AI 助手」）在前端有两条通道，缺省 Loom：
+
+- **Loom 通道**（缺省）：可见动作 `POST /api/system/onboarding/loom/setup`，界面对应「启动并应用」；成功后前端再调 `POST /api/system/onboarding/state` 把 `loom` 记为 `completed`。下面的流水线即这条通道。
+- **dsh 通道**（自备 harness，BYO）：不安装、不启动服务，只声明 bridge 地址；前端用 `POST /api/system/onboarding/state` 记录 `{step_id: "loom", status: "completed", data: {ai_backend: "dsh", url: "http://..."}}`。服务端只把 `ai_backend=dsh` 与 `dsh.url` 写进配置草稿（`url` 必须是 http(s)，缺省 `http://127.0.0.1:18765`），**不写** `loom.url` / `loom.manage_config`，也不会把 `ai_backend` 打回 `loom`。token 由用户在 `dsh.token`（或环境变量 `DSH_TOKEN`）里配置，可留空。
 
 | 方法 | 路径 | 授权 | 说明 |
 | --- | --- | --- | --- |
@@ -292,7 +296,9 @@ v4 的 Loom 步骤只有一个可见动作：`POST /api/system/onboarding/loom/s
 {
   "ok": true,
   "state": {"version": 4, "completed": true, "current_step": null},
-  "activation": {"committed": true},
+  "activation": {"ok": true, "committed": true, "activated": false, "state": "ready", "source": "readiness_audit"},
+  "apply": {"applied": [], "failed": [], "deferred_restart": [], "partial": false},
+  "readiness": {"ok": true, "orchestrator": "on", "services": [], "blocking": [], "non_critical": []},
   "groups": {"blocking": [], "soft": []},
   "closing": {
     "title": "初始化完成",
@@ -305,39 +311,33 @@ v4 的 Loom 步骤只有一个可见动作：`POST /api/system/onboarding/loom/s
 }
 ```
 
-失败统一返回 `{ok: false, code, message, groups, report, runtime, activation}`，HTTP 状态为 409。常见错误码：
+其中 `apply` 是配置草稿的应用结果，`readiness` 是就绪审计快照（`activation.source` 恒为 `readiness_audit`）。已完成状态下再调 `POST` 返回幂等成功（`idempotent: true`），响应只含 `state`、`activation`、`groups`、`closing`。
+
+失败统一返回 `{ok: false, code, message, groups, report, activation?}`，HTTP 状态为 409。当前错误码：
 
 | code | 含义 |
 | --- | --- |
-| `finish_not_bootstrap` | 当前不在引导模式，或 bootstrap runtime 不可用 |
-| `finish_blocked` | 预检或集成校验存在 blocking 项 |
-| `finish_startup_failed` | 服务面启动、校验或 promote 失败 |
+| `finish_blocked` | 预检存在 blocking 项，或关键服务就绪审计未通过 |
+| `finish_apply_failed` | 配置草稿应用失败（失败项留在草稿里，可重试） |
 | `finish_degraded_requires_ack` | 存在 soft 项，但请求未带 `allow_degraded=true` |
-| `activation_failed` | commit 失败，finish 未记录 |
-| `finish_record_failed` | 服务已激活，但完成状态写入失败；可重试 |
+| `finish_record_failed` | 就绪审计已通过，但完成状态写入失败；可重试 |
 
 `groups` 固定为两层：
 
-- `blocking`：必须修复。预检硬失败、Xiaomi 启用未登录、QQ 配置无效、启动校验错误。
-- `soft`：需要显式确认降级。预检软失败、启动警告、MOSS 不可达或模型未找到。
+- `blocking`：必须修复。预检硬失败（端口/路径）、配置草稿应用失败、关键服务未 ready 且其引导步骤未 skipped。
+- `soft`：需要显式确认降级。预检软失败、非关键服务 `failed` 只登记在 `readiness.non_critical`，不进 groups。
 
 ## 4. finish 流程与收口
 
-`POST /finish` 的编排顺序是硬约束：
+服务面走**单一启动路径**：由 lifespan 启动，未配置的服务以编排器 `blocked` 状态表达，不再有 bootstrap 延迟服务面，也没有 attempt/validate/promote/commit 阶段。`POST /finish` 的编排顺序是硬约束（`services/onboarding_finish.run_finish`）：
 
 1. 读取状态；若已 `completed=true`，直接返回幂等成功。
-2. 确认 bootstrap runtime 存在且处于 active 或 committed；否则 409 `finish_not_bootstrap`。
-3. 在服务面启动前执行一次预检，结果存入 `app.state.finish_preflight_result`。此时端口仍空闲，避免服务面占用端口后误报。
-4. 预检 blocking 非空时返回 409 `finish_blocked`，响应带 `groups.blocking`。
-5. 执行只读集成校验：Xiaomi、QQ、MOSS。Xiaomi 与 QQ 的 blocking 项直接阻断；MOSS 只产生 soft 项。
-6. 若 runtime 为 `deferred`，执行 `attempt` 启动服务面；失败返回 `finish_startup_failed`。
-7. 若 runtime 尚未 validated/promoted/committed，执行 `validate`；失败返回 `finish_startup_failed`。
-8. 汇总启动报告。启动错误为 blocking，警告为 soft。blocking 非空时返回 409。
-9. 存在 soft 且未显式 `allow_degraded=true` 时返回 409 `finish_degraded_requires_ack`。
-10. `validated` 状态执行 `promote`，启动延迟集成。
-11. 执行 `commit`；失败返回 409 `activation_failed`，不记录完成。
-12. 使用第 3 步保存的预检结果记录 `finish`，不重跑预检。记录失败返回 `finish_record_failed`，提示服务已激活但状态未写入。
-13. 返回 `closing`：标题、说明、已启用项、已跳过项、降级项与「进入主界面」。
+2. 执行一次预检，结果存入 `app.state.finish_preflight_result`，并分组成 `blocking` / `soft`。
+3. 预检 blocking 非空时返回 409 `finish_blocked`；仅 soft 且未带 `allow_degraded=true` 时返回 409 `finish_degraded_requires_ack`。
+4. 一次性应用步骤草稿（`config_reconciler.apply_staged`）；任一路径失败返回 409 `finish_apply_failed`，不写 `completed`。
+5. 执行就绪审计（`readiness_audit`）：按编排器快照检查 `critical` 服务必须 `ready`，或其引导步骤被用户显式 `skipped`；未通过返回 409 `finish_blocked`。审计是纯读，不启停任何服务。
+6. 审计通过后才记录 `finish=completed`，复用第 2 步的预检结果，不再重跑预检；写入失败返回 409 `finish_record_failed`。
+7. 返回 `closing`：标题、说明、已启用项、已跳过项、降级项与「进入主界面」。
 
 前端 `FinishStep` 的行为：
 
@@ -351,7 +351,7 @@ v4 的 Loom 步骤只有一个可见动作：`POST /api/system/onboarding/loom/s
 
 MOSS 是外部服务，不由本仓库后端托管：
 
-- 后端只保存 `moss.enabled`、`moss.base_url`、`moss.model`，并在 finish 时做一次可选的只读探活。
+- 后端只保存 `moss.enabled`、`moss.base_url`、`moss.model`；finish 不再做 MOSS 探活，可用性只在设置/引导表单里经 `services/moss_client.py` 的只读门面查看。
 - MOSS 的 vLLM 进程、`axeuh-moss` / `axeuh-moss-watch` systemd 单元、显存与模型加载属于外部部署，不在初始化向导中管理。
 - 该步不提供 systemd 单元管理、helper、命令、启动/停止或 apply 动作。
 - MOSS 当前没有后端业务消费者。深度音频理解的旁路管线位于 `tools/moss-shadow/`，与后端主链独立；后端 finish 的探活只用于提示可用性，不读取它的分析产物。
@@ -376,7 +376,8 @@ export AXEUH_ONBOARDING_BOOTSTRAP=1
 - 不省略 `AXEUH_PROJECT_ROOT`，否则初始化动作可能指向生产 `ai/`。
 - 使用独立端口、证书或主机，避免与生产 8768 抢端口。
 - 使用包含 v4 向导的前端构建产物，不要直接复用旧生产 dist。
-- 启动日志必须出现 `[Bootstrap] mode=True` 与 `service plane deferred`。出现 `mode=False` 时立即按 PID 停止，检查启动器是否用 `os.execve(..., env)` 传递隔离环境。
+- 启动日志必须出现 `[Bootstrap] 单一启动路径：服务面随 lifespan 启动`。服务面不再延迟启动（没有 attempt/validate/promote/commit），未配置的服务以编排器 `blocked` 状态表达。
+- 确认进程确实吃到了隔离环境：出现指向生产路径的初始化动作时立即按 PID 停止，检查启动器是否用 `os.execve(..., env)` 传递隔离环境。
 - 首次复测前清空 staging 的 `auth/` 与 `onboarding/`；否则已有用户加无状态文件会被判定为 legacy 完成。
 
 ### 6.2 文档与聚焦测试
@@ -490,7 +491,7 @@ curl -sSk "$BASE/api/system/onboarding/status" \
 - `current_step=finish`，`preflight` / `startup` 不在 steps 或状态集合中。
 - `xiaomi` / `qq` 为 skipped，并带 `reason=v3_upgrade` 的合成 step_data。
 - `preflight` / `startup` 的旧数据在 `legacy_step_data` 中带 `removed_in_v4: true`。
-- 真实调用 `POST /finish` 时仍执行预检、启动校验与 commit，不因迁移跳过门禁。
+- 真实调用 `POST /finish` 时仍执行预检、配置草稿应用与就绪审计，不因迁移跳过门禁。
 
 ### 6.5 GUI 检查点
 
