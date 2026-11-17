@@ -6,6 +6,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 新增
 
+- **ai-template 全量对齐生产（2026-11-17）**：公开模板从旧 A 方案与旧提示词更新到生产当前结构。记忆改为 Phase A（`PROTOCOL.md` 唯一规则源、`ledger/` + `notes/` + 6 个投影、`legacy/FROZEN.md`、`memory_finalize.py` 收尾门）；`agents/main.md` 改为合并版主提示词并删除根 `AGENTS.md` / `AGENTS-operations.md`，12 个角色提示词按生产更新并占位化；新增 `skills/` 三包（`comfyui-draw`、`qq-cli`、`playwright`，`loom-handover` 因依赖私有 CLI 不发布）；同步生产较新的 analysis 脚本（`fact_extractor`、`query*`、`memory_finalize`、`health_source`、`build_reports` 等）与测试；README、初始化指南、data 骨架同步。验证：模板 analysis 224 个测试通过，`py_compile`、YAML/JSON、相对链接检查通过，全模板隐私扫描零命中。提交：`17660e7`、`d5837d0`、`3632120`、`9089aed`。
 - **dsh 排异 host 记忆插件 + 面板分页（2026-11-17）**：Kinship 会话此前会吃到 host 级 `dsh-auto-memory` 的记忆索引段（`memory:index`，实测约 3-4 KiB/请求）和 7 个 `memory_*` 工具，与 `ai/memory/` 自己的记忆体系并行；新增 preset 级排异插件把它减掉，并把面板拆成分页。
   - 机制：`kinship-isolation` 在 kinship preset 作用域注册同名空段遮蔽 host 提示词段（默认 `memory:index`），并调用 `ctx.tools.restrict({deny})` 隐藏名字匹配前缀的 host 工具（默认 `memory_`）；`tools.restrict()` 会拒绝尚未注册的名字，所以工具限制在 `tools/change` 上增量同步，不依赖 profile bundle 加载顺序。限制沿作用域链下传到子智能体，兄弟 preset 与主机会话不受影响。
   - 面板：`kinship-bridge` 新增内存态排异报告（`reportIsolation` / `clearIsolation`，按实例 id 清除，HMR 新旧实例不互相覆盖），由 `/api/kinship/ui/state` 的 `isolation` 字段暴露；`kinship-ui` 改成「概览 / 排异 / 计划 / 接入 / 设置」五个 tab，排异页显示每个段/前缀的状态（已遮蔽、已限制 N 个、等待注册、未匹配）与错误。
