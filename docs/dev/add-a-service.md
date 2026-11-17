@@ -4,6 +4,8 @@
 
 先确认边界：编排器只托管由后端 spawn 的子进程。vLLM 推理服务、MOSS serve、外部 NapCat 等不归编排器管理，MOSS 只托管 watcher 子进程（`backend/services/orchestrator/moss_spec.py:4-13`）。有自己守护体系的服务也不要接进来，否则会出现双父进程。
 
+外部 harness（dsh）属于后一类，**不要为它写 spec**：dsh 是独立的 systemd 单元，后端只经 bridge HTTP（`services/dsh_client.py`）连它；反向的 Loom 由编排器托管，且 `loom` spec 的 `gate` 只在 `ai_backend` 归一后等于 `loom` 时放行（`backend/services/orchestrator/loom_spec.py:362-374`），所以 `ai_backend=dsh` 时 Loom 恒停 `blocked/disabled`。
+
 ## 1. 声明 ServiceSpec
 
 在 `backend/services/orchestrator/<id>_spec.py` 里声明一个 `ServiceSpec`。模型是不可变 dataclass，字段定义在 `backend/services/orchestrator/spec.py:29-55`。
@@ -11,11 +13,11 @@
 | 字段 | 必填 | 语义 | 现有样例 |
 | --- | --- | --- | --- |
 | `id` | 是 | 注册表主键，全进程唯一；重复注册抛 `ValueError`（`backend/services/orchestrator/spec.py:128-132`） | `kernel`、`moss_watcher`、`loom` |
-| `requires` | 是 | 必须存在且非空的配置键元组，点分路径。缺失、`None`、空串、空集合都归 `missing_config`；布尔假值归 `disabled`（`backend/services/orchestrator/spec.py:73-86`） | `("moss.enabled",)`（`backend/services/orchestrator/moss_spec.py:257-265`） |
-| `gate` | 是 | `Callable[[Config], tuple[bool, str]]` 或 `None`。只读配置快照，不做 IO、不探端口、不查文件；阻塞探测放进 `start`（`backend/services/orchestrator/spec.py:38-40`、`backend/services/orchestrator/spec.py:100-120`） | Loom 的 `ai_backend` 判定（`backend/services/orchestrator/loom_spec.py:320-331`） |
-| `start` | 是 | `async () -> dict`，至少返回 `pid`（int），可选 `process` 句柄。返回 `{"ok": False}`、无有效 pid 或抛异常都归 `spawn_failed`，不重试（`backend/services/orchestrator/runtime.py:24-31`、`backend/services/orchestrator/runtime.py:715-750`） | `backend/services/orchestrator/kernel_spec.py:28-39`、`backend/services/orchestrator/moss_spec.py:194-220`、`backend/services/orchestrator/loom_spec.py:203-289` |
-| `stop` | 是 | `async () -> dict`，按精确 pid 停止。先 SIGTERM，超时后 SIGKILL；Windows 走 `TerminateProcess`；禁止按名称杀（`backend/services/orchestrator/runtime.py:40-46`、`backend/services/orchestrator/runtime.py:927-1006`） | `backend/services/orchestrator/moss_spec.py:223-250`、`backend/services/orchestrator/loom_spec.py:292-317` |
-| `critical` | 是 | 关键服务标记。任一 `critical=True` 服务 ready 才恢复调度器派发；可选服务起落不影响结论（`backend/services/scheduler_gating.py:4-44`）。它不决定关停顺序 | 只有 kernel 为 `True`（`backend/services/orchestrator/kernel_spec.py:52-60`） |
+| `requires` | 是 | 必须存在且非空的配置键元组，点分路径。缺失、`None`、空串、空集合都归 `missing_config`；布尔假值归 `disabled`（`backend/services/orchestrator/spec.py:73-86`） | `("moss.enabled",)`（`backend/services/orchestrator/moss_spec.py:321-335`） |
+| `gate` | 是 | `Callable[[Config], tuple[bool, str]]` 或 `None`。只读配置快照，不做 IO、不探端口、不查文件；阻塞探测放进 `start`（`backend/services/orchestrator/spec.py:38-40`、`backend/services/orchestrator/spec.py:100-120`） | Loom 的 `ai_backend` 判定（`backend/services/orchestrator/loom_spec.py:362-374`） |
+| `start` | 是 | `async () -> dict`，至少返回 `pid`（int），可选 `process` 句柄。返回 `{"ok": False}`、无有效 pid 或抛异常都归 `spawn_failed`，不重试（`backend/services/orchestrator/runtime.py:24-31`、`backend/services/orchestrator/runtime.py:715-750`） | `backend/services/orchestrator/kernel_spec.py:31-43`、`backend/services/orchestrator/moss_spec.py:258-290`、`backend/services/orchestrator/loom_spec.py:236-333` |
+| `stop` | 是 | `async () -> dict`，按精确 pid 停止。先 SIGTERM，超时后 SIGKILL；Windows 走 `TerminateProcess`；禁止按名称杀（`backend/services/orchestrator/runtime.py:40-46`、`backend/services/orchestrator/runtime.py:927-1006`） | `backend/services/orchestrator/moss_spec.py:291-320`、`backend/services/orchestrator/loom_spec.py:334-361` |
+| `critical` | 是 | 关键服务标记。任一 `critical=True` 服务 ready 才恢复调度器派发；可选服务起落不影响结论（`backend/services/scheduler_gating.py:4-44`）。它不决定关停顺序 | 只有 kernel 为 `True`（`backend/services/orchestrator/kernel_spec.py:51-66` 的 `critical=True`） |
 | `restart` | 是 | 崩溃后是否允许自动重启。仅对 `ready` 之后崩溃生效；启动期失败永远不重试（`backend/services/orchestrator/runtime.py:817-834`、`backend/services/orchestrator/runtime.py:836-902`） | kernel、moss watcher、Loom 都为 `True` |
 | `enable_key` | 否 | 可选配置键。`None` 表示总是启用；设为键时该键为假则保持 `blocked/disabled`，供迁移期逐个接管与运维暂停 | 现有三个 spec 都为 `None` |
 
@@ -26,15 +28,15 @@
 
 ## 2. 注册进 REGISTRY
 
-不要在 `runtime.py` 里 import 具体 spec。注册只发生在 `backend/main.py` 的 `_register_orchestrator_specs()`（`backend/main.py:315-328`），运行时只读 `REGISTRY`（`backend/services/orchestrator/spec.py:125-147`）。
+不要在 `runtime.py` 里 import 具体 spec。注册只发生在 `backend/main.py` 的 `_register_orchestrator_specs()`（`backend/main.py:329-342`），运行时只读 `REGISTRY`（`backend/services/orchestrator/spec.py:125-147`）。
 
 推荐照现有模式写一个幂等的 `register_<id>_spec()`：
 
-1. 模块级单例 `_SPEC`，保证 `start` 与 `stop` 闭包对象等价（`backend/services/orchestrator/kernel_spec.py:48-61`、`backend/services/orchestrator/moss_spec.py:253-266`）。
-2. 已注册且声明等价时原样返回；同 id 但声明不同时抛 `ValueError`，不静默覆盖（`backend/services/orchestrator/kernel_spec.py:64-79`、`backend/services/orchestrator/loom_spec.py:349-358`）。
+1. 模块级单例 `_SPEC`，保证 `start` 与 `stop` 闭包对象等价（`backend/services/orchestrator/kernel_spec.py:51-65`、`backend/services/orchestrator/moss_spec.py:321-335`、`backend/services/orchestrator/loom_spec.py:376-389`）。
+2. 已注册且声明等价时原样返回；同 id 但声明不同时抛 `ValueError`，不静默覆盖（`backend/services/orchestrator/kernel_spec.py:67-79`、`backend/services/orchestrator/moss_spec.py:337-349`、`backend/services/orchestrator/loom_spec.py:391-403`）。
 3. 在 `_register_orchestrator_specs()` 里按依赖位次调用。
 
-注册顺序同时决定两件事：`/api/services` 的展示顺序，以及 `stop_all()` 的逆序关停顺序（`backend/main.py:315-328`、`backend/services/orchestrator/runtime.py:1215-1226`）。
+注册顺序同时决定两件事：`/api/services` 的展示顺序，以及 `stop_all()` 的逆序关停顺序（`backend/main.py:329-342`、`backend/services/orchestrator/runtime.py:1215-1226`）。
 
 当前顺序与关停顺序：
 
@@ -75,14 +77,14 @@
 
 第二层是跨进程或跨来源的实例。编排器只能保证自己不起第二个，不能阻止外部手工启动。若服务绑定固定端口或有 pidfile，`start` 必须先证明归属再 spawn：
 
-- 固定端口：先探测占用，占用时返回 `{"ok": False, "detail": "port_in_use: ..."}`，不 spawn。Loom 的实现见 `backend/services/orchestrator/loom_spec.py:220-226`。
-- pidfile：读到存活 pid 时复用或拒绝，不要盲目再 spawn。内核的 `ensure()` 与 `stale_kernel_detected` 分支见 `backend/services/orchestrator/kernel_spec.py:28-39`。
+- 固定端口：先探测占用，占用时返回 `{"ok": False, "detail": "port_in_use: ..."}`，不 spawn。Loom 的实现见 `backend/services/orchestrator/loom_spec.py:253-257`。
+- pidfile：读到存活 pid 时复用或拒绝，不要盲目再 spawn。内核的 `ensure()` 与 `stale_kernel_detected` 分支见 `backend/services/orchestrator/kernel_spec.py:1-17` 与 `:31-43`。
 
 断言写法：先手工起一个假实例占住端口或写一个存活 pidfile，再调 `orchestrator.start(id)`，断言返回状态不是 `ready`、spawn 计数为 0、原实例仍存活。清理时只按记录下来的精确 pid 终止。
 
 ## 6. 补关停位次
 
-`stop_all()` 按注册逆序逐个停止，总预算 15 秒；单个服务停止超时 15 秒；预算耗尽或停止动作超时后按精确 pid 补 SIGKILL（`backend/services/orchestrator/runtime.py:43-46`、`backend/services/orchestrator/runtime.py:72-76`、`backend/services/orchestrator/runtime.py:466-540`、`backend/services/orchestrator/runtime.py:927-955`）。后端关停时还会给内核预留 3 秒，编排器失败则退回 `kernel_client.stop_kernel_process()`（`backend/main.py:502-505`、`backend/main.py:584-640`）。
+`stop_all()` 按注册逆序逐个停止，总预算 15 秒；单个服务停止超时 15 秒；预算耗尽或停止动作超时后按精确 pid 补 SIGKILL（`backend/services/orchestrator/runtime.py:43-46`、`backend/services/orchestrator/runtime.py:72-76`、`backend/services/orchestrator/runtime.py:466-540`、`backend/services/orchestrator/runtime.py:927-955`）。后端关停时还会给内核预留 3 秒，编排器失败则退回 `kernel_client.stop_kernel_process()`（`backend/main.py:608-609` 的 `_SHUTDOWN_KERNEL_RESERVE_S`/`_KERNEL_STOP_FLOOR_S`、`backend/main.py:739-750` 的回退分支）。
 
 接入时要做的三件事：
 
@@ -94,7 +96,7 @@
 
 ## 7. 补真源矩阵一行
 
-在 `docs/README.md` 第六节“真源矩阵”加一行（当前在 `docs/README.md:92-105`）。格式：
+在 `docs/README.md` 第二节「单一真源」的表里加一行（当前在 `docs/README.md:78-90`）。格式：
 
 ```markdown
 | <服务名> 的启停条件与关停位次 | `../backend/services/orchestrator/<id>_spec.py` |
@@ -141,7 +143,7 @@ def register_demo_spec() -> ServiceSpec:
     return _SPEC
 ```
 
-骨架只用于验证接线与状态可见性。真实长驻服务必须经 `child_entry` 获得父死保护，命令形如 `python -m services.orchestrator.child_entry --target <exe> ...`（`backend/services/orchestrator/loom_spec.py:73-99`、`backend/services/orchestrator/moss_spec.py:123-133`）；`start` 还必须在事件循环线程内 await，禁止用 `asyncio.to_thread` 包装（`backend/services/orchestrator/child_entry.py:24-28`）。骨架的 `stop` 也只做 terminate，生产实现要补超时与 SIGKILL 兜底（`backend/services/orchestrator/moss_spec.py:223-250`）。
+骨架只用于验证接线与状态可见性。真实长驻服务必须经 `child_entry` 获得父死保护，命令形如 `python -m services.orchestrator.child_entry --target <exe> ...`（`backend/services/orchestrator/loom_spec.py:84-114`、`backend/services/orchestrator/moss_spec.py:125-155`）；`start` 还必须在事件循环线程内 await，禁止用 `asyncio.to_thread` 包装（`backend/services/orchestrator/child_entry.py:24-28`）。骨架的 `stop` 也只做 terminate，生产实现要补超时与 SIGKILL 兜底（`backend/services/orchestrator/moss_spec.py:291-320`）。
 
 ## 9. 自检清单
 
