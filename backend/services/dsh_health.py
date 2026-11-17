@@ -51,7 +51,7 @@ def _record(
     session_id: Optional[str],
     detail: Optional[str],
 ) -> None:
-    """刷缓存 + 状态跃迁日志；跃迁到 online 时顺带调度一次数据路径推送。"""
+    """刷缓存 + 状态跃迁日志；跃迁到 online 时顺带调度推送。"""
     global _last_status, _last_log_at
     now = time.time()
     _STATE.update(
@@ -73,11 +73,14 @@ def _record(
                 session_id or "unknown",
             )
             # 跃迁到 online（含首探 unknown->online 与离线恢复）：bridge 刚就位，
-            # 把数据路径推给计划调度器，排班器无需等下一次配置变更。dsh_paths
-            # 本地 import：dsh_client 依赖链不进入本模块 import 面（B5 纯度）。
+            # 把数据路径推给计划调度器、把后端地址 + service token 推给工具回调面，
+            # dsh 侧无需等下一次配置变更。两模块本地 import：dsh_client 依赖链不
+            # 进入本模块 import 面（B5 纯度）。
             from services.dsh_paths import schedule_push
+            from services.dsh_tool_auth import schedule_push as schedule_tool_auth_push
 
             schedule_push("health")
+            schedule_tool_auth_push("health")
         else:
             logger.warning("[DshHealth] offline: %s", detail or "unknown")
         _last_status = state

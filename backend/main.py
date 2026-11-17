@@ -591,6 +591,15 @@ async def _start_service_plane(
         schedule_push("boot")
     except Exception as e:
         logger.warning(f"[DshPaths] 启动推送调度失败（不影响启动）: {e}")
+    # 同一启动点上把后端回环地址 + 长期 service token 推给 dsh bridge 的工具
+    # 回调面（POST /v1/kinship/tool-auth）。尚无用户/无 service token 时推送侧
+    # 自带短路，不发 HTTP，也不会伪造凭据。
+    try:
+        from services.dsh_tool_auth import schedule_push as schedule_tool_auth_push
+
+        schedule_tool_auth_push("boot")
+    except Exception as e:
+        logger.warning(f"[DshToolAuth] 启动推送调度失败（不影响启动）: {e}")
     return report
 
 

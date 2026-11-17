@@ -2,6 +2,7 @@
 """
 认证 API 路由 — 登录/首次初始化/凭据修改/WS 票据
 """
+import logging
 import threading
 import time
 
@@ -23,6 +24,8 @@ from auth import (
     create_ws_ticket,
     verify_setup_token,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
 
@@ -192,6 +195,17 @@ async def setup(body: LoginRequest, request: Request):
     ok, msg, token = create_first_user(body.username, body.password)
     if not ok:
         return JSONResponse(status_code=400, content={"success": False, "message": msg})
+
+    # 首次初始化已同步创建长期 service token：立刻把后端回环地址 + token 推给
+    # dsh bridge 的工具回调面，保证新实例建号后 dsh 原生工具马上可用。dsh 未
+    # 启用/未运行时推送只会留 warning；调度方无运行循环时是 no-op，绝不影响
+    # 建号结果——本端点 async，可直接 fire-and-forget。
+    try:
+        from services.dsh_tool_auth import schedule_push
+
+        schedule_push("setup")
+    except Exception as e:  # pragma: no cover - 推送模块异常不应拖垮建号
+        logger.warning("服务 Token 推送调度失败（不影响初始化）: %s", e)
 
     username = body.username.strip()
     return LoginResponse(

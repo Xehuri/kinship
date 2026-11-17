@@ -43,6 +43,7 @@ class _Bridge:
         # 路径级原样覆盖：{path: (status, body)}，body 非 dict/list 时按纯文本回
         # （用于模拟非 200、非 JSON body 等降级面；默认空=按各自契约正常应答）
         self.overrides = {}
+        self.tool_auth = None
         self.compacts = 0
         self.compact_body = None
         self.compact_status = "accepted"
@@ -199,6 +200,10 @@ class _Bridge:
                 await response.write(f"data: {json.dumps(frame)}\n\n".encode())
             await response.write_eof()
             return response
+
+        if path == "/v1/kinship/tool-auth":
+            self.tool_auth = await request.json()
+            return web.json_response({"ok": True, "stored_at": 1794759000123})
 
         return web.json_response({"error": {"message": "not found"}}, status=404)
 
@@ -928,6 +933,46 @@ class TestFactoryAndSelector:
             assert asyncio.run(wbs.acquire_web_client()) is wbs.get_web_client()
         finally:
             _set_backend(old)
+
+
+class TestToolAuthPush:
+    """POST /v1/kinship/tool-auth：路径/10s 超时/Bearer 与 bridge 应答透传。"""
+
+    def test_wire_path_and_timeout(self, monkeypatch):
+        captured = {}
+        client = DshClient(base_url="http://dsh.test:18765")
+        payload = {"schema": 1, "base_url": "http://127.0.0.1:8768",
+                   "token": "svc-token", "source": "kinship-backend",
+                   "generated_at": 1794759000123}
+
+        async def _fake(method, path, *, params=None, json_body=None, timeout=None):
+            captured.update(method=method, path=path, json_body=json_body,
+                            total=timeout)
+            return 200, {"ok": True}, {}
+
+        monkeypatch.setattr(client, "_request", _fake)
+        status, body, headers = _run(client.push_tool_auth(payload))
+        assert (status, body, headers) == (200, {"ok": True}, {})
+        assert captured == {"method": "POST", "path": "/v1/kinship/tool-auth",
+                            "json_body": payload, "total": 10}
+
+    def test_bridge_round_trip_with_dsh_bearer(self, dsh_cfg, monkeypatch):
+        monkeypatch.setenv("DSH_TOKEN", "dsh-secret")
+        bridge = _Bridge()
+        payload = {"schema": 1, "base_url": "http://127.0.0.1:8768",
+                   "token": "svc-token", "source": "kinship-backend",
+                   "generated_at": 1794759000123}
+
+        async def scenario():
+            async with _serve(bridge) as url:
+                client = DshClient(base_url=url, timeout=5)
+                status, body, _ = await client.push_tool_auth(payload)
+                assert status == 200
+                assert body["ok"] is True
+                assert bridge.tool_auth == payload
+                assert bridge.auth_headers[-1] == "Bearer dsh-secret"
+
+        _run(scenario())
 
 
 class _FakeSender:

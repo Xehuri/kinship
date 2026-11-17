@@ -25,6 +25,9 @@ Bridge 契约（插件侧 127.0.0.1:18765；Bearer 取 config dsh.token > dsh.to
                                  plan_master,source,generated_at} -> 200 {ok,schema,
                                  ...,stored_at}（计划排班器定位数据根用；仅 dsh
                                  运维面，不参与三通道同构信封）
+    POST /v1/kinship/tool-auth   工具回调凭据推送 {schema,base_url,token,source,
+                                 generated_at} -> 200 {ok,...}（dsh 原生工具回调
+                                 后端用；token 仅存 bridge 内存，不落盘）
     POST /v1/inbox               （letter 投递，本客户端不实现，见下）
 
 单会话架构映射决策：
@@ -280,6 +283,22 @@ class DshClient:
         """
         return await self._request(
             "POST", "/v1/kinship/paths", json_body=payload, timeout=10,
+        )
+
+    async def push_tool_auth(
+        self, payload: Dict[str, Any]
+    ) -> Tuple[int, Any, Dict[str, str]]:
+        """POST /v1/kinship/tool-auth -> (status, 解析后 body, headers)。
+
+        把 Kinship 后端回环地址与长期 service token 推给 dsh bridge，供其原生
+        工具（通知/提醒板/TTS）回调后端；载荷构造与 token 缺失短路归
+        services.dsh_tool_auth，本方法只做传输，不做校验/重试/降级——调用方
+        （dsh_tool_auth.push_tool_auth）统一把非 200 与传输异常收成 ok=False。
+        10s 短超时：bridge 是本机 loopback，慢即不可用，不必占满
+        dsh.timeout_seconds 的 30s。
+        """
+        return await self._request(
+            "POST", "/v1/kinship/tool-auth", json_body=payload, timeout=10,
         )
 
     async def create_session(self, title: Optional[str] = None,
