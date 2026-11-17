@@ -37,7 +37,7 @@ Kinship spans three locations, not one monorepo:
 
 | Location | Contents | Distribution |
 | --- | --- | --- |
-| `kinship` (this repository) | Backend, Android app, frontend, desktop shell, Loom harness, docs, release assets | Public source tree |
+| `kinship` (this repository) | Backend, Android app, frontend, desktop shell, Loom harness, optional external harness adapters, docs, release assets | Public source tree |
 | `kinship-kernel` | Closed-source audio kernel source (`axeuh_kernel`) | Private; PolyForm Noncommercial 1.0.0 |
 | `kinship-data` | `config.yaml`, certificates, `backend/config/auth.json`, AI runtime data and uploads | Private; never committed |
 
@@ -152,6 +152,7 @@ graph TB
 | ------- | ---- | ----- |
 | Backend | `8768` | Public entry point (frpc maps the public `8768` to local `8768`); a single port serves HTTP and HTTPS (`ssl.enabled` decides the protocol); the Android app and the web UI connect here |
 | Loom assistant host | `127.0.0.1:5100` | Production assistant; a child of `axeuh-health` in this deployment (standalone `axeuh-loom.service` is disabled/optional) |
+| dsh Kinship bridge (optional) | `127.0.0.1:18765` | Loopback HTTP/SSE bridge used only when the optional dsh adapter is installed; dsh's own web port is chosen by that installation |
 | PC Sensor | `127.0.0.1:18888` | Local HTTP state collector (`desktop/pc-sensor/`); pushes idle/locked/foreground state to `/api/pc/sync` |
 | Local LLM (vLLM) | `127.0.0.1:8000` | Optional local model server (Qwen3.8-27B GPTQ-W4A16, TP=2); not required by the backend |
 | MOSS serve (vLLM) | `127.0.0.1:8100` | MOSS-Audio-4B fp8 on GPU 2 (3060 Ti); formalization in progress (seven steps done, 2-day regression + 7-day observation pending); loopback + `--max-num-seqs 1`; systemd `axeuh-moss` |
@@ -264,9 +265,10 @@ The AI subsystem is required, not optional. Production uses **Loom** at `127.0.0
 - **Three-layer workflow.** Script layer (`ai/analysis/fact_extractor.py`, `check_coverage.py`) -> sub-agent layer (`data_checker` / `reviewer`, prompts in `ai/agents/`) -> main agent layer (dispatch, verify, self-optimize).
 - **Scheduling.** Since 2026-10-28 06:45 the Loom master (`ai/data/plan/master.json`) + daily overlay + WakeQueue + PlanScheduler drive fixed-time work: coverage at 00:00 / 06:00 / 08:00 / 12:00 / 16:00 / 20:00 / 22:00; daily review at 00:40; weather at 07:00; compactor at 04:00; weekly summary Monday 03:00; bi-weekly review on the 1st and 15th at 18:30. The 05:00 plan and 07:30 review anchors run through `axeuh-loom-plan.timer` / `axeuh-loom-review.timer`; old fixed-time YAML tasks are disabled for rollback. MOSS/systemd and event-driven watchers stay external.
 - **Memory (A scheme).** The main session loads 6 resident files (~36.5 KB, down from ~190 KB); data-check/review roles receive 5 core files. `memory_write.py` / `memory_retrieve.py` / `memory_audit.py` / `memory_consolidate.py` handle writes, auxiliary retrieval (`grep` + `read` is primary), audits, and cleanup. Daily summary <=24 KB, batch index <=4 KB.
-- **MOSS sidecar (formalization in progress).** `tools/moss-shadow/` runs `axeuh-moss` (MOSS-Audio-4B fp8 on GPU 2 / 3060 Ti at `127.0.0.1:8100`, loopback, `--max-num-seqs 1`) and `axeuh-moss-watch`, writing `audio_deepdive.jsonl`; seven steps are done, with 2-day regression + 7-day observation pending. `fact_extractor` consumes only `silence`/`ambient` MOSS sublines; human/mixed/device rows remain audit-only. `perception.jsonl` and the main chain are untouched.
+- **MOSS sidecar (formalization in progress).** `tools/moss-shadow/` runs `axeuh-moss` (MOSS-Audio-4B fp8 on GPU 2 / 3060 Ti at `127.0.0.1:8100`, loopback, `--max-num-seqs 1`) and `axeuh-moss-watch`, writing `audio_deepdive.jsonl`; seven steps are done, with 2-day regression + 7-day observation pending. `fact_extractor` consumes only `silence`/`ambient` MOSS sublines; human/mixed/device rows remain audit-only. `perception.jsonl` and the main chain are untouched. Each instance can isolate its watcher data and state with `moss.data_root` / `moss.state_dir`.
 - **QQ gateway.** Optional single-WS gateway to NapCat with a SQLite inbox/outbox; IPC at `127.0.0.1:8770` for the `qq` CLI; qq-mcp is retired; `qq_gateway.enabled` defaults to `false` (enabled in this deployment).
 - **Loom features.** Interactive PTY (`pty_*`), converge auto-wake, simplified converge receipts, and ops+chat dual-perspective compaction.
+- **Optional dsh runtime.** `harness-plugins/` contains eight Cordis packages plus the `kinship` preset for a bring-your-own dsh install: a single-session bridge (HTTP + SSE), plan scheduling against the same master/overlay as Loom (paths pushed by the backend over the bridge), overlay write-back for `plan_note` / `plan_done`, a model-callable `compact_context`, native notification/reminder/TTS tools through the bridge's tool auth, preset-scoped isolation of host memory sections and tools, and a five-tab Kinship panel (overview / isolation / plan / access / settings) in the dsh sidebar. Loom remains the default; dsh is not plug-and-play and still needs a manual install, session binding and a token.
 
 Optional voice wake word and PC sensor are covered in [`docs/ops/INSTALL.md`](docs/ops/INSTALL.md). The full AI architecture, automation details, memory rules, MOSS/QQ behavior, and design principles live in [`docs/dev/AI_SYSTEM.md`](docs/dev/AI_SYSTEM.md).
 
@@ -301,6 +303,8 @@ See [desktop/README.md](desktop/README.md) for architecture, first-run setup, TL
 | [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) | AI architecture: Loom, tasks, memory, MOSS, QQ |
 | [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) | AI runtime choice: Loom (default), optional dsh, bring-your-own harness |
 | [docs/dev/adapter-contract.md](docs/dev/adapter-contract.md) | Adapter contract for external harnesses (backend boundary and the optional adapter UI convention) |
+| [harness-plugins/README.md](harness-plugins/README.md) | dsh adapter packages: install and sync, panel fields, bridge endpoints and configuration |
+| [docs/ops/dsh-production-rollout.md](docs/ops/dsh-production-rollout.md) | Taking dsh into production: preparation, restart, binding, switch-over and rollback |
 | [docs/dev/DATA_FORMAT.md](docs/dev/DATA_FORMAT.md) | Perception and health data format |
 | [docs/kernel-contract.md](docs/kernel-contract.md) | Closed-source audio kernel contract |
 | [docs/kernel/README.md](docs/kernel/README.md) | Kernel distribution, data boundary, models, runtime path, and licenses |

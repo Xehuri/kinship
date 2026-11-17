@@ -4,7 +4,7 @@
 
 **中文（默认）** | [English](README.en.md)
 
-> 状态：2026-10-30。中文是默认入口；英文 README 是摘要与镜像。完整文档见 `docs/`。
+> 状态：2026-11-17。中文是默认入口；英文 README 是摘要与镜像。完整文档见 `docs/`。
 
 自托管的 AI 个人数据助理。Android App 持续采集手机和手环传感器数据（心率、步数、GPS、环境音频、通知、屏幕状态等），上传到私有后端；Loom AI（默认，完整工作流）定时分析并生成理解、复盘、健康清单与通知。系统全部运行在你自己的服务器上。
 
@@ -97,8 +97,11 @@ FastAPI 后端 8768（HTTP/HTTPS 同端口）
 | `8100` | MOSS serve（转正执行中，loopback） |
 | `8790` | 音频工作台（素材试听/人耳标注） |
 | `8770` | QQ 网关 IPC（qq CLI） |
+| `18765` | dsh 适配 bridge（仅接入可选 dsh 运行时，loopback） |
 | `5173` | Vite 开发服务器 |
 | `127.0.0.1:<动态>` | 音频内核（实际端口见 pidfile） |
+
+dsh 的 Web 端口由该 dsh 实例自己决定（本机示例 `3080`），不是 Kinship 的固定端口。
 
 ## 快速启动
 
@@ -137,11 +140,11 @@ sudo systemctl enable --now kinship
 ## 核心能力
 
 - **Loom 助手（默认，完整工作流）**：`127.0.0.1:5100`，由 `axeuh-health` 托管为子进程（独立 `axeuh-loom.service` 停用，仅回滚）；`ai_backend: loom`。
-- **dsh 适配路径（可选）**：通过 `harness-plugins/` 接入自带 harness；需要自行安装、绑定 Kinship 会话并配置 token，不是开箱即用。安装后可在 dsh Web 左侧栏的 **Kinship** 面板查看桥接状态、显示/轮换 token、改桥接配置并绑定会话。Loom 仍是默认工作流。见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md)。
+- **dsh 适配路径（可选）**：`harness-plugins/` 提供 8 个插件包与 `kinship` preset，把已有的 dsh 接成 Kinship 运行时；需要自带 dsh、手动安装（`link:` 依赖或同步脚本）、绑定会话并配置 token，不是开箱即用。已覆盖：计划排班（与 Loom 读同一份母版/覆盖层，计划根由后端经 bridge 推送）、`plan_note` / `plan_done` 覆盖层写回、模型可调用的 `compact_context`、通知/提醒/TTS 原生工具（经 bridge tool-auth 直连后端），以及 preset 级排异（遮蔽 host 记忆提示词段、限制 `memory_*` 工具）。dsh Web 左侧栏的 **Kinship** 面板分「概览 / 排异 / 计划 / 接入 / 设置」五页。Loom 仍是默认工作流；见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) 与 [harness-plugins/README.md](harness-plugins/README.md)。
 - **三层工作流**：脚本层（`fact_extractor.py` / `check_coverage.py`）→ 子智能体层（data-check / reviewer）→ 主智能体层（派发、验收、自优化）。
 - **定时调度**：默认 7 个数据检查窗口（00/06/08/12/16/20/22），每日复盘 00:40，双周复盘 1/15 18:30，周报周一 03:00。
 - **记忆 A 方案**：主会话常驻 6 件（约 36.5 KB），批次/复盘 role 注入 5 件 core；`memory_write` / `memory_retrieve` / `memory_audit` / `memory_consolidate`；检索以 `grep` + `read` 为主。
-- **MOSS 旁路（转正执行中）**：`tools/moss-shadow/`，`axeuh-moss` + `axeuh-moss-watch`，输出 `audio_deepdive.jsonl`；七步已完成，待两日回归 + 七天观察；事实文件只消费 `静音`/`ambient`，human/mixed/device 留审计；`perception.jsonl` 与主链零改动。
+- **MOSS 旁路（转正执行中）**：`tools/moss-shadow/`，`axeuh-moss` + `axeuh-moss-watch`，输出 `audio_deepdive.jsonl`；七步已完成，待两日回归 + 七天观察；事实文件只消费 `静音`/`ambient`，human/mixed/device 留审计；`perception.jsonl` 与主链零改动。多实例部署可用 `moss.data_root` / `moss.state_dir` 隔离各自的 watcher 数据与状态。
 - **QQ 网关**：单 WS + SQLite inbox/outbox/read-state/water-state + qq CLI IPC `127.0.0.1:8770`；qq-mcp 已退役；群聊元数据提醒与水群模式；默认关闭，生产已启用。
 - **Loom 运行时**：交互式 PTY、flow 自动唤醒、回执简化、ops+chat 双视角压缩。
 
@@ -167,6 +170,8 @@ sudo systemctl enable --now kinship
 | [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) | AI 架构：Loom、任务、记忆、MOSS、QQ |
 | [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) | AI 运行时选择：Loom、dsh 与自带 harness |
 | [docs/dev/adapter-contract.md](docs/dev/adapter-contract.md) | AI 运行时适配器契约 |
+| [harness-plugins/README.md](harness-plugins/README.md) | dsh 适配包：安装与同步、面板字段、bridge 端点与配置 |
+| [docs/ops/dsh-production-rollout.md](docs/ops/dsh-production-rollout.md) | dsh 生产接入：准备、重启、绑定、切流与回滚 |
 | [docs/dev/DATA_FORMAT.md](docs/dev/DATA_FORMAT.md) | 感知与健康数据格式 |
 | [docs/kernel-contract.md](docs/kernel-contract.md) | 闭源音频内核契约 |
 | [docs/kernel/README.md](docs/kernel/README.md) | 内核分发、数据边界、模型、运行时路径与许可 |
