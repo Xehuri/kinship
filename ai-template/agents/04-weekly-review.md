@@ -1,9 +1,11 @@
 ---
 tags: [智能体, 周报总结, 工作流]
-memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, memory/profile/core-lite.md, memory/topics/INDEX.md, memory/profile/规律-摘要.md]
+memory: [agents/AGENTS-lite.md, memory/profile/state.md, memory/profile/core.md]
 ---
 
 # 04 周报总结子智能体
+
+> **Phase A 记忆协议**：规则见 `{AI目录}/memory/PROTOCOL.md`。04 是事后压缩者，不阻塞 02；读 `core/state`，按需读 `notes/` 与旧文件（只读）。新收割写 `ledger/`/`notes/`；旧 `纠错/认知/任务/semantic/topics` 只读，压缩需记录「删了什么、去哪」。
 
 ## 任务目标
 
@@ -125,7 +127,7 @@ timezone: Asia/Shanghai
 
 ### 步骤 0：读 self + 数据盘点（公共流程）
 
-见 `{AI目录}/agents/复盘-公共.md`「读取 self 与执行日志」「数据盘点与可用性清单」两节，按其执行（数据不足 30% 的警告口径同公共文件）。
+见 `{AI目录}/agents/复盘-公共.md`「读取 self」「数据盘点与可用性清单」两节，按其执行（数据不足 30% 的警告口径同公共文件）。
 
 ### 步骤 1：通读并提取跨日线索
 
@@ -327,7 +329,7 @@ timezone: Asia/Shanghai
 
 ### 步骤 3b：自主探索与学习
 
-见 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」，按其执行（探索所得只写 `{AI目录}/memory/self/认知.md` 草稿，不直接改 profile/）。
+见 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」，按其执行（探索所得只写 `{AI目录}/memory/notes/observations.md` 草稿，不直接改 profile/；旧 `self/认知.md` 只读）。
 
 ---
 
@@ -339,17 +341,27 @@ timezone: Asia/Shanghai
 
 | 类型 | 收割条件 | 写入位置 |
 |------|----------|----------|
-| 新地点 | 出现非 TOP 3 常驻地点的 GPS 坐标 | 追加到 `{AI目录}/memory/profile/semantic/常去地点.md` |
-| 新习惯 | 本周首次出现或持续的行为规律（真模式） | 追加到 `{AI目录}/memory/profile/semantic/行为规律.md`（只写可复用规律，逐日流水留在复盘） |
-| 新社交关系 | 新出现的人物名称或关系变化 | 追加到 `{AI目录}/memory/profile/semantic/people/{人物}.md`（泛人物按约定合并归档，证据不足的条目标注待确认） |
-| 健康基线变化 | 心率/睡眠基线与已有记忆显著偏离 | 追加到 `{AI目录}/memory/profile/semantic/健康基线.md`（家人健康归 people/ 对应人物档） |
-| 事项进展 | 项目/行程/任务有跨日节点 | 追加到 `{AI目录}/memory/profile/semantic/事项/{事项}.md` |
-| 经验教训 | 踩坑/成功经验（可复用） | 跨任务通用坑 → `{AI目录}/memory/self/纠错.md`；data-check 专属 → 更新 `{AI目录}/agents/规则-01-data-check.md` 新坑区 |
-| 认知证伪清理 | 认知.md 中连续 N 周未被引用/被推翻的条目 | 从 `{AI目录}/memory/self/认知.md` 标记已证伪或删除 |
+| 新地点 | 出现非 TOP 3 常驻地点的 GPS 坐标 | `{AI目录}/memory/notes/dossiers/常去地点.md`；稳定事实同步 `ledger/facts.md` |
+| 新习惯 | 本周首次出现或持续的行为规律（真模式） | `{AI目录}/memory/notes/observations.md`；稳定后升格 `ledger/rules.md` |
+| 新社交关系 | 新出现的人物名称或关系变化 | `{AI目录}/memory/notes/dossiers/people/{人物}.md`；稳定事实同步 `ledger/facts.md` |
+| 健康基线变化 | 心率/睡眠基线与已有记忆显著偏离 | `{AI目录}/memory/notes/dossiers/健康基线.md`；稳定事实同步 `ledger/facts.md` |
+| 事项进展 | 项目/行程/任务有跨日节点 | `{AI目录}/memory/notes/dossiers/事项/{事项}.md` |
+| 经验教训 | 踩坑/成功经验（可复用） | 规则进 `{AI目录}/memory/ledger/rules.md`，案例进 `notes/cases/`；data-check 专属更新 `{AI目录}/agents/规则-01-data-check.md` 新坑区 |
+| 认知证伪清理 | `notes/observations.md` 中连续 N 周未被引用/被推翻的条目 | 标 `refuted`/`archived`，不直接删；旧 `认知.md` 只读 |
 
-> 周报收割同时执行**证伪清理**：检查 `{AI目录}/memory/self/认知.md`、`{AI目录}/memory/self/纠错.md` 中失效条目，按需标记/删除。
+> Phase A：旧 `self/纠错.md`、`self/认知.md`、`self/任务.md`、`self/价值校准.md`、`self/关系.md`、`profile/semantic/`、`topics/` 已冻结；上表是新写入路径。旧文件压缩只做 archive/合并记录，不再追加。
 
 **注意**：这不是 02 每日复盘的记忆收割，只收割跨日的新信息。已在每日复盘中收割过的内容不要重复收割。
+
+### 步骤 4a：压缩（Phase A）
+
+> 预算与归属见 `{AI目录}/memory/PROTOCOL.md`。Phase A 先压缩 notes/legacy，不改 active rule。
+
+1. **observations**：`notes/observations.md` 按确认/证伪/过期三分；已证伪标 `refuted`/`archived`，已确认升格 `ledger/facts.md` 或 `rules.md`；不直接删原文。
+2. **cases**：`notes/cases/` 同族合并，每条保留「一句判据 + 一条来源」；长案例留 notes/git/archive。
+3. **tasks**：`self/active-tasks.md` 只留未完成 + 到期；已完成压一行或归档；旧 `任务.md` 只读。
+4. **legacy**：旧 `纠错/认知/任务` 可按周压缩/归档，必须先 `git status`、备份，附「删了什么、去哪」；不把旧内容抄回新 ledger。
+5. **无可压 → NOOP**；不允许「只追加不压缩」。压缩后 `stat -c%s` 复核，仍未达标就在报告里登记，不静默。
 
 ### 步骤 4b：旧索引（已弃用，不执行）
 
@@ -371,6 +383,8 @@ stratum add claim-relation --from-claim OBS-W-{start_date}-01 --to-claim OBS-D-{
   该命令生成新的日层 draft claim，并自动写 `supersedes`；随后允许 04 单条 promote 这个替换日 claim，旧日 claim 自动变 `superseded`。
 - 不要用 `revise` 改变 claim 的层级或 claim_id；不要批量修改日结论。
 - 旧 `build_relations.py` 已归档，禁止调用，也不要新建 card 关系。
+
+**周层关系配额（硬性）**：每周**至少 3 条** `derived_from`（`OBS-W-{start_date}-NN` → 本周日内对应 `OBS/FND-D`），少于 3 条须在运维段写明原因。周观测必须真的由日层结论派生，不许把同一个日 claim 连三次充数。
 
 ### 步骤 5：写周报
 
@@ -490,7 +504,9 @@ timezone: Asia/Shanghai
 - [ ] 每条至少一条原始 `evidence`，没有用 `derived_from` 替代证据
 - [ ] 没有按天罗列事件，没有原样复制日 claim 的 body
 - [ ] 情绪、作息、社交背景写在 `## 叙事`，没有挤进 claim
-- [ ] 步骤 3b 自主探索已完成（按 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」执行；洞察候选写入 `{AI目录}/memory/self/认知.md`）
+- [ ] 步骤 3b 自主探索已完成（按 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」执行；洞察候选写入 `{AI目录}/memory/notes/observations.md`）
+- [ ] 步骤 4a 压缩已完成（notes/observations + cases + active-tasks + legacy 各一次；附「删了什么」清单；或明确 NOOP）
+- [ ] 步骤 4a 预算已核（notes 热数据 ≤200KB、active-tasks ≤3KB、ledger 合计 ≤60KB；未达标已在报告登记）
 - [ ] 总评已写进 `## 叙事`（用自己的语言评价一周，一两段即可）
 
 ### 置信度检查
@@ -520,10 +536,12 @@ timezone: Asia/Shanghai
 - [ ] 核心结论有数据支撑
 - [ ] **没有假设出行目的**：不要因为用户在某地过了生日就推断去某地是为了过生日。出行目的数据不足时需标注未知
 
-## 写执行日志（记忆体系强制）
-
-见 `{AI目录}/agents/复盘-公共.md`「写执行日志」（本任务标签 `[04周报]`）。
-
 ## 提交 git 与转达
 
 见 `{AI目录}/agents/复盘-公共.md`「提交 git 与转达」，按其执行（本任务提交：周报 + 本次收割/修正的记忆文件；对外内容写进最终回答末尾的 ## 转达 段，不直接发 App 通知或 QQ）。
+
+## 纪律补充
+
+- **不回填行为约束**：用户删掉的行为类规矩不许写回记忆；只收「日期＋来源＋可核事实＋系统口径」。
+- **必答一句**：用户当前主线事项各往其目标/截止节点推进了没有；没有就明写没推进。
+- **对外时点**：周报／双周的结论与文件路径一律先写进 `## 转达`，由主会话决定是否发、怎么发；日复盘不主动发。

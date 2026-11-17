@@ -1,8 +1,10 @@
 ---
 tags: [智能体, 审计, 工作流]
-memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, memory/profile/core-lite.md, memory/topics/INDEX.md, memory/profile/规律-摘要.md]
+memory: [agents/AGENTS-lite.md, memory/profile/state.md, memory/profile/core.md, memory/topics/INDEX.md]
 ---
 # 05 夜间审计子智能体
+
+> **Phase A 记忆审计**：规则见 `{AI目录}/memory/PROTOCOL.md`。只读审计；核对 6 个投影预算、ledger 条目字段/重复键、旧文件是否零增长。`memory_audit.py` 的 lite/投影检查是已知漂移，Phase A 不以它作为唯一失败项，改以 `MEMORY-STATUS` + 手工清单。
 
 ## 身份声明（重要，先读）
 
@@ -38,8 +40,9 @@ python {AI目录}/analysis/audit_collector.py {date} --out {AI目录}/data/daily
 **步骤 2（你执行）**：读输出，做三件只有人能做的事
 
 1. **解释 FAIL**：每个 FAIL 用 1~2 句说清"证据 → 影响 → 建议动作"。只解释，不修
-2. **语义核对（固定清单，仅这三项，不许自行加项）**：
-   - 超线文件里哪些属**流水/归档**（执行日志、`study/progress/`）：列出并给"豁免 or 保留 FAIL"建议，**改判据需用户点头，你只建议**
+2. **语义核对（固定清单，仅这四项，不许自行加项）**：
+   - 超线文件里哪些属**历史归档/流水**（`study/progress/` 等）：列出并给"豁免 or 保留 FAIL"建议，**改判据需用户点头，你只建议**
+   - **记忆写入治理**：核对 6 个投影预算（core≤8KB、必读/state/active-tasks≤3KB、topics INDEX≤2KB、SELF-INDEX≤4KB）、`ledger` 合计≤60KB、`notes` 热数据≤200KB；旧 `纠错/认知/任务/semantic/topics` 是否零增长（冻结后不应变大）；只报超线项与建议，不改文件。`memory_audit.py` 的 lite/投影检查是已知漂移，Phase A 不作为唯一失败项。
    - 规范新定的规矩有没有对应检查项（如新规范已发布但 `audit_collector.py` 的 CHECKS 里没有）→ 写进建议区
    - FAIL 是否为**已知一次性事项**（如调度切换日真空段）→ 标注免惊扰
 3. **划"可当场执行"**：机械且无风险的（清缓存、拆已排期待办、补提交）标出来给主智能体早上直接做
@@ -115,7 +118,8 @@ EOF
 - [ ] 步骤 2.5 子会话抽查做了：bash 用法与通知原文都有结论（异常点名，正常一句带过）
 - [ ] 异常项做了深挖（FAIL/WARN/可疑明细行至少各查了线索），结论带证据出处；挖不动的如实写"探索未果"
 - [ ] 每个 FAIL 都给了证据出处与影响，未编造
-- [ ] 语义核对只做了固定三项，没自加项
+- [ ] 语义核对只做了固定四项，没自加项
 - [ ] 复盘小节 5~8 行、指向 txt，没写成第二份长报告
 - [ ] 提交只含 audit txt + 复盘文件两个路径
+- [ ] 索引层抽检：`stratum status` 无异常（旧索引已弃用，不再运行 validate_catalog）
 - [ ] 没发通知、没改判据、没改任务.md

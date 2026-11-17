@@ -1,12 +1,14 @@
 ---
 tags: [智能体, 深度回顾, 双周, 工作流]
-memory: [agents/AGENTS-lite.md, memory/self/必读.md, memory/profile/state.md, memory/profile/core-lite.md, memory/topics/INDEX.md, memory/profile/规律-摘要.md]
+memory: [agents/AGENTS-lite.md, memory/profile/state.md, memory/profile/core.md, memory/topics/INDEX.md]
 ---
 # 03 双周深度回顾子智能体
 
 ## 任务目标
 
 基于过去 14 天（两个完整周，周一起算）的周观测和复盘报告，进行跨周机制分析。目标是提出 3~7 条 pattern 或 hypothesis，解释重复出现的条件与结果，而不是复述单日或单周事件。
+
+> **Phase A 记忆协议**：规则见 `{AI目录}/memory/PROTOCOL.md`。03 是事后审阅者，不阻塞 02 日更；读 `core/state/topics-INDEX`，需要时读旧 `semantic/`（只读）与 `notes/dossiers/`。新观察写 `notes/observations.md`；升格/去重写 `ledger/facts.md`/`rules.md`；旧 `纠错/认知/任务/价值校准/关系/semantic/topics` 只读，不再追加。
 
 ## 核心原则
 
@@ -143,7 +145,7 @@ stratum review promote HYP-B-{start_date}-01 --author main --reason "hypothesis 
 
 ### 步骤 0：读 self + 数据盘点（公共流程）
 
-见 `{AI目录}/agents/复盘-公共.md`「读取 self 与执行日志」「数据盘点与可用性清单」两节，按其执行（数据不足 30% 的警告口径同公共文件）。
+见 `{AI目录}/agents/复盘-公共.md`「读取 self」「数据盘点与可用性清单」两节，按其执行（数据不足 30% 的警告口径同公共文件）。
 
 ### 步骤 1：通读所有文件并建立时间线
 
@@ -421,17 +423,18 @@ stratum review promote HYP-B-{start_date}-01 --author main --reason "hypothesis 
 
 ### 步骤 2b：自主探索与学习
 
-见 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」，按其执行（探索所得只写 `{AI目录}/memory/self/认知.md` 草稿，不直接改 profile/）。
+见 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」，按其执行（探索所得只写 `{AI目录}/memory/notes/observations.md` 草稿，不直接改 profile/；旧 `self/认知.md` 只读）。
 
 ### 步骤 2c：记忆深掘与画像深度修正（03 专属，每期必做）
 
-双周回顾是 **profile 深度修正** 的责任方。在分析完成后执行正式收割（此步骤是 03 唯一可直接改写 profile 的环节）：
+双周回顾是**长期记忆深度修正**的责任方。在分析完成后执行正式收割（此步骤是 03 唯一可直接改写 ledger / notes 与 state 当前态的环节）：
 
-> 写入协议统一见 `{AI目录}/agents/公共-操作规范.md` §3（ADD/UPDATE/NOOP，先 `grep -rn` 查重）；本步骤只保留深掘对象与 profile 目标。
+> 写入协议统一见 `{AI目录}/agents/公共-操作规范.md` §3（ADD/UPDATE/NOOP，先 `grep -rn` 查重）；本步骤只保留深掘对象与目标文件。
 
-1. **深掘对象**：本期跨日成立的稳定事实/属性（人物关系、常去地点、行为规律、健康基线、事项主线）、被证伪或需升级的既有条目，以及 02 逐日收割沉淀在 `{AI目录}/memory/self/认知.md` 中等待升格的观察条目
-2. **写入 profile**：确认稳定的增量按三态决策（ADD/UPDATE/NOOP，先 `grep -rn` 查重）写入 `{AI目录}/memory/profile/semantic/`（people/、事项/、属性四文件）与 `{AI目录}/memory/profile/state.md`（整文件覆盖，不追加日期快照；同步重写 `date` 与 `当前日期`）；与 02 相同，画像条目写"浓缩真值 + `[MM-DD]` + → [[复盘-YYYY-MM-DD]] 指针"，不复制证据链
-3. **自洽约束**：本步骤可正式改写 profile；自主探索（步骤 2b）仍**只写 `{AI目录}/memory/self/认知.md` 草稿，不得直接改 profile**，两者不得混淆
+1. **深掘对象**：本期跨日成立的稳定事实/属性（人物关系、常去地点、行为规律、健康基线、事项主线）、被证伪或需升级的既有条目，以及 02 逐日收割沉淀在 `{AI目录}/memory/notes/observations.md` 中等待升格的观察条目；旧 `self/认知.md` 只读。
+2. **写入**：确认稳定的增量按三态决策（ADD/UPDATE/NOOP，先 `grep -rn` 查重）写入 `{AI目录}/memory/ledger/facts.md`（稳定事实）+ `{AI目录}/memory/notes/dossiers/`（长尾/编年史）；`{AI目录}/memory/profile/state.md` 只做当前态覆盖（不追加日期快照）。旧 `profile/semantic/` 只读，不再追加；与 02 相同，画像条目写"浓缩真值 + `[MM-DD]` + → [[复盘-YYYY-MM-DD]] 指针"，不复制证据链。
+3. **自洽约束**：本步骤可正式改写 ledger/dossiers；自主探索（步骤 2b）仍**只写 `{AI目录}/memory/notes/observations.md` 草稿，不得直接改 ledger/profile**，两者不得混淆。
+4. **预算与新鲜度（Phase A）**：预算见 `{AI目录}/memory/PROTOCOL.md` §5。03 负责 `notes/dossiers/` 的深掘/过期归档；旧 `profile/semantic/` 只读，可按需压缩/归档但必须记录「删了什么、去哪」。每期核对 `notes/dossiers/**/*.md` 的新鲜度；`core.md` ≤8KB、`state.md` ≤3KB，写前写后 `stat -c%s` 核对，禁止净增长；未达目标但未增长 → 允许并登记。
 
 ### 步骤 2d：旧索引（已弃用，不执行）
 
@@ -448,6 +451,8 @@ stratum add claim-relation --from-claim PAT-B-{start_date}-01 --to-claim OBS-W-{
 - 双周 B 只能派生自周 W；不得跨双周周期。源 B 已 active 时，目标 W 也必须 active；源 draft/stale 时，目标可在 promotion 前仍是 draft。
 - 03 不执行 review/promote；新建的关系随 B claim 保持 draft，等待 main/human 转正。
 - 需要修正周观测时，用 `stratum revise claim --claim-id OBS-W-{start_date}-01 --body "修正后的结论" --author 03-biweekly-review --reason "双周核对后修正"`；生成的新周 claim 仍需 main/human 转正，03 不得自行 promote。
+
+**双周关系配额（硬性）**：每个双周**至少 5 条** `derived_from`（`PAT-B`／`HYP-B` → 本周期内的 `OBS-W`），且必须覆盖至少 2 个不同周；少于 5 条须在运维段写明原因。不许把同一条周 claim 连多次充数。
 
 ### 步骤 3：系统改进建议
 
@@ -574,8 +579,9 @@ timezone: Asia/Shanghai
 - [ ] 位置分析：GPS 坐标已聚合聚类，而非逐点罗列
 - [ ] 数据质量：每个日期有明确的数据完整性评分，至少3个系统缺陷有根因分析
 - [ ] 学习行为：学习量、科目偏好、工具使用频次已量化统计
-- [ ] 步骤 2b 自主探索已完成（按 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」执行；洞察候选写入 `{AI目录}/memory/self/认知.md`）
-- [ ] 步骤 2c 记忆深掘已完成（profile 已按三态协议收割）
+- [ ] 步骤 2b 自主探索已完成（按 `{AI目录}/agents/复盘-公共.md`「自主探索与学习」执行；洞察候选写入 `{AI目录}/memory/notes/observations.md`）
+- [ ] 步骤 2c 记忆深掘已完成（ledger / notes 已按三态协议收割）
+- [ ] 步骤 2c 预算/新鲜度已核（dossiers 7 天内更新占比 ≥80%；core ≤8KB、state ≤3KB；未更新文件已登记 NOOP 原因）
 
 ### 交叉验证检查
 
@@ -639,10 +645,6 @@ timezone: Asia/Shanghai
 
 **数据支撑**：用户几乎所有时间都在播放音乐。  ← 这是常识，不是洞察
 ```
-
-## 写执行日志（记忆体系强制）
-
-见 `{AI目录}/agents/复盘-公共.md`「写执行日志」（本任务标签 `[03双周]`）。
 
 ## 提交 git 与转达
 
