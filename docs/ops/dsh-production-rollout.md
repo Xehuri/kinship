@@ -212,7 +212,7 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
 `kinship-plan-scheduler` 把 Loom 的计划调度器搬进 dsh，读生产已经在用的
 `plan/master.json` 与当日 `plan-{date}.overlay.json`，按锚点对账，把唤醒写成
 绑定会话里的普通用户消息。设计与全部差异见
-`harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md`（仓库内路径；该目录当前不随公开树导出）。
+[harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)。
 
 ### 8.1 步骤
 
@@ -571,10 +571,10 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18765/v1/health
 
 ## 12. 相关文件
 
-- `harness-plugins/README.md`：插件、面板 API、测试（以下 `harness-plugins/**` 均为仓库内路径，该目录当前不随公开树导出）
-- `harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md`：计划调度器设计、配置表与移植差异
-- `harness-plugins/packages/kinship-plan/docs/DETAIL.md`：日计划工具与覆盖层写回（`plan_note` / `plan_done` / `plan_overlay_read`）
-- `harness-plugins/packages/kinship-compact/docs/DETAIL.md`：`compact_context` 工具、延迟触发与配置
+- [harness-plugins/README.md](../../harness-plugins/README.md)：插件、面板 API、测试
+- [harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)：计划调度器设计、配置表与移植差异
+- [harness-plugins/packages/kinship-plan/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan/docs/DETAIL.md)：日计划工具与覆盖层写回（`plan_note` / `plan_done` / `plan_overlay_read`）
+- [harness-plugins/packages/kinship-compact/docs/DETAIL.md](../../harness-plugins/packages/kinship-compact/docs/DETAIL.md)：`compact_context` 工具、延迟触发与配置
 - [docs/dev/ai-runtimes.md](../dev/ai-runtimes.md)：运行时定位与能力对比
 - [docs/dev/adapter-contract.md](../dev/adapter-contract.md)：适配器契约与适配器 UI 约定
 - [docs/ops/CONFIGURATION.md](CONFIGURATION.md)：`ai_backend` / `dsh.*` 配置键

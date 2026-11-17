@@ -1,6 +1,6 @@
 # Kinship AI 运行时适配器契约
 
-> 状态：稳定后端侧边界（2026-11-15）。`harness-plugins/packages/kinship-bridge/src/server.ts` 是 dsh 的参考实现（该目录当前不随公开树导出，公开读者按契约自行实现）。其他 harness 可以实现同一契约，也可以提供一个等价的适配层。dsh 只是一个实现，不是唯一答案。
+> 状态：稳定后端侧边界（2026-11-15）。[`kinship-bridge`](../../harness-plugins/packages/kinship-bridge/src/server.ts) 是 dsh 的参考实现（随公开树发布）。其他 harness 可以实现同一契约，也可以提供一个等价的适配层。dsh 只是一个实现，不是唯一答案。
 
 ## 1. 范围
 

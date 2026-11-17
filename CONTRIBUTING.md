@@ -73,7 +73,7 @@ docs: 更新 README 中的 API 文档
 
 ## 项目结构
 
-完整目录树与子系统地图见 [docs/dev/PROJECT_MAP.md](docs/dev/PROJECT_MAP.md)。公开树包含 `backend/`、`app/`、`frontend/mobile/`、`desktop/`、`loom-harness/`、`ai-template/`、`tools/`、`scripts/`、`docs/`；`kernel/`、`ai/`、`tools/moss-shadow/` 是私有或闭源组件，不在公开树中。`harness-plugins/` 是仓库内维护的可选外部 harness 适配层，当前不在 `tools/kinship_export/allowlist.toml` 的导出白名单内，因此不随公开树发布（是否纳入待决策）。
+完整目录树与子系统地图见 [docs/dev/PROJECT_MAP.md](docs/dev/PROJECT_MAP.md)。公开树包含 `backend/`、`app/`、`frontend/mobile/`、`desktop/`、`loom-harness/`、`ai-template/`、`tools/`、`scripts/`、`docs/`；`kernel/`、`ai/`、`tools/moss-shadow/` 是私有或闭源组件，不在公开树中。`harness-plugins/` 是可选外部 harness 适配层，已纳入 `tools/kinship_export/allowlist.toml` 随公开树发布（2026-11-17）；`tools/docs-check/` 与 `tools/check_stratum_*.py` 同理。`.github/` 的 CI 工作流目前不导出。
 
 ## 文档改动
 

@@ -323,7 +323,7 @@ npm run preview
 4. 静态产物按请求读取，仅前端变更无需重启后端；后端代码/路由变更仍需重启
 5. Android WebView 加载 URL: `https://<host>:<port>/mobile/`
 
-当前生产产物（2026-11-15 17:44 CST 构建，`dist/index.html` 实测引用）：`assets/index-BuOPVKKc.js` / `assets/index-CDruPafZ.css`；旧产物备份 `frontend/mobile/dist-backup-20261115-174416`。历史 2026-10-25 20:06 产物 `assets/index-ClJhwC_O.js` / `assets/index-MFa6qXpn.css`（设置路由 `SettingsView-BnO4yrGQ.js` / `SettingsView-Bx6sYfGe.css`），备份 `dist-backup-20261025-200603`；部署记录见 [../../docs/frontend-settings-redesign-2026-10-25.md](../../docs/frontend-settings-redesign-2026-10-25.md)。承载域名按部署实例而定，本文不写具体主机。
+当前生产产物（2026-11-15 17:44 CST 构建，`dist/index.html` 实测引用）：`assets/index-BuOPVKKc.js` / `assets/index-CDruPafZ.css`；旧产物备份 `frontend/mobile/dist-backup-20261115-174416`。历史 2026-10-25 20:06 产物 `assets/index-ClJhwC_O.js` / `assets/index-MFa6qXpn.css`（设置路由 `SettingsView-BnO4yrGQ.js` / `SettingsView-Bx6sYfGe.css`），备份 `dist-backup-20261025-200603`；部署记录在私有归档 `docs/archive/frontend/frontend-settings-redesign-2026-10-25.md`（不随公开树发布）。承载域名按部署实例而定，本文不写具体主机。
 
 > **注意**：每次更新前端代码后需重新构建并原子替换 `dist/`，否则 Android App 加载的仍是旧构建产物。仅前端变更无需重启后端；后端代码或路由变更仍需重启。
 

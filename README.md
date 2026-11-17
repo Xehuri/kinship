@@ -45,7 +45,7 @@ Kinship 分为三个位置，不是单一仓库：
 
 | 位置 | 内容 | 分发方式 |
 | --- | --- | --- |
-| `kinship`（本仓库） | 后端、Android App、前端、桌面端、Loom harness、文档、发行资产；可选外部 harness 适配（`harness-plugins/`）仍在仓库内维护，但暂不在导出白名单 | 公开源码树 |
+| `kinship`（本仓库） | 后端、Android App、前端、桌面端、Loom harness、文档、发行资产；可选外部 harness 适配（`harness-plugins/`）随公开树发布（2026-11-17 起） | 公开源码树 |
 | `kinship-kernel` | 闭源音频内核源码（`axeuh_kernel`） | 私有；PolyForm Noncommercial 1.0.0 |
 | `kinship-data` | `config.yaml`、证书、`backend/config/auth.json`、AI 运行时数据与上传文件 | 私有；不入 git |
 
@@ -141,7 +141,7 @@ sudo systemctl enable --now kinship
 ## 核心能力
 
 - **Loom 助手（默认，完整工作流）**：`127.0.0.1:5100`，由 `axeuh-health` 托管为子进程（独立 `axeuh-loom.service` 停用，仅回滚）；`ai_backend: loom`。
-- **dsh 适配路径（可选）**：`harness-plugins/` 提供 8 个插件包与 `kinship` preset，把已有的 dsh 接成 Kinship 运行时；需要自带 dsh、手动安装（`link:` 依赖或同步脚本）、绑定会话并配置 token，不是开箱即用。已覆盖：计划排班（与 Loom 读同一份母版/覆盖层，计划根由后端经 bridge 推送）、`plan_note` / `plan_done` 覆盖层写回、模型可调用的 `compact_context`、通知/提醒/TTS 原生工具（经 bridge tool-auth 直连后端），以及 preset 级排异（遮蔽 host 记忆提示词段、限制 `memory_*` 工具）。dsh Web 左侧栏的 **Kinship** 面板分「概览 / 排异 / 计划 / 接入 / 设置」五页。本机生产实例当前使用 dsh（`/health` 报 dsh online、Loom 单元停用）；模板默认仍是 Loom，见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) 与 `harness-plugins/README.md`（该目录当前不在公开导出白名单）。
+- **dsh 适配路径（可选）**：`harness-plugins/` 提供 8 个插件包与 `kinship` preset，把已有的 dsh 接成 Kinship 运行时；需要自带 dsh、手动安装（`link:` 依赖或同步脚本）、绑定会话并配置 token，不是开箱即用。已覆盖：计划排班（与 Loom 读同一份母版/覆盖层，计划根由后端经 bridge 推送）、`plan_note` / `plan_done` 覆盖层写回、模型可调用的 `compact_context`、通知/提醒/TTS 原生工具（经 bridge tool-auth 直连后端），以及 preset 级排异（遮蔽 host 记忆提示词段、限制 `memory_*` 工具）。dsh Web 左侧栏的 **Kinship** 面板分「概览 / 排异 / 计划 / 接入 / 设置」五页。本机生产实例当前使用 dsh（`/health` 报 dsh online、Loom 单元停用）；模板默认仍是 Loom，见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) 与 [harness-plugins/README.md](harness-plugins/README.md)。
 - **三层工作流**：脚本层（`fact_extractor.py` / `check_coverage.py`）→ 子智能体层（data-check / reviewer）→ 主智能体层（派发、验收、自优化）。
 - **定时调度**：默认 7 个数据检查窗口（00/06/08/12/16/20/22），每日复盘 00:40，双周复盘 1/15 18:30，周报周一 03:00。
 - **记忆协议（Phase A）**：证据 → `ledger/`（facts / rules / open）与 `notes/`（观察 / 案例 / 人格 / 判断 / 长尾 / 提案）→ 投影。主会话注入 6 件投影（必读、身份、state、core、topics INDEX、active-tasks），只写 `notes/proposals` 等提案；02 日复盘是唯一日更写入者，旧 A 方案文件冻结只读，`memory_finalize.py` 做收尾门。

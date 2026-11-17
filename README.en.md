@@ -41,7 +41,7 @@ Kinship spans three locations, not one monorepo:
 | `kinship-kernel` | Closed-source audio kernel source (`axeuh_kernel`) | Private; PolyForm Noncommercial 1.0.0 |
 | `kinship-data` | `config.yaml`, certificates, `backend/config/auth.json`, AI runtime data and uploads | Private; never committed |
 
-The public tree excludes the AI runtime directory (default `ai/`), the `kernel/` source, `tools/moss-shadow/`, and the CircuitJS1 runtime. AI instances are created from `ai-template/` at the configured AI root (`data.ai_root`; default `<project>/ai`, private example `kinship-data/ai`); the kernel is installed as a prebuilt release asset at `<project>/kernel`; `tools/moss-shadow/` is private; CircuitJS1 is fetched from the separate [kinship-circuitjs](https://github.com/Xehuri/kinship-circuitjs) repository at dev/build time. `harness-plugins/` is maintained in this repository as the optional external harness adapter, but it is not currently part of the `tools/kinship_export/allowlist.toml` export allowlist, so it is not published with the public tree; whether to include it is still pending a decision.
+The public tree excludes the AI runtime directory (default `ai/`), the `kernel/` source, `tools/moss-shadow/`, and the CircuitJS1 runtime. AI instances are created from `ai-template/` at the configured AI root (`data.ai_root`; default `<project>/ai`, private example `kinship-data/ai`); the kernel is installed as a prebuilt release asset at `<project>/kernel`; `tools/moss-shadow/` is private; CircuitJS1 is fetched from the separate [kinship-circuitjs](https://github.com/Xehuri/kinship-circuitjs) repository at dev/build time. `harness-plugins/` is maintained in this repository as the optional external harness adapter and, since 2026-11-17, it is part of the public export allowlist, so it ships with the public tree. What stays private: the AI runtime directory, the kernel source and weights, `tools/moss-shadow/`, and the CircuitJS1 runtime.
 
 At runtime the backend expects:
 
@@ -298,7 +298,7 @@ See [desktop/README.md](desktop/README.md) for architecture, first-run setup, TL
 | [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) | AI architecture: Loom, tasks, memory, MOSS, QQ |
 | [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) | AI runtime choice: Loom (default), optional dsh, bring-your-own harness |
 | [docs/dev/adapter-contract.md](docs/dev/adapter-contract.md) | Adapter contract for external harnesses (backend boundary and the optional adapter UI convention) |
-| `harness-plugins/README.md` (in-repo, not exported to the public tree yet) | dsh adapter packages: install and sync, panel fields, bridge endpoints and configuration |
+| [`harness-plugins/README.md`](harness-plugins/README.md) | dsh adapter packages: install and sync, panel fields, bridge endpoints and configuration |
 | [docs/ops/dsh-production-rollout.md](docs/ops/dsh-production-rollout.md) | Taking dsh into production: preparation, restart, binding, switch-over and rollback |
 | [docs/dev/DATA_FORMAT.md](docs/dev/DATA_FORMAT.md) | Perception and health data format |
 | [docs/kernel-contract.md](docs/kernel-contract.md) | Closed-source audio kernel contract |
