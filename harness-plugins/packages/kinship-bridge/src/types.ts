@@ -6,6 +6,7 @@
  */
 
 import type { PushedPaths, StoredPaths } from './paths.js'
+import type { PushedToolAuth, ToolAuthView } from './tool-auth.js'
 
 /** How the bridge chooses its single bound Session. */
 export type BindingPolicy = 'first' | 'manual'
@@ -230,6 +231,16 @@ export interface BridgeServerOptions {
   readonly paths?: () => StoredPaths | null
   /** Persist one validated push and return the durable record. */
   readonly savePaths?: (input: PushedPaths) => StoredPaths
+  /**
+   * Current tool-auth projection, or null before the backend pushes it.
+   *
+   * Optional for the same reason as `paths`: transport tests and compositions
+   * without the memory store answer the unconfigured view instead of pretending
+   * a backend was ever pushed.
+   */
+  readonly toolAuth?: () => ToolAuthView | null
+  /** Remember one validated tool-auth push and return its token-free view. */
+  readonly saveToolAuth?: (input: PushedToolAuth) => ToolAuthView
 }
 
 /** Running bridge server handle. */

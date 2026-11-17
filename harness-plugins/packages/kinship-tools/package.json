@@ -1,0 +1,30 @@
+{
+  "name": "kinship-tools",
+  "version": "0.1.0",
+  "description": "Native Kinship notification, reminder-board and TTS tools for the dsh preset, backed by the sibling kinship-bridge service.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
+  "engines": {
+    "dsh": ">=0.2.2-rc.1 <0.2.3"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.19.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.1 <0.2.3",
+    "@deepseek-ai/dsh-util-values": ">=0.2.2-rc.1 <0.2.3"
+  }
+}

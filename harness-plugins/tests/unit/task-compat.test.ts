@@ -245,4 +245,32 @@ describe('todo and MCP aliases', () => {
     registration.dispose()
     expect(tools.registered).toHaveLength(0)
   })
+
+  it('prefers the native kinship-tools names over the MCP fallbacks', () => {
+    const { ctx, tools } = fakeContext()
+    tools.definitions.set('ai-mcp_send_notification', definition('ai-mcp_send_notification'))
+    tools.definitions.set('ai-mcp_send_reminder', definition('ai-mcp_send_reminder'))
+    tools.definitions.set('ai-mcp_list_reminders', definition('ai-mcp_list_reminders'))
+    tools.definitions.set('tts_speak', definition('tts_speak'))
+    // A leftover ai_mcp server must not win over the native tools.
+    tools.definitions.set('mcp__ai_mcp__send_notification', definition('mcp__ai_mcp__send_notification'))
+
+    const registration = registerMcpAliases(ctx, DEFAULT_MCP_ALIASES)
+
+    const byName = new Map(tools.registered.map(item => [item.name, item]))
+    for (const alias of [
+      'mcp_ai_mcp_send_notification',
+      'mcp_ai_mcp_send_reminder',
+      'mcp_ai_mcp_list_reminders',
+      'mcp_ai_mcp_tts_speak',
+    ]) {
+      expect(byName.has(alias), alias).toBe(true)
+    }
+    expect(byName.get('mcp_ai_mcp_send_notification')?.description)
+      .toContain('Alias of dsh MCP tool ai-mcp_send_notification')
+    expect(byName.get('mcp_ai_mcp_tts_speak')?.description)
+      .toContain('Alias of dsh MCP tool tts_speak')
+    expect(registration.missing()).not.toContain('mcp_ai_mcp_send_reminder')
+    registration.dispose()
+  })
 })

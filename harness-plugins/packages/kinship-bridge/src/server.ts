@@ -17,6 +17,12 @@ import { lastTurnAt, projectMessages } from './messages.js'
 import { PathsValidationError, parsePushedPaths } from './paths.js'
 import type { PushedPaths } from './paths.js'
 import { ensureBoundSession } from './rehydrate.js'
+import {
+  TOOL_AUTH_SCHEMA,
+  ToolAuthValidationError,
+  parsePushedToolAuth,
+} from './tool-auth.js'
+import type { PushedToolAuth } from './tool-auth.js'
 import type {
   BridgeEvent,
   BridgeLogger,
@@ -126,6 +132,26 @@ async function readPathsPush(
   } catch (error) {
     if (error instanceof BridgeError && error.code === 'invalid_body') {
       throw new PathsValidationError(error.message)
+    }
+    throw error
+  }
+}
+
+/**
+ * Read and validate one pushed tool-auth document.
+ *
+ * Same error mapping as the paths push: malformed JSON stays 400 `invalid_json`,
+ * and a body that is not a JSON object becomes the contract's 400 `bad_request`.
+ */
+async function readToolAuthPush(
+  request: IncomingMessage,
+  limit: number,
+): Promise<PushedToolAuth> {
+  try {
+    return parsePushedToolAuth(await readJsonObject(request, limit))
+  } catch (error) {
+    if (error instanceof BridgeError && error.code === 'invalid_body') {
+      throw new ToolAuthValidationError(error.message)
     }
     throw error
   }
@@ -558,6 +584,37 @@ export async function startBridgeServer(options: BridgeServerOptions): Promise<B
         }
         const stored = savePaths(await readPathsPush(request, options.bodyLimitBytes))
         sendJson(response, 200, { ok: true, ...stored })
+        return
+      }
+      response.setHeader('allow', 'GET, POST')
+      sendJson(response, 405, { error: 'method_not_allowed' })
+      return
+    }
+
+    if (path === '/v1/kinship/tool-auth') {
+      if (request.method === 'GET') {
+        // The route always answers, so a sibling tool can tell "not pushed yet"
+        // apart from "this bridge has no store": both mean unconfigured.
+        const view = options.toolAuth?.() ?? null
+        sendJson(response, 200, view ?? {
+          ok: true,
+          schema: TOOL_AUTH_SCHEMA,
+          configured: false,
+          base_url: null,
+          at: null,
+        })
+        return
+      }
+      if (request.method === 'POST') {
+        const saveToolAuth = options.saveToolAuth
+        if (saveToolAuth === undefined) {
+          throw new BridgeError(
+            503,
+            'tool_auth_store_unavailable',
+            'This bridge composition has no in-memory tool-auth store.',
+          )
+        }
+        sendJson(response, 200, saveToolAuth(await readToolAuthPush(request, options.bodyLimitBytes)))
         return
       }
       response.setHeader('allow', 'GET, POST')

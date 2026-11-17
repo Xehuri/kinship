@@ -33,9 +33,19 @@ import { PathsStore, defaultPathsPath } from './paths.js'
 import type { PushedPaths, StoredPaths } from './paths.js'
 import { ensureBoundSession } from './rehydrate.js'
 import { startBridgeServer } from './server.js'
+import { ToolAuthClient, ToolAuthStore } from './tool-auth.js'
+import type { PushedToolAuth, ToolAuthStatus, ToolAuthView, ToolResult } from './tool-auth.js'
 import { installUiRoutes, UiError } from './ui.js'
 import type { UiConfigView, UiTokenInfo } from './ui.js'
 import type { BindingPolicy, BindingSnapshot, BridgeServerHandle } from './types.js'
+
+export type {
+  PushedToolAuth,
+  ToolAuthStatus,
+  ToolAuthView,
+  ToolResult,
+} from './tool-auth.js'
+export { TOOL_AUTH_SCHEMA, ToolAuthClient, ToolAuthStore } from './tool-auth.js'
 
 /** Parsed plugin configuration. */
 export interface Config {
@@ -89,6 +99,24 @@ export interface KinshipBridgeService {
    * that must wake the agent (for example the plan scheduler).
    */
   deliver(text: string): Promise<{ readonly sessionId: string; readonly messageId: string }>
+  /**
+   * Tool credentials pushed by the Kinship backend, or the unconfigured
+   * projection before the first push. Never contains the service token.
+   */
+  toolAuth(): ToolAuthStatus
+  /** `POST /api/notification/send` on the pushed backend. */
+  notify(input: { readonly title: string; readonly content: string }): Promise<ToolResult>
+  /** `POST /api/reminders` on the pushed backend (whole-board overwrite). */
+  remind(input: { readonly text: string }): Promise<ToolResult>
+  /** `GET /api/reminders` on the pushed backend. */
+  listReminders(): Promise<ToolResult>
+  /** `POST /api/screen/tts/speak` on the pushed backend. */
+  tts(input: {
+    readonly text: string
+    readonly voice?: string
+    readonly style?: string
+    readonly user_id?: string
+  }): Promise<ToolResult>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -102,6 +130,11 @@ declare module '@deepseek-ai/cordis' {
      * plugins react instead of polling the route.
      */
     'kinship/paths'(paths: PushedPaths | null): void
+    /**
+     * A tool-auth push was accepted and replaced the in-memory credentials.
+     * The payload carries no token, so a listener can log it as-is.
+     */
+    'kinship/tool-auth'(status: ToolAuthStatus): void
   }
 }
 
@@ -314,6 +347,41 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
   let tokenState = resolveToken(ctx, config)
   const dshVersion = resolveDshVersion()
+
+  /**
+   * Tool credentials the backend pushed. They live in memory only, so a harness
+   * restart drops them and the next push restores the tools; the client below
+   * reads the store lazily on every call instead of caching a snapshot.
+   */
+  const toolAuth = new ToolAuthStore()
+  const toolClient = new ToolAuthClient({ auth: () => toolAuth.current() })
+
+  /**
+   * Accept one tool-auth push, then announce it.
+   *
+   * Only the token-free projection is logged and emitted: the token stays inside
+   * the store and the HTTP client.
+   */
+  const saveToolAuth = (input: PushedToolAuth): ToolAuthView => {
+    const stored = toolAuth.configure(input)
+    const status = toolAuth.status()
+    ctx.logger.info(
+      'kinship-bridge: stored kinship tool auth from %s (base_url=%s, at=%s)',
+      stored.source,
+      stored.base_url,
+      String(stored.generated_at),
+    )
+    try {
+      ctx.emit('kinship/tool-auth', status)
+    } catch (error) {
+      ctx.logger.warn(
+        'kinship-bridge: kinship/tool-auth listener failed: %s',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+    return toolAuth.view()
+  }
+
   const server: BridgeServerHandle = await startBridgeServer({
     host,
     binding,
@@ -326,6 +394,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     logger: ctx.logger,
     paths: () => paths.current(),
     savePaths,
+    toolAuth: () => toolAuth.view(),
+    saveToolAuth,
   })
 
   ctx.effect(() => () => server.close(), 'kinship-bridge server')
@@ -360,6 +430,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       )
       return { sessionId: bound.session.info().id, messageId }
     },
+    toolAuth: () => toolAuth.status(),
+    notify: input => toolClient.notify(input),
+    remind: input => toolClient.remind(input),
+    listReminders: () => toolClient.listReminders(),
+    tts: input => toolClient.tts(input),
   }), 'kinship-bridge service')
 
   // Announce the replayed document once the service can answer for it, so a

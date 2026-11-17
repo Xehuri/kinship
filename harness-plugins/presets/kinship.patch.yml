@@ -87,3 +87,5 @@
             name: 'kinship-task-compat'
             config:
               provider: spawn
+          - id: kinship-tools
+            name: 'kinship-tools'

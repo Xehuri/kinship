@@ -23,6 +23,7 @@ harness-plugins/
     kinship-plan/           # daily plan JSON/md/ledger + CAS，v1 不可服务时写当日覆盖层
     kinship-plan-scheduler/ # Loom 计划调度器的 dsh 移植：母版/覆盖层 + 唤醒队列
     kinship-compact/        # compact_context：模型可调用的手动压缩（回合结束后执行）
+    kinship-tools/          # 手机通知 / 提醒板 / TTS 原生工具（经 bridge 直连后端）
     kinship-task-compat/    # task / todowrite / MCP aliases
   tests/
     unit/
@@ -42,7 +43,7 @@ export PATH=/mnt/d/tools/node-v24.22.3-linux-x64/bin:$PATH
 cd harness-plugins
 npm install
 npm run link:dsh   # 把安装机的 @deepseek-ai/* 链到本 workspace node_modules
-npm run verify     # typecheck + build + tests（316 个用例，28 个文件）
+npm run verify     # typecheck + build + tests（364 个用例，30 个文件）
 ```
 
 `link:dsh` 默认读取
@@ -50,7 +51,7 @@ npm run verify     # typecheck + build + tests（316 个用例，28 个文件）
 可用 `DSH_PACKAGES_DIR` 覆盖。它只写本 workspace 的 `node_modules`，不碰任何
 DSH_HOME。
 
-集成测试会创建临时 `DSH_HOME`，复制六个包和 bundle patch，运行
+集成测试会创建临时 `DSH_HOME`，复制七个包和 bundle patch，运行
 `dsh --profile kinship-test --dump-config`；测试结束删除临时目录。生产
 `dsh-home`、systemd、正在运行的 dsh 都不会被访问。
 
@@ -83,10 +84,11 @@ DSH_HOME=/path/to/dsh-home dsh plugin --profile web add \
   "link:$REPO/packages/kinship-plan" \
   "link:$REPO/packages/kinship-plan-scheduler" \
   "link:$REPO/packages/kinship-compact" \
+  "link:$REPO/packages/kinship-tools" \
   "link:$REPO/packages/kinship-task-compat"
 ```
 
-六个插件包会提示 `declares no dsh.bundle … plain dependency`，属正常（bundle 在
+七个插件包会提示 `declares no dsh.bundle … plain dependency`，属正常（bundle 在
 `dsh.profile.bundles`，插件包只是普通依赖）。事故细节、判据与恢复步骤见
 [docs/ops/dsh-production-rollout.md](../docs/ops/dsh-production-rollout.md) 第 9 节。如果继续使用
 `sync-profile.sh`，必须把“装/升级/移除任何插件后重新同步并重启 dsh”写进操作流程。
@@ -170,6 +172,10 @@ token 或请求体。
 | POST | `/v1/session/compact` | 空 body | 202 `{accepted, session_id, status:"compacting"}`；409 `compaction_busy`；500 `compaction_unavailable` |
 | GET | `/v1/session/compaction` | - | `{session_id, status:"none"\|"active", covered_count, summary_text, anchor_message_id, anchor_timestamp_ms}` |
 | POST | `/v1/inbox` | `{class, text, thread_id?}` | 202 `{accepted, id, class, target, session_id}` |
+| GET | `/v1/kinship/paths` | - | 上次接受的路径文档（含 `stored_at`）；未推送过为 404 |
+| POST | `/v1/kinship/paths` | 路径文档（见「Root」） | 200 `{ok, ...文档, stored_at}`；非法为 400 `bad_request` |
+| GET | `/v1/kinship/tool-auth` | - | `{ok:true, schema:1, configured, base_url, at}`，永不含 token |
+| POST | `/v1/kinship/tool-auth` | `{schema:1, base_url, token, source, generated_at}` | 200 同 GET；schema/host 不合法为 400 `bad_request` |
 
 `POST /v1/session/messages` 等价于
 `agent.send(createUserMessage(...), "next-turn", true)`。
@@ -264,6 +270,31 @@ data: {"seq":12.001,"payload":{"type":"kinship/assistant-stream",
 - `seq` 是**小数**：`最近 durable seq + n/(n+1000)`，单调递增且严格落在两条 durable
   事件之间。客户端若只用它排序/去重可直接使用；不要把它当分页游标。
 - 没有 live 流的宿主可不实现 `subscribeLive`，服务端就只转发 durable 事件。
+
+## 工具授权（tool-auth）
+
+手机通知、提醒板和 TTS 以前是独立 MCP 进程（`ai-template/mcp/ai_mcp.py`）自己读写
+`config.yaml` + `backend/config/auth.json` 来找到后端。在 dsh 上改由后端推送一次：
+
+`POST /v1/kinship/tool-auth`（Bearer 同 bridge 其它路由）body：
+
+```json
+{"schema":1,"base_url":"https://127.0.0.1:8768","token":"<service token>","source":"kinship-backend","generated_at":1794759000000}
+```
+
+- 校验：`schema` 必须 1；`base_url` 必须 `http(s)` 且主机名只能是 `127.0.0.1` /
+  `localhost`（推的是明文 token，不能发到任意外部主机）；`token`/`source` 非空；
+  `generated_at` 为非负整数。任一不合法 → 400 `bad_request`。
+- 桥只把 `{baseUrl, token, at}` 放内存，**不落盘**：`$DSH_HOME` 里没有凭据副本，
+  重启后等下一次推送（后端启动/上线时各推一次）。
+- `GET` 同路径返回 `{ok:true, schema:1, configured, base_url, at}`，**绝不含 token**；
+  推过之后桥向兄弟插件发 `kinship/tool-auth` 事件（payload 同样无 token）。
+- 客户端：`base_url` 是 `https` 时跳过证书校验（主实例自签证书），`http` 直接请求；
+  单次请求 30s 超时；后端非 2xx / 非 JSON / 连接失败都收成 `ok:false` + 简短
+  error，error 里不会出现 token（内联回显也会被替换成 `[redacted]`）。
+
+请求路径：`POST /api/notification/send`、`POST /api/reminders`、`GET /api/reminders`、
+`POST /api/screen/tts/speak`（`send_audio:true`）。
 
 ## 手动压缩
 
@@ -591,14 +622,37 @@ mcp__<serverName>__<rawName>
 
 | Loom prompt 名 | dsh 目标名（默认） | 备用 |
 |---|---|---|
-| `mcp_ai_mcp_tts_speak` | `mcp__ai_mcp__tts_speak` | `mcp__ai-mcp__tts_speak` |
-| `mcp_ai_mcp_send_notification` | `mcp__ai_mcp__send_notification` | `mcp__ai-mcp__send_notification` |
+| `mcp_ai_mcp_tts_speak` | `tts_speak`（`kinship-tools` 原生工具） | `mcp__ai_mcp__tts_speak` |
+| `mcp_ai_mcp_send_notification` | `ai-mcp_send_notification`（原生） | `mcp__ai_mcp__send_notification` |
+| `mcp_ai_mcp_send_reminder` | `ai-mcp_send_reminder`（原生） | `mcp__ai_mcp__send_reminder` |
+| `mcp_ai_mcp_list_reminders` | `ai-mcp_list_reminders`（原生） | `mcp__ai_mcp__list_reminders` |
 | `mcp_search_web_search` | `mcp__search__web_search` | `mcp__search-mcp__web_search` |
 
 目标定义可见时注册同 execute 的 alias；MCP 晚连接时 `tools/change` 会补注册。
 目标不可见时只记录一次 info 日志，列出期望的 dsh 名字，不静默接受未知工具。
 如果实际 MCP server 名导致 dsh 追加 hash 后缀，需要把
 `kinship-task-compat.config.mcpAliases` 的 target 改成实际公开名。
+
+## kinship-tools
+
+preset 级的四个原生工具，替代 `ai_mcp` MCP 进程：`inject = ['tools','kinshipBridge']`，
+只在 `kinship` preset 作用域注册，全部经 `kinshipBridge` 服务走 bridge 内存凭据访问后端。
+
+| 工具 | 参数 | 行为 |
+|---|---|---|
+| `ai-mcp_send_notification` | `{title, content, response_format?}` | `POST /api/notification/send`；成功 `通知已发送: <title>` |
+| `ai-mcp_send_reminder` | `{text, response_format?}` | 整块覆盖提醒板；`text` 去首尾空白后 ≤ 2000 字符（配置 `maxReminderChars`）；空串=清空；成功 `提醒板已更新（<时刻>）` / `提醒板已清空` |
+| `ai-mcp_list_reminders` | `{response_format?}` | 读提醒板全文，围栏代码块原样包裹 + `updated_at` |
+| `tts_speak` | `{text, voice?, style?, user_id?, response_format?}` | `POST /api/screen/tts/speak`（`send_audio:true`，`voice` 默认 `mimo_default`）；成功回 `TTS语音已成功发送: "<前 50 字预览>"` |
+
+- 返回文案与错误句（401/403/404/429/500/连接失败/超时）镜像 `ai_mcp.py` 的对应工具；
+  `response_format: "json"` 时返回后端原始信封的 JSON 字符串。
+- 桥未挂载、或后端还没推 `tool-auth` 时返回清晰的中文错误文本，**不抛异常**；
+  工具失败也只体现在 `ok:false` + 文本里。
+- 输入校验在工具内做：空白 `title`/`content`/`text` 直接拒绝，提醒板超长在调用后端前
+  就返回失败原因。
+- 别名：Loom prompt 里的 `mcp_ai_mcp_*` 名字由 `kinship-task-compat` 映射到这四个
+  原生名（fallback 保留旧的 `mcp__ai_mcp__*`，MCP server 还在时仍可用）。
 
 ## kinship preset
 
@@ -611,13 +665,15 @@ mcp__<serverName>__<rawName>
   subagent/subagent_fork/subagent_control、compaction 组（`compaction-basic`、
   `command-compact`、`compact-context`（= `kinship-compact` 的 `compact_context`）、
   `tool-result-pruner`；该组 `isolate` 了 `compaction` 与 `toolResultPruner`，
-  所以工具拿到的是本会话自己的压缩服务）、`kinship-plan`、`kinship-task-compat`
+  所以工具拿到的是本会话自己的压缩服务）、`kinship-plan`、`kinship-task-compat`、
+  `kinship-tools`（手机通知/提醒板/TTS 四个原生工具，见
+  [kinship-tools](#kinship-tools)）
 - 不挂 `kinship-memory`、`kinship-context-watch`、`kinship-qq`
 
 现有 shipped presets（standard=1、ptc=2、minimal=3、cordis=4）不变。
 
 profile 使用方式：profile 的 `dsh.profile.bundles` 加
-`kinship-harness-plugins`，并让 bundle 引用的六个包在 profile 的 `node_modules`
+`kinship-harness-plugins`，并让 bundle 引用的七个包在 profile 的 `node_modules`
 可解析（`scripts/sync-profile.sh` 会一次拷全）。`--dump-config` 会显示 host 的
 `kinship-bridge`、`kinship-ui`、`kinship-plan-scheduler` 三行和 `preset-kinship` 行
 （preset 展开后含 `compaction-basic` / `command-compact` / `compact-context` /
@@ -665,3 +721,11 @@ profile 使用方式：profile 的 `dsh.profile.bundles` 加
 - 路径由 Kinship 后端推送这一点同样只影响计划调度：bridge 新增
   `POST/GET /v1/kinship/paths`（落 `$DSH_HOME/kinship/paths.json`），后端在启动/
   data_paths/ai_surface/health 上线四个时机推一次；其它行不依赖它。
+- `kinship-tools` 的工具授权同样靠后端推送（`POST /v1/kinship/tool-auth`，内存态不
+  落盘），所以后端没起或还没推时这四个工具只回错误文本，不影响会话其它能力。
+- 连字符工具名（`ai-mcp_send_notification` 等）已在真实 dsh `0.2.2-rc.3` 的工具
+  注册表里验证：`register` 接受、`definitions()` / `schemas()` 原样返回；未跑真实
+  模型回合，模型提供方按 OpenAI 兼容的 `[A-Za-z0-9_-]{1,64}` 规则接受（dsh 自己的
+  MCP 公开名也是按 `[A-Za-z0-9_-]` 归一化，同一字符集）。
+- `ai_mcp` MCP 进程在 dsh 侧已不需要；退场由后端/部署侧决定，`kinship-task-compat`
+  的 fallback 名字保留，MCP server 还在时仍能被调用。

@@ -21,9 +21,10 @@ the profile with four cooperating pieces:
   shows live bridge state, edits the bridge configuration through the same
   authenticated channel the GUI uses, and carries the **Plan schedule** card.
 
-`kinship-plan`, `kinship-compact` and `kinship-task-compat` carry the planning
-store, the model-callable compaction tool and the Loom compatibility tools the
-preset exposes to the model.
+`kinship-plan`, `kinship-compact`, `kinship-tools` and `kinship-task-compat` carry
+the planning store, the model-callable compaction tool, the notification /
+reminder-board / TTS tools and the Loom compatibility tools the preset exposes to
+the model.
 
 ## Use
 
@@ -75,6 +76,28 @@ master file (through the plan card's edits), its own scheduler state under
 - Edits ride the owner-only `/api/kinship/ui/plan*` routes and are versioned: a
   stale `expectedVersion` is refused with `master_conflict` instead of
   overwriting another writer.
+
+## Notifications, reminders and TTS
+
+These three features used to be one MCP server (`ai-template/mcp/ai_mcp.py`) that
+read the backend address and a service token off the filesystem. On dsh they are
+native preset tools (`kinship-tools`: `ai-mcp_send_notification`,
+`ai-mcp_send_reminder`, `ai-mcp_list_reminders`, `tts_speak`) that call the
+sibling `kinshipBridge` service instead of an extra process.
+
+The backend owns its own listen address and token, so it pushes both once to
+`POST /v1/kinship/tool-auth` (bearer = the bridge token). The bridge validates the
+document (schema 1, `http(s)` on `127.0.0.1`/`localhost` only), keeps
+`{baseUrl, token, at}` in memory - nothing is written to `$DSH_HOME` - and emits
+`kinship/tool-auth` without the token. `GET` on the same path answers
+`{ok, schema, configured, base_url, at}` and never the token.
+
+The client skips certificate verification for `https` (the main instance serves a
+self-signed certificate on loopback), uses plain `http` otherwise, times out after
+30 s, and folds every failure (non-2xx, non-JSON, connection error) into
+`ok:false` with a short message whose token occurrences are redacted. With no
+push yet the tools answer a readable text instead of throwing, so a session whose
+backend is down still works.
 
 ## Compaction
 

@@ -41,6 +41,7 @@ describe('kinship preset patch', () => {
       'tool-result-pruner',
       'kinship-plan',
       'kinship-task-compat',
+      'kinship-tools',
     ]) {
       expect(source).toContain(`id: ${id}`)
     }
@@ -63,6 +64,10 @@ describe('kinship preset patch', () => {
   it('orders todo before the compatibility alias and plan before compat', () => {
     expect(source.indexOf('id: tool-todo')).toBeLessThan(source.indexOf('id: kinship-task-compat'))
     expect(source.indexOf('id: kinship-plan')).toBeLessThan(source.indexOf('id: kinship-task-compat'))
+  })
+
+  it('mounts the native tools after the compatibility aliases', () => {
+    expect(source.indexOf('id: kinship-tools')).toBeGreaterThan(source.indexOf('id: kinship-task-compat'))
   })
 
   it('evaluates the persona expression against KINSHIP_AI_ROOT', () => {

@@ -82,6 +82,7 @@ export function installTempProfile(): TempProfile {
   copyPackage(nodeModules, 'kinship-task-compat', join(REPO_ROOT, 'packages/kinship-task-compat'))
   copyPackage(nodeModules, 'kinship-plan-scheduler', join(REPO_ROOT, 'packages/kinship-plan-scheduler'))
   copyPackage(nodeModules, 'kinship-compact', join(REPO_ROOT, 'packages/kinship-compact'))
+  copyPackage(nodeModules, 'kinship-tools', join(REPO_ROOT, 'packages/kinship-tools'))
   copyPlainPackage(nodeModules, 'kinship-ui', join(REPO_ROOT, 'packages/kinship-ui'), ['package.json', 'index.js', 'client.js'])
 
   const bundle = join(nodeModules, 'kinship-harness-plugins')

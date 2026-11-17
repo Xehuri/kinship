@@ -20,17 +20,29 @@ export interface McpAlias {
   readonly fallbackTargets: string[]
 }
 
-/** Loom name -> dsh public MCP name mappings for the prompts currently shipped. */
+/** Loom name -> dsh public name mappings for the prompts currently shipped. */
 export const DEFAULT_MCP_ALIASES: readonly McpAlias[] = [
   {
+    // The native kinship-tools package serves TTS; the MCP server name stays a
+    // fallback so a deployment that still runs ai_mcp keeps working.
     alias: 'mcp_ai_mcp_tts_speak',
-    target: 'mcp__ai_mcp__tts_speak',
-    fallbackTargets: ['mcp__ai-mcp__tts_speak'],
+    target: 'tts_speak',
+    fallbackTargets: ['mcp__ai_mcp__tts_speak'],
   },
   {
     alias: 'mcp_ai_mcp_send_notification',
-    target: 'mcp__ai_mcp__send_notification',
-    fallbackTargets: ['mcp__ai-mcp__send_notification'],
+    target: 'ai-mcp_send_notification',
+    fallbackTargets: ['mcp__ai_mcp__send_notification'],
+  },
+  {
+    alias: 'mcp_ai_mcp_send_reminder',
+    target: 'ai-mcp_send_reminder',
+    fallbackTargets: ['mcp__ai_mcp__send_reminder'],
+  },
+  {
+    alias: 'mcp_ai_mcp_list_reminders',
+    target: 'ai-mcp_list_reminders',
+    fallbackTargets: ['mcp__ai_mcp__list_reminders'],
   },
   {
     alias: 'mcp_search_web_search',

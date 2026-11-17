@@ -81,6 +81,7 @@ describe('kinship preset in a real dsh Web composition', () => {
       'tool-result-pruner',
       'kinship-plan',
       'kinship-task-compat',
+      'kinship-tools',
     ]) {
       expect(preset).toContain(`id: ${id}`)
     }
