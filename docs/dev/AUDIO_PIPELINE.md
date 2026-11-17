@@ -47,7 +47,7 @@ Fixed-length cutting splits one sentence across two files, so the multipart uplo
 - Streamed audio is archived under `stream/{date}/audio/` (outside `daily/`); uploaded audio under `daily/{date}/audio/`.
 - `audio.stream.persist_perception` (default `false`) forces streamed audio back into `perception.jsonl` for debugging/rollback only.
 
-### MOSS depth-audio bypass (observation period, 1.6.0+)
+### MOSS depth-audio bypass (optional sidecar, off by default, 1.6.0+)
 
 MOSS is a **sidecar**, not part of the ambient-audio main chain. A watcher subscribes to chunk files already written under `daily/{date}/audio/`, sends them to an out-of-process vLLM MOSS-Audio model, and appends one JSON object per line to `daily/{date}/audio_deepdive.jsonl` (plus a merged view written by `merge.py` for gate metrics). `perception.jsonl` is never modified and the production chain has no dependency on MOSS.
 

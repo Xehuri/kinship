@@ -680,7 +680,7 @@ graph TD
 
 ## 5. MOSS 旁路数据 (audio_deepdive.jsonl)
 
-MOSS 深度音频理解是 1.6.0 起的**观察期旁路**（流程见 `AUDIO_PIPELINE.md` 的「MOSS depth-audio bypass」节）：watcher 对已落盘的 `daily/{date}/audio/*.{wav|flac}` 逐个深读，结果 **append-only** 写入 `ai/data/daily/{date}/audio_deepdive.jsonl`（一行一 JSON），主键 `audio` 与 `voice` 条目同址可 join。`perception.jsonl` 一字不改，主链零依赖。
+MOSS 深度音频理解是 1.6.0 起可选的**旁路功能**（默认关闭，流程见 `AUDIO_PIPELINE.md` 的「MOSS depth-audio bypass」节）：watcher 对已落盘的 `daily/{date}/audio/*.{wav|flac}` 逐个深读，结果 **append-only** 写入 `ai/data/daily/{date}/audio_deepdive.jsonl`（一行一 JSON），主键 `audio` 与 `voice` 条目同址可 join。`perception.jsonl` 一字不改，主链零依赖。
 
 三类行（同一 schema，按标记区分）：
 

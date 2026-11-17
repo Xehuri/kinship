@@ -11,7 +11,7 @@ MOSS 是旁路音频理解服务，对已经落盘的音频 chunk 做场景、�
 1. 首次引导的 `moss` 步骤可以直接填写 MOSS 服务地址并启用。
 2. 已经在用的实例，把 `moss.enabled` 设为 `true`，并确认 `moss.base_url` 指向 MOSS vLLM 服务，默认 `http://127.0.0.1:8100`。
 
-前提：单独部署 `axeuh-moss` 推理服务；watcher 由后端编排器随 `moss.enabled` 托管（`moss_watcher`），不需要单独启动 systemd 单元。没有 GPU 或没有该服务时保持关闭。转正门与观察口径属于私有运维文档，公开树不提供链接。
+前提：单独部署 `axeuh-moss` 推理服务；watcher 由后端编排器随 `moss.enabled` 托管（`moss_watcher`），不需要单独启动 systemd 单元。没有 GPU 或没有该服务时保持关闭。MOSS 是可选功能，默认关闭；启用与验收口径属私有运维文档，公开树不提供链接。
 
 ## 小米健康云
 

@@ -1,15 +1,15 @@
 # Kinship
 
 **技术栈**: Python 3.10+ (FastAPI) + Kotlin (Android/Compose) + TypeScript (Vue 3/Vite)
-**仓库模式**: 公开主仓 + 私有组件分离，11 个子系统（含 Windows 桌面端、音频内核、Loom agent harness、外部 harness 适配、MOSS 影子管线、QQ 网关）共用同一后端平台
+**仓库模式**: 公开主仓 + 私有组件分离，11 个子系统（含 Windows 桌面端、音频内核、Loom agent harness、外部 harness 适配、MOSS 旁路、QQ 网关）共用同一后端平台
 **生成时间**: 2026-07-19
 **上次更新**: 2026-11-17
 
 ## 概览
 
-AI 驱动的健康监测系统。Android App 采集传感器数据(心率/GPS/步数/音频等)，FastAPI 后端接收存储，Loom AI（默认，完整工作流）定时分析健康状态和行为模式。PC 感知采集器 (PC Sensor) 采集 Windows PC 状态（前台窗口、空闲、锁屏）并上报后端。Windows 桌面端（`desktop/`，Electron 45）是现有 SPA 的网页套壳，并把 PC 采集端作为子进程内置；服务器地址与证书在本机设置页配置。全部音频算法（ASR/VAD/声纹/KWS/场景/说话人切分/陌生人）由**独立闭源音频内核进程**（运行时 `<project>/kernel`，源码在私有 `kinship-kernel`，包名 `axeuh_kernel`）承载——后端运行时零 ML、零算法实现，只经 `kernel_client.py` / `kernel_job_client.py` / `segment_channel.py` 调用内核。另有 **MOSS 深度音频理解影子管线**（`tools/moss-shadow/`，1.6.0 起，观察期旁路）：vLLM serve 由 systemd 单元常驻，watcher 文件订阅由后端编排器托管为子进程（`moss_watcher` spec；旧 `axeuh-moss-watch` 单元停用），对落盘 chunk 端到端深读（归因/场景/叙事），产物 `audio_deepdive.jsonl` 旁路文件——**perception.jsonl 一字不改，生产主链零依赖**。Python 环境：生产用 `/opt/venvs/axeuh-health`，内核用 `/opt/venvs/axeuh-kernel`，MOSS 用 `/opt/venvs/axeuh-moss`（2026-11 迁移后的路径；旧 `/opt/kinship/.venv-*` 已不存在）。AI 运行时默认是 Loom（一等、完整工作流）；`harness-plugins/` 提供可选的外部 harness 适配层，dsh 是其中的参考实现，已实现适配层与测试，并在 dsh Web 侧栏提供 Kinship 配置面板与计划排班卡片（`kinship-plan-scheduler` 把 Loom 的计划唤醒调度移植到 dsh，读写同一份 plan master/overlay；计划根等路径由 Kinship 后端经 bridge `/v1/kinship/paths` 推送，dsh 侧无需显式配置；`plan_note`/`plan_done` 可经当日覆盖层写回母版条目，主会话另有模型可调用的 `compact_context`），不是默认路径；运行时切换入口只有 `config.yaml` 的 `ai_backend`（hot 配置，保存即全链生效；旧 `/api/screen/backend` 写入口已退役），dsh 适配层会在 harness 重启后自动恢复绑定会话（不需要人工在 UI 打开）；生产可用性按部署环境验证，其他 harness 按 `docs/dev/adapter-contract.md` 接入（含 §3.1.1 冷启动恢复要求）。运行时定位与选择见 `docs/dev/ai-runtimes.md`。本仓库模板默认 `ai_backend: loom`；本机生产实例当前为 `dsh`（2026-11-17 实测 `/health` 报 dsh online、Loom 单元停用），Loom 未废弃。
+AI 驱动的健康监测系统。Android App 采集传感器数据(心率/GPS/步数/音频等)，FastAPI 后端接收存储，Loom AI（默认，完整工作流）定时分析健康状态和行为模式。PC 感知采集器 (PC Sensor) 采集 Windows PC 状态（前台窗口、空闲、锁屏）并上报后端。Windows 桌面端（`desktop/`，Electron 45）是现有 SPA 的网页套壳，并把 PC 采集端作为子进程内置；服务器地址与证书在本机设置页配置。全部音频算法（ASR/VAD/声纹/KWS/场景/说话人切分/陌生人）由**独立闭源音频内核进程**（运行时 `<project>/kernel`，源码在私有 `kinship-kernel`，包名 `axeuh_kernel`）承载——后端运行时零 ML、零算法实现，只经 `kernel_client.py` / `kernel_job_client.py` / `segment_channel.py` 调用内核。另有 **MOSS 深度音频理解旁路（可选功能，默认关闭）**（`tools/moss-shadow/`，1.6.0 起）：vLLM serve 由 systemd 单元常驻，watcher 文件订阅由后端编排器托管为子进程（`moss_watcher` spec；旧 `axeuh-moss-watch` 单元停用），对落盘 chunk 端到端深读（归因/场景/叙事），产物 `audio_deepdive.jsonl` 旁路文件——**perception.jsonl 一字不改，生产主链零依赖**。Python 环境：生产用 `/opt/venvs/axeuh-health`，内核用 `/opt/venvs/axeuh-kernel`，MOSS 用 `/opt/venvs/axeuh-moss`（2026-11 迁移后的路径；旧 `/opt/kinship/.venv-*` 已不存在）。AI 运行时默认是 Loom（一等、完整工作流）；`harness-plugins/` 提供可选的外部 harness 适配层，dsh 是其中的参考实现，已实现适配层与测试，并在 dsh Web 侧栏提供 Kinship 配置面板与计划排班卡片（`kinship-plan-scheduler` 把 Loom 的计划唤醒调度移植到 dsh，读写同一份 plan master/overlay；计划根等路径由 Kinship 后端经 bridge `/v1/kinship/paths` 推送，dsh 侧无需显式配置；`plan_note`/`plan_done` 可经当日覆盖层写回母版条目，主会话另有模型可调用的 `compact_context`），不是默认路径；运行时切换入口只有 `config.yaml` 的 `ai_backend`（hot 配置，保存即全链生效；旧 `/api/screen/backend` 写入口已退役），dsh 适配层会在 harness 重启后自动恢复绑定会话（不需要人工在 UI 打开）；生产可用性按部署环境验证，其他 harness 按 `docs/dev/adapter-contract.md` 接入（含 §3.1.1 冷启动恢复要求）。运行时定位与选择见 `docs/dev/ai-runtimes.md`。本仓库模板默认 `ai_backend: loom`；本机生产实例当前为 `dsh`（2026-11-17 实测 `/health` 报 dsh online、Loom 单元停用），Loom 未废弃。
 
-**私有/单独交付**：`ai/`（运行时数据与记忆）、`kernel/`（闭源音频内核）、`tools/moss-shadow/`（MOSS 影子管线）不在本公开仓库发布；`docs/archive/` 与 `docs/dev/记忆-A方案-2026-10-20.md` 属于私有历史/设计文档，公开树不包含。`harness-plugins/`（可选外部 harness 适配）已纳入 `tools/kinship_export/allowlist.toml`（2026-11-17），随公开树发布；`tools/docs-check/` 与 `tools/check_stratum_*.py` 同样随公开树发布。仍不导出：`ai/`、`kernel/` 源码与权重、`tools/moss-shadow/`（均为私有组件）；`.github/` 的 CI 工作流自 2026-11-17 起随公开树发布。
+**私有/单独交付**：`ai/`（运行时数据与记忆）、`kernel/`（闭源音频内核）、`tools/moss-shadow/`（MOSS 旁路，可选功能）不在本公开仓库发布；`docs/archive/` 与 `docs/dev/记忆-A方案-2026-10-20.md` 属于私有历史/设计文档，公开树不包含。`harness-plugins/`（可选外部 harness 适配）已纳入 `tools/kinship_export/allowlist.toml`（2026-11-17），随公开树发布；`tools/docs-check/` 与 `tools/check_stratum_*.py` 同样随公开树发布。仍不导出：`ai/`、`kernel/` 源码与权重、`tools/moss-shadow/`（均为私有组件）；`.github/` 的 CI 工作流自 2026-11-17 起随公开树发布。
 
 **三目录/仓拓扑**：公开仓 `kinship`（源码、发行资产；不含 `ai/`、内核源码、`tools/moss-shadow/`、CircuitJS1 运行时）；私有仓 `kinship-kernel`（闭源内核源码）；私有实例目录 `kinship-data`（`config.yaml`、证书、`backend/config/auth.json`、AI 运行时数据，不入 git）。运行时内核位 `<project>/kernel` 是发行资产安装位，源码只在私有仓；`data.ai_root` 是唯一 AI 根（默认 `<project>/ai`，可指向 `kinship-data`），`data.dir` / `data.root` / `models.dir` 独立配置。
 
@@ -24,7 +24,7 @@ PC 采集器 ────┘   (对外 8768)      │  单端口 :8768          
                                  ├─ 调度器(每秒轮询) ─→ ai/data/tasks/*.yaml ─→ 触发 AI 任务
                                  └─ 音频内核 kernel/（闭源独立进程，bind 127.0.0.1 动态端口：ASR/VAD/声纹/KWS/切分/陌生人全在内核）
 
-影子旁路（1.6.0，观察期，主链零依赖）:
+可选旁路（1.6.0，默认关闭，主链零依赖）:
   daily/{date}/audio/ 落盘 chunk ─(文件订阅)─→ tools/moss-shadow/ watcher ─→ :8100 MOSS-N2(vLLM, systemd 常驻 GPU)
         └→ ai/data/daily/{date}/audio_deepdive.jsonl(+_merged) ─(fact_extractor └ MOSS 子行)─→ Loom 交叉消费
 ```
@@ -59,7 +59,7 @@ AI 处理遵循 **脚本层 → 子智能体层 → 主智能体层** 三层工�
 | 外部 harness 适配 | `harness-plugins/`（可选；dsh 为参考实现） | TypeScript / Node | `packages/kinship-bridge/src/server.ts` + `packages/kinship-ui/client.js` + `packages/kinship-plan/` + `packages/kinship-plan-scheduler/`（计划唤醒调度） + `packages/kinship-compact/`（`compact_context`） + `packages/kinship-task-compat/` + `packages/kinship-tools/`（通知/提醒/TTS 原生工具） + `packages/kinship-isolation/`（preset 级排异） | `docs/dev/ai-runtimes.md` + `docs/dev/adapter-contract.md` + `harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md` |
 | PC 感知采集器 | `desktop/pc-sensor/`       | Python / FastAPI          | `pc_sensor_app.py`  | `desktop/pc-sensor/AGENTS.md`       |
 | Windows 桌面端 | `desktop/` | TypeScript / Electron 45 + Vue 3 | `src/main/main.ts` (Electron) | `desktop/AGENTS.md` |
-| MOSS 影子管线 | `tools/moss-shadow/`（私有，单独交付） | Python + vLLM（systemd `axeuh-moss` serve；watcher 由后端编排器托管，旁路观察期） | `watcher.py --loop` / `merge.py --date` | 私有侧部署说明 |
+| MOSS 旁路 | `tools/moss-shadow/`（私有，单独交付） | Python + vLLM（可选功能，默认关闭；systemd `axeuh-moss` serve；watcher 由后端编排器托管） | `watcher.py --loop` / `merge.py --date` | 私有侧部署说明 |
 | QQ 网关 | `backend/services/qq_gateway/` | Python / 单 WS + qq CLI | `backend/main.py` 按 `qq_gateway.enabled` 启动（默认关闭；生产已启用）；入站 relay + `qq` CLI | `docs/dev/qq-gateway.md` |
 
 ## 常用入口

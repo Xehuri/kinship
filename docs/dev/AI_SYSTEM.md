@@ -12,7 +12,7 @@
 - [7. 分析脚本](#7-分析脚本)
 - [8. 数据接口与数据流](#8-数据接口与数据流)
 - [9. 记忆协议（Phase A）](#9-记忆协议phase-a)
-- [10. MOSS 深度音频影子管线](#10-moss-深度音频影子管线)
+- [10. MOSS 深度音频旁路（可选功能）](#10-moss-深度音频旁路可选功能)
 - [11. QQ 网关](#11-qq-网关)
 - [12. 核心设计原则与边界](#12-核心设计原则与边界)
 
@@ -52,11 +52,11 @@ AI 不采集数据，也不参与采集实现。后端负责接收、存储、�
 | 后端（HTTP 与 HTTPS 同端口） | `8768` | 对外入口与本地开发；`ssl.enabled` 决定协议 |
 | Loom 助手 | `127.0.0.1:5100` | 模板默认助手宿主；稳定拓扑由后端编排器托管（`loom_spec`），systemd `axeuh-loom` 仅回滚 |
 | 音频内核 | `127.0.0.1:<动态>` | 闭源 `axeuh_kernel`，后端按需 spawn，端口写入 pidfile |
-| MOSS serve | `127.0.0.1:8100` | vLLM，卡2 3060 Ti，fp8；转正执行中，loopback + `--max-num-seqs 1` |
+| MOSS serve | `127.0.0.1:8100` | vLLM，卡2 3060 Ti，fp8；可选旁路，默认关闭，loopback + `--max-num-seqs 1` |
 | MOSS watcher | 无监听端口 | `tools/moss-shadow/watcher.py --loop`，后端编排器 `moss_watcher` 托管（`moss.enabled` 闸门） |
 | QQ 网关 IPC | `127.0.0.1:8770` | HTTP + Bearer token，供 qq CLI 调用 |
 
-核心约束：后端运行时零 ML、零算法实现；音频算法全部在闭源内核。内核只监听 loopback、只做本地计算，接收音频并返回结果，不上传任何数据到外部服务（包括音频和用户数据）；音频由 App 上传，后端负责接收、落盘与业务写入，内核的本地状态只在 `--state-dir` 下（数据边界见 [kernel/README.md](../kernel/README.md#data-boundary)）。MOSS 转正执行中、QQ 网关是可选旁路，故障不改变 `perception.jsonl` 与主分析链。数据文件是契约，分析结论必须可回溯到文件与时间。
+核心约束：后端运行时零 ML、零算法实现；音频算法全部在闭源内核。内核只监听 loopback、只做本地计算，接收音频并返回结果，不上传任何数据到外部服务（包括音频和用户数据）；音频由 App 上传，后端负责接收、落盘与业务写入，内核的本地状态只在 `--state-dir` 下（数据边界见 [kernel/README.md](../kernel/README.md#data-boundary)）。MOSS 与 QQ 网关都是可选旁路，故障不改变 `perception.jsonl` 与主分析链。数据文件是契约，分析结论必须可回溯到文件与时间。
 
 ---
 ## 2. 助手宿主：Loom
@@ -370,9 +370,9 @@ fact 键 `entity + attribute + scope`；rule 键 `scope + trigger + action`；op
 公开模板 `ai-template/` 仍随旧骨架（A 方案）发布；生产实例的协议文件、`ledger/`、`notes/` 与冻结清单在私有 AI 根内维护，公开树不包含。迁移与初始化以实例内的 `memory/PROTOCOL.md` 为准。
 
 ---
-## 10. MOSS 深度音频影子管线
+## 10. MOSS 深度音频旁路（可选功能）
 
-MOSS 转正执行中（2026-10-22 七步完成；待两日回归 + 七天观察）。`tools/moss-shadow/` 只是 CPU 侧编排；音频算法在闭源内核，MOSS 深度理解在独立 vLLM serve 中。v1 已冻结，v2/utterance 不接生产。
+MOSS 是可选旁路（默认关闭，`moss.enabled` 开启，需自备 vLLM serve）。`tools/moss-shadow/` 只是 CPU 侧编排；音频算法在闭源内核，MOSS 深度理解在独立 vLLM serve 中。v1 已冻结，v2/utterance 不接生产。
 
 ```text
 daily/{date}/audio/*.wav|*.flac
@@ -392,7 +392,7 @@ daily/{date}/audio/*.wav|*.flac
 
 产物 `audio_deepdive.jsonl` 一行一 JSON，主键 `audio` 指向 `daily/{date}/audio/{name}.{wav|flac}`，与 `voice` 行同址 join；成功行、短路行（`_sc:true`）、错误行（`_error`）三类。`merge.py` 生成 `audio_deepdive_merged.jsonl` 供门读数；`fact_extractor` 只读消费：事实文件只渲染 `静音/无语音` 或 `src=ambient` 的 `└ MOSS:` 子行；human/mixed/device/error 留在 deepdive 审计，不进入事实文件。
 
-边界：数据链是旁路，watcher 由后端编排器托管（`moss_watcher`，`critical=false`，启动顺序 kernel → moss_watcher → loom、停止逆序），不 import 后端业务、不改契约；watcher 或 serve 挂掉，主链照常运行。`perception.jsonl` 一字不改；`audio_deepdive.jsonl` 是独立旁路文件。已知盲区：无缝流中 `speech_ratio < 0.05` 的静音段在被分析前丢弃、不落盘，因此进不了 deepdive；静音钩子（未实施）才会覆盖这一层。七步已完成，待两日回归 + 七天观察；转正验收见 `docs/moss-formalization-plan-2026-10-22.md` §12。
+边界：数据链是旁路，watcher 由后端编排器托管（`moss_watcher`，`critical=false`，启动顺序 kernel → moss_watcher → loom、停止逆序），不 import 后端业务、不改契约；watcher 或 serve 挂掉，主链照常运行。`perception.jsonl` 一字不改；`audio_deepdive.jsonl` 是独立旁路文件。已知盲区：无缝流中 `speech_ratio < 0.05` 的静音段在被分析前丢弃、不落盘，因此进不了 deepdive；静音钩子（未实施）才会覆盖这一层。该功能默认关闭；启用与验收口径属私有运维文档，本仓不含。
 
 ---
 ## 11. QQ 网关

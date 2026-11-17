@@ -86,6 +86,8 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 变更
 
+- **MOSS 旁路定位修正（2026-11-18）**：公开文档统一把 MOSS 深度音频理解写成**可选功能**（默认关闭，需自备 vLLM serve，用 `moss.enabled` 开启；未启用时 watcher 不启动、不产出文件），删除"转正执行中 / 七步完成 / 待两日回归 + 七天观察"等内部里程碑表述。涉及 `README.md`、`README.en.md`、`AGENTS.md`、`docs/dev/AI_SYSTEM.md`、`docs/dev/DATA_FORMAT.md`、`docs/dev/AUDIO_PIPELINE.md`、`docs/dev/PROJECT_MAP.md`、`docs/ops/OPERATIONS.md`、`docs/user/features.md`。运行机制不变：watcher 由后端编排器托管，`perception.jsonl` 不参与。
+
 - **公开文档全量对齐运行面（2026-11-17）**：按「最新代码 + 当前正在运行的实例」复核并修正公开文档（`docs/`、根 README/AGENTS/CONTRIBUTING、各子系统 AGENTS 与 harness 文档；`ai-template/` 由另一会话处理，不在本轮范围）。关键对齐：
   - 运行时分两层写清：模板默认 `ai_backend: loom`；本机生产实例当前 `dsh`（`/health` 为 `healthy` + `dsh.status=online`，`axeuh-loom` 为 `failed`/`disabled` 仅回滚，`/health.loom.status=unknown` 属预期），不再把 dsh 写成“不在默认拓扑内”。
   - MOSS watcher 拓扑改准：watcher 由后端编排器 `moss_watcher` 子进程托管（`moss.enabled` 闸门），`axeuh-moss-watch.service` 已 `disabled`/`inactive`；`axeuh-moss.service`（vLLM `:8100`）仍独立常驻。

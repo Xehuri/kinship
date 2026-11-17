@@ -84,7 +84,7 @@ FastAPI 后端 8768（HTTP/HTTPS 同端口）
   -> Loom 127.0.0.1:5100          (模板默认助手宿主，ai_backend=loom 时由 axeuh-health 托管为子进程)
   -> dsh bridge 127.0.0.1:18765   (可选运行时；本机生产当前 ai_backend=dsh)
   -> 音频内核 127.0.0.1:<动态>     (后端 spawn，闭源进程)
-  -> MOSS 127.0.0.1:8100          (转正执行中，卡2)
+  -> MOSS 127.0.0.1:8100          (可选旁路，默认关闭，卡2)
 ```
 
 ### 端口
@@ -95,7 +95,7 @@ FastAPI 后端 8768（HTTP/HTTPS 同端口）
 | `5100` | Loom 助手宿主 |
 | `18888` | PC 感知采集器本地 HTTP |
 | `8000` | 本地 27B LLM（vLLM，按需） |
-| `8100` | MOSS serve（转正执行中，loopback） |
+| `8100` | MOSS serve（可选旁路，默认关闭，loopback） |
 | `8790` | 音频工作台（可选，本仓不含该工具；按需自备） |
 | `8770` | QQ 网关 IPC（qq CLI） |
 | `18765` | dsh 适配 bridge（loopback；本机生产当前使用） |
@@ -145,7 +145,7 @@ sudo systemctl enable --now kinship
 - **三层工作流**：脚本层（`fact_extractor.py` / `check_coverage.py`）→ 子智能体层（data-check / reviewer）→ 主智能体层（派发、验收、自优化）。
 - **定时调度**：默认 7 个数据检查窗口（00/06/08/12/16/20/22），每日复盘 00:40，双周复盘 1/15 18:30，周报周一 03:00。
 - **记忆协议（Phase A）**：证据 → `ledger/`（facts / rules / open）与 `notes/`（观察 / 案例 / 人格 / 判断 / 长尾 / 提案）→ 投影。主会话注入 6 件投影（必读、身份、state、core、topics INDEX、active-tasks），只写 `notes/proposals` 等提案；02 日复盘是唯一日更写入者，旧 A 方案文件冻结只读，`memory_finalize.py` 做收尾门。
-- **MOSS 旁路（转正执行中）**：`tools/moss-shadow/`，vLLM serve 由 systemd `axeuh-moss` 常驻，watcher 文件订阅由后端编排器托管为子进程（`moss_watcher` spec；旧 `axeuh-moss-watch` 单元停用），输出 `audio_deepdive.jsonl`；七步已完成，待两日回归 + 七天观察；事实文件只消费 `静音`/`ambient`，human/mixed/device 留审计；`perception.jsonl` 与主链零改动。多实例部署可用 `moss.data_root` / `moss.state_dir` 隔离各自的 watcher 数据与状态。
+- **MOSS 旁路（可选功能，默认关闭）**：`tools/moss-shadow/`，vLLM serve 由 systemd `axeuh-moss` 常驻，watcher 文件订阅由后端编排器托管为子进程（`moss_watcher` spec；旧 `axeuh-moss-watch` 单元停用），输出 `audio_deepdive.jsonl`；需要自备 MOSS vLLM 服务并用 `moss.enabled` 打开，未启用时 watcher 不启动；事实文件只消费 `静音`/`ambient`，human/mixed/device 留审计；`perception.jsonl` 与主链零改动。多实例部署可用 `moss.data_root` / `moss.state_dir` 隔离各自的 watcher 数据与状态。
 - **QQ 网关**：单 WS + SQLite inbox/outbox/read-state/water-state + qq CLI IPC `127.0.0.1:8770`；qq-mcp 已退役；群聊元数据提醒与水群模式；默认关闭，生产已启用。
 - **Loom 运行时**：交互式 PTY、自动唤醒、回执简化、ops+chat 双视角压缩。
 
