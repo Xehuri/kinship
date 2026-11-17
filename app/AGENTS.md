@@ -1,6 +1,6 @@
 # Kinship 健康监测 - Android App
 
-**上次更新**: 2026-11-04
+**上次更新**: 2026-11-17（核对目录树补入 `p2p/` 8 件与 `widget/` 18 件、测试文件数 68→74、`assets/kws/` 实际 2 文件、`ServerConfig.DEFAULT_SERVER_URL`）
 **框架**: Kotlin + Jetpack Compose + Gradle
 **Android**: minSdk 26, targetSdk 36, compileSdk 36
 **包名**: `com.xehuri.kinship`
@@ -100,6 +100,7 @@ app/
 │   │   ├── MainActivity.kt              # 启动入口：token→MobileActivity/登录（181行；不再前置 /health）
 │   │   ├── SettingsActivity.kt          # 设置页 Activity（LazyColumn 概览 + NavHost 二级页）
 │   │   ├── MobileActivity.kt            # WebView 手机管理页面
+│   │   ├── NotificationHistoryActivity.kt # 本地通知历史页（概览「桌面与历史」分组入口，全文本地保存最近 50 条）
 │   │   ├── web/WebTokenBridge.kt        # 原生 auth_token -> WebView 注入桥（localStorage + axeuh-token-refresh）
 │   │   ├── network/                     # 统一网络层
 │   │   │   ├── AppHttpClient.kt         # OkHttp 封装：get/post/postMultipart/download
@@ -121,6 +122,7 @@ app/
 │   │   │   ├── DataCollectorService.kt  # 采集调度器（委托给 Collector + 健康定时调度；全 App 唯一常驻前台服务，兼保活）
 │   │   │   ├── AccessibilityService.kt  # 输入内容感知（无障碍服务）
 │   │   │   ├── NotificationListenerService.kt  # 通知监听（sbn.key 去重后转发上行）；提供授权查询 / requestRebind 恢复入口
+│   │   │   ├── PendingUploadQueue.kt    # 统一上传队列：采集器只入队，主循环 flushPendingUploads() 统一发 HTTP（2026-09-16）
 │   │   │   ├── state/                   # 状态管理层
 │   │   │   │   └── SensorStateHolder.kt # 统一 StateFlow 状态持有（18个状态；`SensorStateHolder.shared` 为进程内共享单例）
 │   │   │   ├── collectors/              # 数据采集器
@@ -147,7 +149,15 @@ app/
 │   │   │   ├── TierProbe.kt             # /health 探测（裸客户端，P2P Skipped）
 │   │   │   ├── TierSelector.kt          # AUTO_CHAIN/PINNED、冷却、仅传输错误切层
 │   │   │   ├── TierRuntime.kt           # 引导迁移/失败重选/5 分钟兜底
+│   │   │   ├── AddressFamilyDns.kt      # 按 AddressFamily 重排系统 DNS 结果（AUTO 原样 / PREFER_V4 / PREFER_V6；仅 TierProbe 用）
+│   │   │   ├── TierPinTarget.kt         # 固定层目标解析（PINNED 语义）
 │   │   │   └── TierSettingsController.kt # 设置页增删改/排序/测试并应用
+│   │   ├── p2p/                         # P2P 设备通道（WebRTC 数据面 + 短时信令；由服务端 p2p.enabled 门控）
+│   │   │   ├── P2pWebRtcManager.kt      # 生命周期入口：start/stop、isReady、sendAudio（DataCollectorService 启动时拉起）
+│   │   │   ├── SignalingClient.kt       # 信令连接（配对票据 / 提议-应答帧）
+│   │   │   ├── WebRtcTransport.kt       # WebRTC 传输面（数据通道读写、音频分片）
+│   │   │   ├── P2pProtocol.kt / P2pApi.kt / P2pEndpointSync.kt / P2pWebRtcPolicy.kt # 协议帧与常量、HTTP 面、端点同步、启停策略
+│   │   │   └── AudioChunker.kt          # 离线碎片经 WebRTC 补传的分片原语
 │   │   ├── ota/                         # OTA 自更新
 │   │   │   ├── UpdateInfo.kt
 │   │   │   ├── UpdateSource.kt          # 本地/远程更新源
@@ -187,19 +197,33 @@ app/
 │   │   │   │   ├── SecuritySection.kt   # 安全设置 Composable（SSL 证书验证）
 │   │   │   │   ├── OtaSection.kt        # OTA更新 Composable
 │   │   │   │   ├── PermissionDialogs.kt # 权限引导弹窗
-│   │   │   │   └── SensitiveAppPicker.kt # 敏感应用多选选择器（搜索/图标/复选）
+│   │   │   │   ├── SensitiveAppPicker.kt # 敏感应用多选选择器（搜索/图标/复选）
+│   │   │   │   ├── RunStatusModel.kt / RunStatusCard.kt # 运行状态纯模型与顶部状态卡
+│   │   │   │   ├── TierEditorModel.kt / TierErrorText.kt # 连接层编辑器模型与错误文案
+│   │   │   │   ├── WidgetColorPickers.kt # 桌面组件卡片配色选择器
+│   │   │   │   └── BatteryOptimizationSection.kt # 电池优化引导区
 │   │   │   ├── web/
-│   │   │   │   └── WebViewReloadPolicy.kt # 切层后返回主界面时重载 WebView 的判定
+│   │   │   │   ├── WebViewReloadPolicy.kt # 切层后返回主界面时重载 WebView 的判定
+│   │   │   │   └── MobileChromeSpec.kt    # MobileActivity 窗口 chrome 的纯计算规格（不依赖 Android 框架，便于 JVM 单测）
 │   │   │   └── theme/
 │   │   │       ├── KinshipTokens.kt     # Kinship 颜色/间距/圆角/动效/字号 + 明暗 ColorScheme
 │   │   │       └── SettingsTheme.kt     # AxeuhSettingsTheme（跟随系统）+ SettingsAnim
+│   │   ├── web/WebThemeBridge.kt        # SPA 主题 -> 原生窗口 chrome 的单向桥（注入只读观察器 + console 标记回传）
+│   │   ├── widget/                      # Glance 桌面组件（18 件）
+│   │   │   ├── AiNotifyWidget.kt / HealthSummaryWidget.kt / HeartRateMiniWidget.kt / ReminderWidget.kt # 四张卡片 provider
+│   │   │   ├── NotificationStore.kt / ReminderStore.kt / WidgetSnapshot.kt / ReminderBoardFingerprint.kt # 写侧存储、快照与指纹
+│   │   │   ├── WidgetColorStore.kt / WidgetBackgroundStore.kt / WidgetBackgroundImage.kt # 卡片配色与背景
+│   │   │   ├── WidgetConfigureActivity.kt # 组件配置页
+│   │   │   ├── WidgetLoadingPlaceholder.kt / WidgetDisabledPlaceholder.kt # 首帧骨架与停用占位
+│   │   │   ├── WidgetSyncWorker.kt      # 15min WorkManager 兜底刷新
+│   │   │   └── NotificationHistoryBackfill.kt # 每进程启动增量尾部回填（≤50 条）
 │   │   └── receiver/
 │   │       ├── BootReceiver.kt          # 开机自启
 │   │       └── AdbCommandReceiver.kt    # ADB 命令广播
-│   ├── assets/kws/                      # 端侧 KWS 模型与词表（5 个文件，约 5.45MB；keywords.txt 缺失会导致原生层退出进程）
+│   ├── assets/kws/                      # 端侧 KWS 词表（实际 2 文件：keywords.txt + tokens.txt；keywords.txt 缺失会导致原生层退出进程）
 │   ├── res/
 │   └── AndroidManifest.xml
-├── src/test/                            # 单元测试（68 个文件，JUnit4 + MockK + Truth + Robolectric）
+├── src/test/                            # 单元测试（74 个 .kt 文件，JUnit4 + MockK + Truth + Robolectric）
 ├── src/androidTest/                     # 仪器测试（AxeuhAcceptanceTest.kt）
 ├── build/
 ├── docs/
@@ -376,7 +400,7 @@ TTS 音频由后端合成、在 WebView 内的网页播放器（Web Audio）播�
 
 ### ServerConfig（配置管理）
 - `object ServerConfig` 全局单例
-- `DEFAULT_SERVER_URL = "https://localhost:8767"`（未保存自定义 URL 时的默认值）
+- `DEFAULT_SERVER_URL = "http://localhost:8768"`（未保存自定义 URL 时的默认值；`ServerConfig.kt:71`，端口与后端单端口 8768 一致）
 - `init(context)` 从 SharedPreferences 读取已保存的服务器 URL 和设备名称
 - `DEVICE_NAME` 默认为 `Build.MODEL`，用户自定义时 `HAS_CUSTOM_DEVICE_NAME=true`
 - `update(url)` 仅更新内存 `BASE_URL`（tier 运行时使用；不写 prefs）
@@ -392,7 +416,7 @@ TTS 音频由后端合成、在 WebView 内的网页播放器（Web Audio）播�
 - `TierRuntime`：`DataCollectorService` 启动时 `bootstrap()`，每 5 分钟 `refresh(force=false)`；`AppHttpClient.onTransportFailure(origin)` 触发一次强制重选；apply 只写内存。
 - `TierSettingsController`：网络设置页写入口，只落 `network_config_v1`。
 - `TierProbe`：按 `tier.family` 选择 IPv4/IPv6 优先 DNS（AUTO 保持系统顺序）；允许路由回退（retry=true），connect 3s / read 5s / call 10s；`probeAll` 并发探测且保持配置顺序。
-- P2P 仅 `TierKind.P2P` + `TierTarget.Peer` 类型化占位；无信令/数据面/发现，后续统一做。
+- P2P 现状（2026-11-17 核对）：`transport/` 侧仍只有 `TierKind.P2P` + `TierTarget.Peer` 类型化占位，设置页把 P2P 层显示为「未接入，后续统一做」且不进入保存列表；但**独立的 `p2p/` 包已是一套真实 WebRTC 数据面**（信令 + 传输 + 音频分片，由 `DataCollectorService` 启动 `P2pWebRtcManager`、`AudioCollector.trySendCachedViaWebRtc` 在 FORCE_FRP 之外补传离线碎片），启停由服务端 `p2p.enabled` / `webrtcEnabled` / `signalUrl` 三元门控（`P2pWebRtcPolicy.shouldStart`）。两处描述不要混为一谈。
 
 ### SensorStateHolder（状态层）
 - 纯 Kotlin + Coroutines，无 Android 依赖
@@ -600,7 +624,7 @@ OtaSection → SettingsViewModel.checkUpdate()
 
 ## 测试
 
-- 单元测试：`app/src/test/`，68 个文件，技术栈 JUnit4 + MockK + Truth + Robolectric（未启用 `useJUnitPlatform()`，新测试须用 `org.junit.Test` 才会被执行），覆盖网络层 / 采集器 / 上传器 / 状态层 / 设置页 / 登录态 / 连接层 / 主题令牌 / OTA / 日志 / 工具类
+- 单元测试：`app/src/test/`，74 个 .kt 文件，技术栈 JUnit4 + MockK + Truth + Robolectric（未启用 `useJUnitPlatform()`，新测试须用 `org.junit.Test` 才会被执行），覆盖网络层 / 采集器 / 上传器 / 状态层 / 设置页 / 登录态 / 连接层 / 主题令牌 / OTA / 日志 / 工具类
   - 新增覆盖（2026-10-25）：登录态传播与会话存储、登录导航策略、tier 模型/编解码/迁移/探测/选择器/运行时/设置控制器、Kinship 令牌 CSS 对等、概览 IA、WebView 重载策略
   - `NotificationListenerServiceTest` 整个类被 `@Ignore("Pre-existing: StatusBarNotification constructor API 34+")` 跳过；`ota/OtaFullFlowTest.kt` 被 `@Disabled`（仅有占位测试）
 - 仪器测试：`app/src/androidTest/java/com/xehuri/kinship/AxeuhAcceptanceTest.kt`

@@ -1,6 +1,6 @@
 # Backend - FastAPI 后端
 
-**更新时间**: 2026-11-15
+**更新时间**: 2026-11-17（核对 routers 39 个模块、services 79 个顶层 .py + 5 个子包、PUBLIC_PATHS 16 条、orchestrator 托管 kernel/moss_watcher/loom 三子进程）
 **框架**: FastAPI + Uvicorn
 **Python**: >=3.10
 
@@ -29,8 +29,11 @@ backend/
 ├── core/                # errors.py(统一异常处理) + log_setup.py(日志配置)
 ├── models.py            # Pydantic 数据模型（注意：历史 ML 权重目录 backend/models/ 已随 Wave C3 整体出库删除，权重归内核私有模型目录）
 ├── auth.py              # Token 认证系统
-├── routers/             # API 路由 (25 个 + __init__；agents_remote/tasks/scripts 已随 P0-U1 裁除)
-├── services/            # 业务服务 (42 个；含 kernel_client.py / kernel_job_client.py / segment_channel.py 三条内核通道，health/ 多源健康包，单实现层 perception_reader.py / audio_codec.py / kernel_segment_session.py，AI 客户端 opencode_client.py / loom_client.py / dsh_client.py + ai_client_factory.py 多通道工厂；**零算法实现**)
+├── routers/             # API 路由 (39 个模块 + __init__，2026-11-17 实测；agents_remote/tasks/scripts 已随 P0-U1 裁除)
+├── services/            # 业务服务 (79 个顶层 .py，不含 __init__；含 kernel_client.py / kernel_job_client.py / segment_channel.py 三条内核通道，health/ 多源健康包，单实现层 perception_reader.py / audio_codec.py / kernel_segment_session.py，AI 客户端 opencode_client.py / loom_client.py / dsh_client.py + ai_client_factory.py 多通道工厂；**零算法实现**)
+│   ├── orchestrator/    # 子服务编排器: spec.py(注册表) / runtime.py / kernel_spec.py / moss_spec.py / loom_spec.py / child_entry.py（父死亡保护包装），main.py 经 _register_orchestrator_specs() 注册后 start_all
+│   ├── p2p/             # P2P 配对与设备通道（routers/p2p.py 的运行时）
+│   ├── qq_gateway/      # QQ 单 WS 网关（NapCat）+ SQLite inbox/outbox/read-state/water-state + IPC :8770
 │   ├── scripts/         # context.py (脚本 stdout JSON 管道通信)
 │   ├── health/          # 多源健康包: store.py(分片存储；V9 起 export_legacy 派生视图双写退役，函数仅存历史迁移/懒引导种子读) / paths.py / models.py / devices.py / sources/{base,phone_push,cloud_pull}（V7 分组双胞胎合一至 phone_push.normalize；原 registry 死抽象已删，仅存 CLOUD_FETCH_KEYS 取数顺序常量）
 │   ├── kernel_client.py # 内核同步通道 (speakers/cohort/preview 评分、kws_encode、vp_speaker_count/vp_cohort_stats 探针，Bearer 调 127.0.0.1:{动态端口}；spawn+握手+pidfile 复用)
@@ -41,13 +44,13 @@ backend/
 ├── tests/               # 测试文件
 ├── data/                # 运行时数据目录（自动生成；含 kernel_state/ pidfile 与内核状态根缺省位置，V14 起该缺省位置与 health_devices.json/health_source_selection.json 均归 config.py 属性）
 ├── logs/                # 日志文件（按日轮转，保留30天）
-├── outputs/             # 运行时输出(随机 key .npy 等)
-├── bin/                 # ffmpeg.exe
-├── ai/                  # ai/data 数据目录入口
+├── resources/           # 发行侧静态资源: kernel-models.json（内核模型清单）+ loom-config.template.yaml
 ├── mimo_signing.py      # MiMo 音频签名 URL 工具
-├── usersessions.json    # 用户会话数据
-└── requirements.txt     # 依赖列表（Wave C4 后零 ML：无 torch/funasr/modelscope/pyannote/silero；numpy/soundfile/librosa 为 IO 级）
+├── requirements.txt     # 依赖列表（Wave C4 后零 ML：无 torch/funasr/modelscope/pyannote/silero；numpy/soundfile/librosa 为 IO 级）
+└── requirements-p2p.txt # P2P 设备通道的追加依赖（可选安装）
 ```
+
+> 运行时目录（不入库，由 `config.py` 属性生成）：`data/`、`logs/`、`bin/`（Windows 部署的 `ffmpeg.exe`，`.gitignore` 里是 `/backend/bin/ffmpeg*`）、`ai/`、`outputs/`、`usersessions.json`。当前工作树里只有 `data/` 与 `logs/` 存在，其余按需生成；`services/audio_codec.py` 的 win32 分支优先找 `backend/bin/ffmpeg.exe`、回退 PATH。
 
 > 已物理删除（Wave C1-C5，算法全部内核化）：`audio_processor.py` / `vad_processor.py` / `sound_scene.py` / `sigh_detector.py` / `speaker_diarization.py`、`services/multimodal_audio_manager.py` / `pyannote_segmenter.py` / `unknown_speaker_{pipeline,session,session_feed,matcher,profile,health,storage,cleaner}.py`、`audio_stream_segmenter.py`、权重目录 `models/`；`services/voiceprint_service.py`（注册库镜像）随 P2-V10 退役——W1 跨进程直读根除，声纹元数据读改内核探针 `kernel_client.vp_speaker_count/vp_cohort_stats`，vaudit /voices 走契约 `GET /v1/voiceprint/registry` 快照。P0/V6 死码波再删：`opencode_gateway.py` 整层（信封/默认模型注入平迁 `opencode_client`，三级栈压两级）、`notify_store.py`（通知上行单写 perception.jsonl）、`session_history_saver.py`、`services/storage/` 死包、路由整文件 `agents_remote.py`/`tasks.py`/`scripts.py`。`services/unknown_speaker_config.py`（纯配置加载，供 cleanup 调度与预览台读窗参数）仍在。
 
@@ -77,15 +80,16 @@ backend/
 
 ## 启动方式
 
+**单端口架构**：`server.port`（默认 8768）是唯一监听端口，`BACKEND_HTTP_PORT` 已降为只读兼容别名（恒等 `BACKEND_PORT`），不存在独立的 HTTP 开发端口。
+
 ```bash
-# 开发 (HTTP 8769)
-cd backend && python -m uvicorn main:app --port 8769 --reload
+# 生产（systemd 直接跑程序化宿主 core/hot_server.py，支持进程内重绑监听地址与 TLS 证书轮换）
+ExecStart=/opt/venvs/axeuh-health/bin/python -m core.hot_server    # 见 deploy/kinship.service.example
 
-# 生产 (HTTPS 8768)
-python -m uvicorn main:app --port 8768 \
-  --ssl-certfile /path/to/cert.pem --ssl-keyfile /path/to/key.pem
+# 开发（单端口 8768；本地开发先把 ssl.enabled 设为 false 再起）
+cd backend && python -m uvicorn main:app --reload --port 8768
 
-# 使用 launcher.py
+# 回滚路径：launcher.py 已退役，只保留后端进程监督逻辑，不再被生产 unit 调用
 cd .. && python launcher.py
 ```
 
@@ -93,8 +97,9 @@ cd .. && python launcher.py
 
 - 多用户支持，token 携带 user_id
 - AuthMiddleware 注入 request.state.user_id
-- Phase 2 已移除 localhost 绕过：所有请求均需 Token（`auth_middleware.py` L90）
-- 公开路径（PUBLIC_PATHS，精确匹配，共 15 条）: `/`, `/favicon.ico`, `/health`, `/login`, `/auth/setup-status`, `/auth/setup`, `/mobile`, `/mobile/`, `/vaudit`, `/vaudit/`, `/preview`, `/preview/`, `/docs`, `/openapi.json`, `/redoc`
+- Phase 2 已移除 localhost 绕过：所有请求均需 Token（`auth_middleware.py` L147）
+- 公开路径（PUBLIC_PATHS，精确匹配，共 16 条）: `/`, `/favicon.ico`, `/health`, `/login`, `/auth/setup-status`, `/auth/setup`, `/mobile`, `/mobile/`, `/vaudit`, `/vaudit/`, `/preview`, `/preview/`, `/docs`, `/openapi.json`, `/redoc`, `/api/p2p/enroll`（P2P 设备配对，配对码即凭据；`p2p.enabled=false` 时由 `P2PDisabledGuardMiddleware` 在认证前回 404，不暴露路由存在性）
+- 另有 `OPTIONAL_AUTH_PATHS`：「可选认证」集合，只尝试注入 Bearer 身份、缺失/无效不拦截（`/api/system/config*`、`/api/system/onboarding/*` 等引导期面），写操作由路由层按用户存在性分别要求引导令牌或 Bearer+密码
 - auth 路由现仅 `/login`、`/auth/setup-status`、`/auth/setup`、`/auth/change-credentials`、`/auth/ws-ticket`（`/logout`、`/auth/check`、`/auth/revoke` 死端点已随 P0-U3 裁除，改密吊销自动生效）
 - 静态资源豁免：`/mobile/`、`/vaudit/`、`/preview/`、`/static` 下匹配扩展名(js/css/html/字体等)的请求
 - query 凭证(`?token=`/`?ticket=`)仅白名单前缀接受（SSE、音频流、文件下载等无法带 header 的场景；含 `/api/pc-sensor/download`，浏览器 `<a download>` 场景）
@@ -110,7 +115,7 @@ cd .. && python launcher.py
 | `notify_filter.json` | `backend/config/` | 通知上行敏感应用黑名单（`blocked_packages`，默认空列表） |
 | `config.py` | `backend/config/` | 61 个 `@property`，`@lru_cache` 单例；V14 收编野生路径属性（`KERNEL_STATE_DIR`/`TASK_LOGS_DIR`/`STREAM_DIR`/`HEALTH_DEVICES_PATH`/`HEALTH_SOURCE_SELECTION_PATH`，逐处新旧值相等断言、物理数据零迁移）+ V5 `MODEL_CONFIG_PATH`（model_config router 写/client 读单一真源，双缓存合一） |
 
-加载顺序：`CONFIG_PATH` 环境变量（launcher.py `--config` 设置）→ `backend/config/config.yaml`（存在时）→ 项目根 `config.yaml`。不支持 `config.local.yaml`。
+加载顺序：`CONFIG_PATH` 环境变量（systemd unit `Environment=CONFIG_PATH=` 或旧回滚路径 launcher.py `--config` 设置）→ `backend/config/config.yaml`（存在时）→ 项目根 `config.yaml`。不支持 `config.local.yaml`。
 
 新增配置项需在 `config.py` 添加 `@property`，在对应 `config.yaml` 添加键。
 
@@ -146,7 +151,7 @@ cd .. && python launcher.py
 ## 重启后端
 
 ```bash
-# 后端 HTTPS 端口 8768（生产，config.yaml）/ HTTP 8769（开发）
+# 后端单端口 8768（生产 config.yaml 的 server.port；不再有独立 HTTP 开发端口）
 # 使用最长有效期的 token 调重启（token 从 backend/config/auth.json 读取，找 expires_at 最大的那条）
 python -c "
 import urllib.request as r, json, ssl
@@ -169,6 +174,14 @@ print(resp.status, resp.read().decode())
 - `services/loom_health.py`：Loom `/health` 探针。
 - `services/phi4_client.py`：Phi-4 实验件（`routers/phi4_api.py` 使用）。
 - `kernel.cpu_affinity` / `kernel.nice` / `audio_compressor.nice`：内核与 ffmpeg 子进程 CPU 亲和/nice（POSIX）。
+
+## 编排层与运行时切换（2026-11 起硬规则）
+
+- **`services/orchestrator/` 是子服务的唯一编排面**：`spec.py` 提供 `ServiceSpec` + 注册表，`kernel_spec.py` / `moss_spec.py` / `loom_spec.py` 各注册一个 spec，`runtime.py` 负责 gate 判定与 start/stop，`child_entry.py` 包一层父死亡保护后 spawn。`main.py` 的 `_register_orchestrator_specs()` 按 **kernel → moss_watcher → loom** 顺序注册，随后后台 `start_all()`（失败只记日志，绝不让异常逃逸到事件循环）。`/api/services` 的服务清单即来自该注册表（`routers/services_status.py`）。
+- **MOSS watcher 已由后端托管**：`moss_watcher` spec 只 spawn `tools/moss-shadow/watcher.py --loop --data-root <DATA_DIR>`，**绝不启停 `axeuh-moss.service`**（vLLM 服务仍归 systemd 常驻）；systemd 单元 `axeuh-moss-watch` 已停用，不要再按单元启停 watcher。
+- **`ai_backend` 是 AI 运行时唯一真源**（顶层 config 键，hot 配置）：`services/ai_client_factory.py` 按它选通道，`services/web_backend_selector.get_web_backend()` 恒等于它，`services/config_reconciler.py` 的派生面 applier `ai_surface` 在热应用时同步 dsh 事件 hub / 工具授权 / 路径推送。**`POST /api/screen/backend` 已退役（410）**，切换只走 `PUT /api/system/config`（写操作需 `require_config_write` 密码校验）；`web_backend.json` 第二真源已归档退役。
+- **dsh 通道是唯一绑定会话**：`services/dsh_client.py` 只与 bridge 暴露的绑定会话通信（显式 session_id 不一致返回 409、不静默替换），`dsh_event_bridge.py` 维护事件 hub，`dsh_paths.py` / `dsh_tool_auth.py` 经 bridge `/v1/kinship/paths`、工具授权面推送；`dsh_health.py` 供 `/health` 的 `dsh` 键。
+
 
 ## 相关文档
 
@@ -195,7 +208,7 @@ print(resp.status, resp.read().decode())
 
 ### 结构
 - 后端: `routers/voiceprint_audit.py` (prefix /api/vaudit, 只读+裁剪, 不含embedding大数组)
-- 前端: `frontend/vaudit/` (纯静态 HTML+CSS+JS 3文件, 无构建, agent可直接改, 刷新生效)
+- 前端: `frontend/vaudit/` (纯静态 HTML+CSS+JS 3文件, 无构建, agent可直接改, 刷新生效)。**2026-11-17 核对：该目录当前不在仓库树中，`/vaudit/` 静态路由实测返回 404**（`frontend/preview/` 同状态）；目录回填与否待用户决策，路由仍挂在 main.py。
   - 改完前端注意 index.html 里 `<script src="...?v=xxx">` 版本号 +1 强制浏览器换缓存
 - 静态托管: main.py `serve_vaudit`, `/vaudit` 无斜杠 307 到 `/vaudit/`
 - 认证: 静态页扩展名豁免; API 要 Bearer; 音频端点浏览器靠 `?token=` query(中间件已支持)

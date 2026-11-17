@@ -10,13 +10,15 @@ Kinship 的手机端界面。运行在 Android App 的 WebView 中，提供 AI �
 
 ```
 src/
-├── api/               # HTTP 客户端 + 14 个 API 模块
-├── components/        # 10 个目录
+├── api/               # HTTP 客户端 + 22 个模块（14 个资源模块 + configDraft/model/plan/services/system/systemTypes + 两个 normalize 助手）
+├── components/        # 12 个目录
 │   ├── chat/          # 聊天 (ChatThread, AssistantMessage, Composer, MarkdownContent, DiagramPreview, ToolRow, ContextInspector, FocusDrawer 等)
+│   ├── code/          # 代码面 (CodeSurface -- 文件预览与 Markdown fence 共用：行号/横滚/JSON 美化)
 │   ├── common/        # 通用 (LoginOverlay, SetupOverlay, SplashLoading, DetailOverlay, AppIcon)
 │   ├── dashboard/     # 仅 GpsMapOverlay（报告页地图）
 │   ├── files/         # 文件 (FileTree, FilePreviewPane, PreviewOverlay, ImagePreview, AudioPreview, SearchResultItem)
 │   ├── notifications/ # 通知抽屉 (NotificationsDrawer) 与 WS 日志抽屉 (WsLogDrawer)
+│   ├── onboarding/    # 引导向导（四步 onboarding 各步骤组件）
 │   ├── plan/          # 计划只读展示 (CoverageStrip, PlanItemRow, LongTaskList)
 │   ├── reports/       # 报告行与健康摘要 (ReportRow, HealthSummaryStrip, VoiceprintSheet, HealthMetricChip)
 │   ├── settings/      # 设置分节 (Account/Appearance/Health/Sources/Device/Debug/About)
@@ -24,8 +26,8 @@ src/
 │   └── voiceprint/    # 声纹 (VoiceprintTab)
 ├── composables/       # 顶层组合式函数 + chat/ + streaming/ (含 queueHandlers/userReconcile)
 ├── config/            # navV2.ts -- 导航/路由/快捷键的单一事实来源
-├── types/             # TypeScript 类型定义 (9 文件)
-├── utils/             # 工具函数 (format, markdown, codeFormat, messageNormalize, tokenUsage, voiceprint)
+├── types/             # TypeScript 类型定义 (10 文件，统一从 index.ts 导出)
+├── utils/             # 工具函数 (format, markdown, codeFormat, messageNormalize, tokenUsage, voiceprint, toolDisplay, toolRegistry, turnAdapter, processGroups, axeuhEnvelope)
 ├── data/              # 静态演示数据 (demoMessages.ts - 统一演示对话, 含电路仿真)
 ├── router/            # hash 模式路由配置 (6 页面 + 404)
 ├── styles/            # CSS 变量/主题/壳层样式
@@ -87,9 +89,8 @@ npm run qa:shots:check -- <dir> 24
 - 生产部署：`npm run build:atomic` 构建到 `dist-<时间戳>`，`npm run verify:dist` 校验后备份旧 `dist/` 并原子替换。仅前端变更无需重启后端，后端代码/路由变更仍需重启。2026-11-15 17:44 生产产物 `assets/index-BuOPVKKc.js` / `assets/index-CDruPafZ.css`（dsh 通道声明与 onboarding 文案；`verify-dist` PASS，1 JS + 1 CSS 引用全在），旧产物备份 `dist-backup-20261115-174416`；历史 2026-10-25 20:06 产物 `assets/index-ClJhwC_O.js` / `assets/index-MFa6qXpn.css`（设置路由 `SettingsView-BnO4yrGQ.js` / `SettingsView-Bx6sYfGe.css`），备份 `dist-backup-20261025-200603`，详见 [../../docs/frontend-settings-redesign-2026-10-25.md](../../docs/frontend-settings-redesign-2026-10-25.md)
 - Android WebView 访问 URL: `https://<host>:<port>/mobile/`
 - 每次修改前端代码后必须 `npm run build`，否则 App 加载的是旧构建产物
-- 原始单文件 SPA (4198 行) 保留在 `index.original.html` 作为备份
 - 所有调试连接用 HTTPS，不要降级到 HTTP
-- 本目录是主前端目录；另有 `frontend/preview/` 与 `frontend/vaudit/`（原 `../refactor/` 测试沙箱已于 2026-09-10 合并删除）；开发直接改 `src/`，`npm run dev` 起带 proxy 的本地开发服务器
+- `frontend/` 下当前只有本目录（`mobile/`）。历史上的 `frontend/preview/`（音频预览台静态页）与 `frontend/vaudit/`（声纹审计静态页）已不在仓库树中——后端 `main.py` 仍挂 `/preview/`、`/vaudit/` 静态路由，但目录缺失时两者返回 404（2026-11-17 实测）；原 `../refactor/` 测试沙箱已于 2026-09-10 合并删除。开发直接改 `src/`，`npm run dev` 起带 proxy 的本地开发服务器
 - **FontAwesome 残留**：`@fortawesome/fontawesome-free` 仍被 `LoginOverlay` / `SetupOverlay` / `DetailOverlay` 的 `fa-` 类使用；这三处迁移到 AppIcon 前不得移除依赖。其余新 UI 只用 `@phosphor-icons/vue`。
 - **WS 日志**：`useWsLog.ts` 是模块级单例，App 注册 WS 处理器，设置→调试→「WS 日志」打开 `WsLogDrawer`；不再有浮动按钮。TTS 音频块不写入日志。
 - 设置页不提供「Web 对话通道」开关；默认通道由后端 `config.yaml` 的 `ai_backend` 决定（W53 起唯一真源，`useChat` 只 GET `/api/screen/backend` 种植、绝不 POST——该 POST 已退役 410），取值含 `opencode/loom/dsh`；已有会话按 sid→backend map 路由；SSE 帧归属按 `payload.properties.backend` 判别；子智能体返父走 `switchSession(parent.sessionId)`

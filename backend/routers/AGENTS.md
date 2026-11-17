@@ -1,7 +1,7 @@
 # Routers - API 路由层
 
-**更新时间**: 2026-11-15（W53 harness 切换入口收敛：`ai_backend` 单一真源、`web_backend.json` 退役归档、`/api/screen/backend` 只读化与 POST 410；W44/W45/W46 双通道会话分账：session 双源聚合+backend 显式路由+switch 收编、events 双 hub 并存、backend POST 与 hub 解耦；W30 新增 web_backend.py 路由；后续新增 health_cloud.py / reminders.py；此前 P0 死接口裁剪 + P1/P2/P3 波次收敛 V2~V19，详见 `../../docs/archive/audit/2026-10-08/`）
-**文件数**: 25 个路由文件（不含 `__init__.py`；P0 删 3 死路由后 22，后续新增 web_backend.py / health_cloud.py / reminders.py，现 25）
+**更新时间**: 2026-11-17（核对 39 个路由文件；补登记 system_config / 四个 onboarding 子域 / clients / p2p / plan / services_status / sources 等 14 个未登记模块）
+**文件数**: 39 个路由文件（不含 `__init__.py`；`ls backend/routers/*.py | wc -l` 为 40，含 `__init__.py`。P0 删 3 死路由后 22，随后逐波新增 web_backend / health_cloud / reminders / p2p / plan / services_status / sources / system_config / system_onboarding / onboarding_{startup,storage,clients,finish,qq,xiaomi} / loom_onboarding / moss / clients，现 39）
 **挂载前缀**: 多数路由只设 tags，真实前缀由 main.py `include_router` 决定；部分文件自带 prefix
 
 ## 概述
@@ -17,9 +17,17 @@ FastAPI 路由层，按业务领域分文件组织。提供 REST API 和 WebSock
 | `admin.py` | `/api/admin` | - | cohort 维护(compact/reload/stats，纯内核转发壳，转 `/v1/voiceprint/cohort/*`)；V10 后 import 面 voiceprint_service 清零（cohort 真相源全在内核 state-dir） |
 | `audio_stream_ws.py` | tags audio-stream-websocket | - | 音频流 WS `/ws/audio-stream`（接收连续 PCM，非阻塞喂给唤醒词状态机；B1 起并行经内核桥 `WS /v1/stream` 转发 PCM，KWS 命中 `wakeup.hit` 帧桥回状态机，**内核不可达=降级不唤醒**；`audio_start` 支持 `local_hit`（端侧命中，外层不做 KWS 解码）与 `test`（云端测试，回推 `kws_test_result` 不投递 AI）；断开/audio_stop 时清理） |
 | `auth_api.py` | tags auth | - | 登录/鉴权/初始化/凭据管理（logout/check/revoke 三死端点已于 P0-U3 裁除；改密自动吊销在 `auth.change_credentials` 内生效） |
+| `clients.py` | tags clients | - | 客户端下载与引导目录：`GET /api/system/onboarding/clients`（引导期「客户端」步骤快照）+ `GET /api/clients/desktop/download`（桌面端安装包下载）；main.py 以 `onboarding_clients_router` 名字挂载 |
 | `events.py` | tags events | `/api/screen` | SSE 事件流 → `/api/screen/events/stream`（W44 双通道分账：per-backend 双 hub 并存——`_hubs` 注册表分槽懒建幂等、Web 通道漂移**不停旧 hub**，loom 槽恒用 `services.loom_client` 模块单例；`/events/stream` 一条共享队列同时订阅两 hub **多路复用**双流，None 哨兵只终结本响应流、finally 两 hub 一并退订；每条 data 帧在 properties 注入 `backend="opencode"\|"loom"` 通道标——纯增量字段，properties 缺失不注入不造壳、非 dict 原样照发，老前端可忽略；`_stop_hub` 保留为单 hub 关停原语，`reset_event_hub` 降级为测试/lifespan 专用 teardown-all；遗留缺口：opencode hub 上游 aiohttp 直连不带 `Authorization: Basic`，启用 `OPENCODE_SERVER_PASSWORD` 前须先收编） |
 | `health.py` | `/api/health` | - | 健康数据同步/查询（source 切换/dates/upload-db 旁路已于 P0-U3 裁除） |
 | `health_cloud.py` | `/api/health/cloud` | - | 小米健康云扫码登录/状态/回填/开关 |
+| `loom_onboarding.py` | `/api/system/onboarding/loom` | - | Loom 引导 API：`GET ""` / `GET /runtime` / `POST token/ensure`·`config/ensure`·`start`·`stop`·`setup`·`validate`·`apply`·`restart`。读取/校验要求 Bearer 用户 Token，应用/重启额外要求当前密码（无用户时走 `X-Setup-Token`，由 `require_config_write` 统一裁决）；响应永不含 Loom Token 或 provider 密钥，只含发现来源与指纹 |
+| `moss.py` | `/api/system/onboarding/moss` | - | MOSS 引导 API：只托管 `enabled` / `base_url` / `model` 三项配置（`GET ""`、`POST /config`）。**只读写配置，不探测网络、不启停任何服务或 systemd 单元**；写入时顺带清除旧版 `moss.manage_units` 遗留键；响应只含生效配置与 `starts_after_finish`，永不返回凭证。main.py 以 `moss_onboarding_router` 名字挂载 |
+| `onboarding_finish.py` | `/api/system/onboarding/finish` | - | v4 完成引导：`GET` 只读收口快照，`POST` 执行合并后的 finish（只调 `services.onboarding_finish.run_finish`，不复制预检/启动/激活逻辑）；失败统一返回 `FinishError.payload()`，响应不含令牌/密码/配置密钥 |
+| `onboarding_qq.py` | `/api/system/onboarding/qq` | - | QQ 网关引导：`GET ""`、`POST /validate`（只读，不建密钥目录不写配置）、`POST /config`（先校验后写盘，失败 422 零写入）；响应只含脱敏状态与布尔，永不返回 token 内容或 token 文件路径；成功只标记 `starts_after_finish` |
+| `onboarding_startup.py` | `/api/system/onboarding/startup` | - | 启动期校验 API（Wave 2 T11）：`GET ""`（最近启动报告 + 实时运行状态）、`POST /attempt`（拉起校验态服务面）、`POST /validate`（只读探测）、`POST /abort`（停止并重置，便于重试） |
+| `onboarding_storage.py` | `/api/system/onboarding/storage` | - | 存储选择 API（Wave 3 T16）：`GET ""` 返回 `services.storage_layout` 的只读快照，`POST ""` 校验并写入绝对路径 `models.dir`。**从不创建目录、不迁移/删除缓存、不接受 `data.root`** |
+| `onboarding_xiaomi.py` | `/api/system/onboarding/xiaomi` | - | 小米健康云引导：`GET ""`、`POST /config`、`POST /qr`、`POST /qr/poll`。只写配置/运行时状态，不启动后台拉取线程也不发起首次拉取；响应只含脱敏 userid，永不返回 passToken |
 | `reminders.py` | `/api/reminders` | - | 提醒板读写 |
 | `maintenance.py` | `/api/screen` | - | 维护管理(重启) → `/api/screen/restart` |
 | `mimo.py` | tags mimo | `/api` | MiMo 音频拉取 → `/api/mimo/audio/{filename}` |
@@ -27,12 +35,18 @@ FastAPI 路由层，按业务领域分文件组织。提供 REST API 和 WebSock
 | `model_config.py` | `/api/screen` | - | 模型设置 |
 | `notifications.py` | tags 通知推送 | `/api` | 通知推送 → `/api/notification/*`（send 写内存历史上限 100 后经 `component_manager` WS 推送，慢客户端 2s 超时放弃；poll 兜底死端点已于 P0-U4 裁除；history 单条删除前端 apiPost 打 DELETE-only 路由必 405 的错配已于 P1-V19 增 apiDelete 改真 DELETE 修复） |
 | `ota.py` | `/api/ota` | - | OTA 更新（download/info；check 死端点已于 P0-U4 裁除，App 走本地 update.json） |
+| `p2p.py` | `/api/p2p` | - | P2P 设备配对与短时信令票据（Phase 1）：`p2p.enabled=false` 时整组 404（`P2PDisabledGuardMiddleware` 在认证前拦截，不暴露路由存在性）；`/api/p2p/enroll` 是 PUBLIC_PATHS 里唯一公开路径（配对码自身即凭据）。**任何日志都不得输出配对码、设备 token、信令票据或 SDP/ICE 载荷**；运行时在 `services/p2p/` |
 | `pc.py` | `/api/pc` | - | PC 感知数据接收 |
 | `pc_sensor_download.py` | `/api/pc-sensor` | - | PC 采集端 exe 下载(info/download) |
 | `perception.py` | `/api/screen/stt` | - | 感知事件/语音会话上报（multipart 分段经 `_ingest_continuity` 进入按 `device_id` 的无缝流（时间连续即同一条流；静音端点切分委托内核 WS segment 通道，详见 `../../backend/AGENTS.md` 音频章节）；JSON 版 voice-session 死入口与 notify sidecar 双写已于 P0-U5 裁除；V17 起 import 无副作用——不在 import 期建单例，sweep sink 接线显式移入 `main.py` lifespan，关停经 `peek_audio_ingest_registry()` 限时 `stop_sweeper()` 防反向创建） |
+| `plan.py` | tags 计划 | `/api` | 计划板**只读**路由（Plan API v1）：`GET /api/plan/long-tasks`、`GET /api/plan/{date}`、`GET /api/plan/{date}/effective`；数据全部经 `_cfg.DATA_DIR` 从文件系统读，**本模块不写任何文件**。计划文件不存在返回 `plan: null`（不是 404），`coverage.yaml` 不存在返回 `coverage: null` |
 | `preview.py` | `/api/preview` | - | 音频处理预览台(只读；硬编码阈值改读配置；读侧收编 `perception_reader`、ffmpeg 定位/裁剪统一 `audio_codec`；每块 vs 注册质心评分经 kernel_client 走内核 `score_all_v2`，内核不可达时降级 sim=null) |
 | `phi4_api.py` | `/api/preview`(共用前缀) | - | Phi-4 音频理解测试端点：status(非阻塞探活)/start(异步 spawn 常驻服务)/run(裁 wav→phi4_serve 独立进程推理)；服务经 services/phi4_client.py 懒启动+pidfile 复用(conda phi4mm 隔离环境)，不可达一律 200+ready:false |
+| `services_status.py` | `/api` tags services | - | 服务状态与运维闸门：`GET /api/services`（只投影 `Orchestrator.snapshot()` 的公开字段，不探测端口、不读命令行/env、不触发 start/stop）+ `POST /api/services/{service_id}/pause|resume`（直接调编排器，未知 id 404；`AXEUH_ORCHESTRATOR=off` 时禁用）；鉴权在全局 Bearer 之外再走 `require_config_read`，device/service token 一律拒绝 |
 | `session.py` | `""`(tags session) | `/api/screen` | 会话管理 → `/api/screen/session/*`（发消息时读 `X-Device-Id` + `X-Client-Type` 刷新设备回传通道；for-agent/current/bind-main-task/abort/stats/agent/active 八条孤儿端点已于 P0-U2 裁除；V6 拍扁三级栈后 handler 经 `ai_client_factory.acquire_ai_client` 直连 opencode_client 信封公共层，原 OpenCodeGateway 已退役；W30 起 web 对话端点（create/message/list/messages/children/summarize/switch）经 `services/web_backend_selector` 择路（W53 起该 selector 不再持第二真源：`get_web_backend()` 恒等于顶层 `ai_backend`），智能体绑定写 `"<backend>:<agent>"` 命名键、opencode 读侧保留裸键别名（语音兼容），chatlog 默认跟随全局 ai_backend（W55 起 dsh 分支目标恒为 bridge 绑定会话：显式 session_id 不一致返回 409、绝不静默替换；`include_children` 标 `children_unsupported` 并跳过；W56 起增可选 `backend=opencode|loom|dsh`——loom 走离线会话日志 `<AI_ROOT>/.loom/session/loom-main.jsonl` 不要求 Loom 进程在线，dsh 可显式直查；响应新增 `requested_session_id`/`resolved_by`/`children_unsupported`/`backend`/`source` 只增字段）。W44 分账：`/session/list` 双源聚合=远端 opencode ∪ 远端 loom ∪ 仅本地 session_history，归一新键 `sessions`（条目 `{session_id,title,date,updated,backend}`，sid 去重远端元数据优先、updated ms 降序）+ 诊断键 `loom_sessions`（loom 原始腿）/`partial`（失败腿名单；实现为 `[]` 非 null=全量可信；恒 200 永不 500）；旧三键 `local_sessions/opencode_sessions/current_session` 名形冻结，`opencode_sessions` 从此恒 opencode 原始腿（修正 W30 混装）；`local_sessions` 空回退死键修复（opencode 真时间=`time.created/time.updated` ms，顶层 `created_at` 不存在，仅留旧桩回落）。message body 与 messages/children query 增可选 `backend` 显式路由：None/""透传=当次 Web 热切换通道（逐字节老语义），非法值 400 零副作用，显式腿直调 `acquire_opencode_client_direct`/`acquire_loom_client_direct` 通道原语、绝不经全局工厂与通道缝。messages 端点：`GET /session/{id}/messages` 默认 `limit=50`、支持 `before` 游标上翻；`?backend=loom` 路由到 `loom_client.get_session_messages`（内部 `loom_messages` 页级转换、上游游标恒透传，仅译后空页置 None）；孤儿 toolResult 原位壳规则见 `../services/AGENTS.md`。W46 switch 收编：`POST /session/switch` 可选 `backend`/`title`，有效通道=backend 或全局值；本地注册表命中**不核验 engine**（响应逐键等于旧四键形状），本地查无向有效通道 engine 核验 `get_session_status`——存在即收编登记进 history 并设为当前（200 同构）、engine 自报 `"HTTP 404"` 照旧诚实 404、不可达 503 SERVICE_UNAVAILABLE 零副作用；switch 成功一律随**有效通道**写命名键（修正随全局值漂移）；engine 直建/未注册会话 UI 点选不再被 404 阻断。遗留：create 处理器仍无条件写全局 `set_current_session`（loom 通道下亦如此，待收编波）；summarize 走通道缝，web=loom 时命中 loom_client 核内自动压缩垫圈（静默无害，见文末遗留登记）） |
+| `sources.py` | `/api` tags sources | - | 数据源健康：`GET /api/sources/health`（单个数据源采集失败只降级 unknown，不拖垮整个响应；错误响应固定 `{"detail": ...}` 形状，不套 success/error 信封） |
+| `system_config.py` | `/api/system`（另有 `draft_router` = `/api/config`） | - | 系统配置 API（N13）：`GET /api/system/config`（快照，经 `masked_config()`）/`config/schema`/`config/status`、`POST config/validate`、`PUT config`（ConfigStore 热写 + 应用器）、`POST config/restart`（仅作部署接线变更的兼容拒绝端点）；错误信封统一 `{code, message, errors?}`，响应与日志都不出现明文密钥。`draft_router` 提供草稿面 `/api/config/*`，main.py 两条都挂 |
+| `system_onboarding.py` | `/api/system/onboarding` | - | 系统引导（N14）：`GET /preflight`·`/status`·`/assets`·`/models`、`POST /state`·`/action`·`/assets/download`·`/models/download`、`GET /jobs/{job_id}`、`POST /jobs/{job_id}/cancel`。GET 公开只读，写入端点按用户存在性分别使用引导令牌或 Bearer+当前密码；错误响应一律 `{code, message}` |
 | `web_backend.py` | `""`(tags web-backend) | `/api/screen` | W53 收敛后的 AI 后端读镜像：`GET /api/screen/backend` 直接读 config.yaml 顶层 `ai_backend`（现读快照，返回 `{"ok":true,"backend":...,"options":["opencode","loom","dsh"]}`）；`POST` 已退役→410 `{"ok":false,"error":...}`，**不提供任何绕过配置写入密码校验的旁路**（切换入口统一在 `/api/system/config`，写操作需 `require_config_write`）。旧 W30 状态文件 `web_backend.json` 不参与择路，后端启动时由 `services.web_backend_selector.deprecate_legacy_state()` 改名归档为 `.deprecated-<时间戳>` 留证；鉴权走标准 `/api/screen` Bearer 中间件 |
 | `speakers.py` | `/api/screen/speakers` | - | 声纹管理（Form/阈值默认值改读配置）；list/enroll/delete/identify 四端点经 kernel_client 直出内核 `/v1/voiceprint/*`，内核注册表为唯一事实源（V10 外层镜像整文件退役、无 shadow 读路径）；注册音频文件位置归外层 `DATA_DIR/voice/`（`GET /{speaker_id}/audio` 文件直返）；单查/verify 死端点已于 P0-U4 裁除 |
 | `tts.py` | tags tts | `/api/screen` | TTS 语音合成 → `/api/screen/tts/speak·synthesize`（定向最近发消息设备；回退 `tts.fallback_client_types`，无目标静默丢弃；stop/status 死端点已于 P0-U3 裁除） |
@@ -73,6 +87,12 @@ FastAPI 路由层，按业务领域分文件组织。提供 REST API 和 WebSock
 | cohort 重建 | `/api/admin/cohort/compact` | POST |
 | cohort 重载 | `/api/admin/cohort/reload` | POST |
 | cohort 统计 | `/api/admin/cohort/stats` | GET |
+| 系统配置读写（AI 运行时切换唯一入口） | `/api/system/config` | GET / PUT（PUT 需 `require_config_write` 密码校验；错误信封 `{code, message, errors?}`） |
+| 服务状态与启停闸门 | `/api/services`、`/api/services/{id}/pause`、`/api/services/{id}/resume` | GET / POST（编排器快照；`AXEUH_ORCHESTRATOR=off` 时禁用） |
+| 计划板（只读） | `/api/plan/long-tasks`、`/api/plan/{date}` | GET |
+| 数据源健康 | `/api/sources/health` | GET |
+| P2P 设备配对 | `/api/p2p/enroll` | POST（PUBLIC_PATHS 唯一公开路径，配对码即凭据；`p2p.enabled=false` 时整组 404） |
+| 引导完成 | `/api/system/onboarding/finish` | GET / POST（`POST` 需配置写授权） |
 
 ## W44/W46 遗留登记（2026-10-15 双通道会话分账波，T5 门禁如实落字）
 

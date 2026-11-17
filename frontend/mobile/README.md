@@ -6,7 +6,7 @@
 
 ## 项目概述
 
-本项目是 Kinship 健康监测系统的手机端前端界面。原始版本是一个 4198 行的单文件 SPA（`index.original.html`），已完整迁移为模块化的 Vue 3 + Vite + TypeScript 架构。
+本项目是 Kinship 健康监测系统的手机端前端界面。原始版本是一个 4198 行的单文件 SPA，已完整迁移为模块化的 Vue 3 + Vite + TypeScript 架构（原备份文件 `index.original.html` 已不在仓库树中）。
 
 用户通过 Android App 内的 WebView 加载此界面，实现与后端 AI 服务的交互，包括实时聊天、提醒板、报告查看、文件浏览和系统设置等功能。
 
@@ -23,7 +23,7 @@
 | TypeScript | ~5.7.0 | 类型系统 (strict 模式) |
 | Vue Router | ^4.5.0 | 路由 (hash 模式) |
 | @phosphor-icons/vue | 2.2.1 | 界面图标 (v2 壳层、聊天、设置) |
-| @fontawesome/fontawesome-free | ^6.5.1 | 登录/初始化/详情浮层的遗留图标 (待迁移到 AppIcon) |
+| @fortawesome/fontawesome-free | ^6.5.1 | 登录/初始化/详情浮层的遗留图标 (待迁移到 AppIcon) |
 | 百度地图 JS API (BMap) | v3.0（外部脚本） | GPS 轨迹地图展示，AK 构建时注入 |
 | KaTeX | ^0.18.1 | 数学公式渲染 (Markdown 中 LaTeX) |
 | Mermaid | ^11.16.0 | 流程图/时序图渲染 (Markdown ```mermaid 块) |
@@ -49,7 +49,7 @@
 ```
 frontend/mobile/
 ├── src/
-│   ├── api/                    # API 客户端层 (14 个模块)
+│   ├── api/                    # API 客户端层 (22 个模块: 14 个资源模块 + configDraft/model/plan/services/system/systemTypes 等)
 │   │   ├── client.ts           # HTTP 客户端 (原生 fetch 封装, 自动注入 auth, 401 触发登录层)
 │   │   ├── backend.ts          # AI 后端只读回显 (GET /api/screen/backend；POST 已退役 410)
 │   │   ├── health.ts           # 健康数据 API (/api/mobile/dashboard + /api/health/query, 供报告摘要/声纹使用)
@@ -65,13 +65,16 @@ frontend/mobile/
 │   │   ├── downloads.ts        # 客户端下载 (PC 采集端 exe, 经一次性票据)
 │   │   └── ws.ts               # WebSocket 客户端
 │   │
-│   ├── components/             # Vue SFC, 按职责分目录
+│   ├── components/             # Vue SFC, 按职责分 12 个目录（共 96 个 .vue）
 │   │   ├── chat/               # ChatThread / AssistantMessage / Composer / MarkdownContent / DiagramPreview /
 │   │   │                       # ToolRow / ContextInspector / FocusDrawer / SkeletonMessages
+│   │   ├── code/               # CodeSurface（文件预览与 Markdown fence 共用: 行号 / 横滚 / JSON 美化）
 │   │   ├── common/             # LoginOverlay / SetupOverlay / SplashLoading / DetailOverlay / AppIcon
 │   │   ├── dashboard/          # GpsMapOverlay (报告页地图)
 │   │   ├── files/              # FileTree / FilePreviewPane / PreviewOverlay / ImagePreview / AudioPreview / SearchResultItem
 │   │   ├── notifications/      # NotificationsDrawer / WsLogDrawer
+│   │   ├── onboarding/         # 四步 onboarding 向导组件
+│   │   ├── plan/               # CoverageStrip / PlanItemRow / LongTaskList
 │   │   ├── reports/            # ReportRow / HealthSummaryStrip / HealthMetricChip / VoiceprintSheet
 │   │   ├── settings/           # SettingsSection + Account/Appearance/Health/Sources/Device/Debug/About
 │   │   ├── shell/              # AppShell / SideNav / MobileNav / PageHeader
@@ -88,12 +91,13 @@ frontend/mobile/
 │   │
 │   ├── config/
 │   │   └── navV2.ts            # 导航单一事实来源 (路由/图标/Ctrl+1~6 快捷键)
-│   ├── types/                  # 9 个类型文件, 由 index.ts 统一导出
-│   │   ├── index.ts / api.ts / chat.ts / health.ts / gps.ts / files.ts / reports.ts / turn.ts / voiceprint.ts
+│   ├── types/                  # 10 个类型文件, 由 index.ts 统一导出
+│   │   ├── index.ts / api.ts / chat.ts / health.ts / gps.ts / files.ts / plan.ts / reports.ts / turn.ts / voiceprint.ts
 │   ├── router/
 │   │   └── index.ts            # 路由配置 (6 个页面 + 404, hash 模式)
 │   ├── styles/                 # CSS 变量/主题/壳层样式 (variables, tokens, shell, themes/4 等)
-│   ├── utils/                  # format / markdown / messageNormalize / tokenUsage / voiceprint
+│   ├── utils/                  # format / markdown / codeFormat / messageNormalize / tokenUsage / voiceprint /
+│   │                           # toolDisplay / toolRegistry / turnAdapter / processGroups / axeuhEnvelope
 │   ├── data/
 │   │   └── demoMessages.ts     # 统一演示对话 (未登录/调试开关, 含电路仿真案例)
 │   ├── views/                  # 6 个页面视图 + NotFound
@@ -101,9 +105,10 @@ frontend/mobile/
 │   ├── App.vue                 # 根组件 (router-view + 登录/初始化覆盖层 + 通知/WS 抽屉 + 快捷键)
 │   └── main.ts                 # 入口文件 (挂载 app 和 router)
 │
-├── e2e/
+├── e2e/                        # 14 个 .spec.ts（约 32 个 test()）
 │   ├── foundation.spec.ts      # 构建产物 /mobile/ + 认证门禁
-│   └── visual.spec.ts          # 截图矩阵 (6 surface x 2 主题 x 2 视口)
+│   ├── visual.spec.ts          # 截图矩阵 (6 surface x 2 主题 x 2 视口)
+│   └── settings-layout / settings-cascade / onboarding-gate / ui-fix-* 等回归用例
 ├── tests/unit/                 # Vitest 测试文件
 │   ├── App.test.ts
 │   ├── api/                    # files / session / sse / ticket / ws / downloads / backend
@@ -116,7 +121,6 @@ frontend/mobile/
 │   └── circuitjs1/             # 运行时目录 (gitignored, 由 scripts/fetch-circuitjs.mjs 抓取)
 ├── dist/                       # 构建产物 (Vite build 输出)
 ├── index.html                  # Vite 入口 HTML
-├── index.original.html         # 原始单文件 SPA (备份, 4198 行)
 ├── playwright.config.ts        # Playwright 配置
 ├── vite.config.ts              # Vite 构建配置
 ├── vitest.config.ts            # Vitest 测试配置
@@ -143,6 +147,7 @@ const router = createRouter({
   routes: [
     { path: '/', redirect: '/chat' },
     { path: '/chat', component: () => import('@/views/ChatView.vue'), meta: { shell: 'v2' } },
+    { path: '/plan', component: () => import('@/views/PlanView.vue'), meta: { shell: 'v2' } },
     { path: '/reminders', component: () => import('@/views/RemindersView.vue'), meta: { shell: 'v2' } },
     { path: '/reports', component: () => import('@/views/ReportsView.vue'), meta: { shell: 'v2' } },
     { path: '/files', component: () => import('@/views/FilesView.vue'), meta: { shell: 'v2' } },
@@ -318,7 +323,7 @@ npm run preview
 4. 静态产物按请求读取，仅前端变更无需重启后端；后端代码/路由变更仍需重启
 5. Android WebView 加载 URL: `https://<host>:<port>/mobile/`
 
-当前生产部署（2026-10-25 20:06 CST）：`https://health.example.com/mobile/`（IPv4）与同域名 `:8443`（IPv6）；产物 `assets/index-ClJhwC_O.js` / `assets/index-MFa6qXpn.css`，设置路由 `SettingsView-BnO4yrGQ.js` / `SettingsView-Bx6sYfGe.css`；旧产物备份 `frontend/mobile/dist-backup-20261025-200603`。部署记录见 [../../docs/frontend-settings-redesign-2026-10-25.md](../../docs/frontend-settings-redesign-2026-10-25.md)。
+当前生产产物（2026-11-15 17:44 CST 构建，`dist/index.html` 实测引用）：`assets/index-BuOPVKKc.js` / `assets/index-CDruPafZ.css`；旧产物备份 `frontend/mobile/dist-backup-20261115-174416`。历史 2026-10-25 20:06 产物 `assets/index-ClJhwC_O.js` / `assets/index-MFa6qXpn.css`（设置路由 `SettingsView-BnO4yrGQ.js` / `SettingsView-Bx6sYfGe.css`），备份 `dist-backup-20261025-200603`；部署记录见 [../../docs/frontend-settings-redesign-2026-10-25.md](../../docs/frontend-settings-redesign-2026-10-25.md)。承载域名按部署实例而定，本文不写具体主机。
 
 > **注意**：每次更新前端代码后需重新构建并原子替换 `dist/`，否则 Android App 加载的仍是旧构建产物。仅前端变更无需重启后端；后端代码或路由变更仍需重启。
 
@@ -334,7 +339,7 @@ npm run test:unit
 
 - 框架: Vitest 3 + happy-dom (DOM 环境)
 - 配置: `vitest.config.ts` (与 Vite 共享别名配置)
-- 数量: 91 个测试文件 / 973 个用例
+- 数量: 128 个测试文件（`it()`/`test()` 调用约 1332 个）
 - 覆盖范围:
   - API: files、session、sse、ticket、ws、downloads、backend
   - 组件: 聊天 (ChatThread、AssistantMessage、Composer、MarkdownContent、DiagramPreview、ToolRow、ContextInspector、ConfirmDialog、MeterBar、FocusDrawer)、壳层 (AppShell)、通知 (NotificationsDrawer、WsLogDrawer)、设置 (SettingsView、SettingsDebug、Appearance/Account/Sources)、报告 (ReportRow、HealthSummaryStrip、VoiceprintSheet)、地图 (GpsMapOverlay)
@@ -389,18 +394,18 @@ Authorization: Bearer <token>
 
 ## 迁移状态
 
-原始版本为单文件 SPA（`index.original.html`，4198 行），已完整迁移至模块化的 Vue 3 + Vite + TypeScript 架构。迁移覆盖：
+原始版本为 4198 行的单文件 SPA（备份文件 `index.original.html` 已不在仓库树中），已完整迁移至模块化的 Vue 3 + Vite + TypeScript 架构。迁移覆盖：
 
-- [x] 组件拆分 -- 9 个组件目录，共 58 个 Vue SFC
-- [x] 类型系统 -- 9 个类型文件，`index.ts` 统一导出
+- [x] 组件拆分 -- 12 个组件目录，共 96 个 Vue SFC
+- [x] 类型系统 -- 10 个类型文件，`index.ts` 统一导出
 - [x] 组合式函数 -- 26 个顶层 composables (+ chat/streaming 子模块) 管理状态和逻辑
-- [x] API 层 -- 14 个 API 模块封装后端接口
+- [x] API 层 -- 22 个 API 模块封装后端接口
 - [x] 样式模块化 -- 12 个全局样式文件 (8 个顶层 + 4 套主题) 按职责分离
 - [x] 配置集中 -- `config/navV2.ts` 作为导航/路由/快捷键单一事实来源
 - [x] v2-only 壳层 -- 旧双布局、看板、旧导航与浮动按钮已删除
-- [x] 测试覆盖 -- 91 个单元测试文件 / 973 个用例 + 全量 49 个 Playwright 场景
+- [x] 测试覆盖 -- 128 个单元测试文件（约 1332 个 `it()`/`test()`）+ 14 个 Playwright spec（约 32 个场景）
 - [x] 构建脚本 -- Vite 构建 + vue-tsc 类型检查 (`build:atomic` 输出 dist-<时间戳>；`build:e2e` 输出 dist-e2e)
-- [x] 原始文件保留 -- `index.original.html` 作为备份
+- [x] 原始单文件 SPA 已不再保留在仓库树（迁移完成，历史版本见 git 历史）
 
 ---
 

@@ -1,7 +1,7 @@
 # Services - 业务服务层
 
-**更新时间**: 2026-11-15（W53 harness 切换入口收敛：WebBackendSelector 去掉第二真源、`web_backend.json` 退役归档、`ai_backend` 热应用补派生面 applier `ai_surface`；此前 2026-10-25 QQ 操作迁移到 ai/skills/qq-cli；新增 health_cloud_service.py / reminders_store.py / loom_health.py / phi4_client.py / qq_mcp_server.py 与 qq_gateway/ 包；W30 新增 web_backend_selector.py + stt_session_manager 绑定迁移；此前 P0 死件裁剪 + P1/P2/P3 波次收敛 V2~V19，详见 `../../docs/archive/audit/2026-10-08/`）
-**文件数**: 42 个顶层 Python 文件（`ls backend/services/*.py | wc -l` 实数，含 `__init__.py`；另有 `health/`、`scripts/`、`qq_gateway/` 子目录，`storage/` 已随 P0-U6 死件裁剪删除）
+**更新时间**: 2026-11-17（核对 79 个顶层 .py + 5 个子包；补登记 dsh 通道 6 件、orchestrator/ p2p/ 两个新子包、onboarding 系列 6 件、内核资产/模型清单 5 件、发行与客户端资产 4 件、配置热应用/授权 2 件、数据源健康与就绪门控 3 件、音频分析 pipeline/queue 2 件、Loom 运行时 4 件、MOSS 2 件）
+**文件数**: 79 个顶层 Python 文件（`ls backend/services/*.py | grep -v __init__ | wc -l` 实数，不含 `__init__.py`；含 `__init__.py` 为 80）+ 5 个子包：`health/`(5 py)、`orchestrator/`(7 py)、`p2p/`(11 py)、`qq_gateway/`(17 py)、`scripts/`(1 py)。`storage/` 已随 P0-U6 死件裁剪删除
 **模式**: 全局单例 + 工厂函数
 **边界**: **零音频算法实现、零 ML import**（Wave C1-C5 物理删除 17 个算法文件 + 本地切分器；一切音频计算经三条内核通道 `kernel_client.py` / `kernel_job_client.py` / `segment_channel.py` 调用闭源内核 `kernel/`；内核不可达=降级不回退）
 
@@ -56,7 +56,7 @@
 
 > **两路 max_chunk 口径不同**：上传无缝流取 `stitch.max_chunk_s`（120s），WS 直播流由 `audio_stream_session` 把 `force_cut_s`（60s）作为 `max_chunk_s` 传给内核——同一内核键、不同外层来源，调参勿混。
 
-### AI 通道（OpenCode / Loom 双通道）
+### AI 通道（OpenCode / Loom / dsh 三通道）
 
 | 服务 | 文件 | 职责 |
 |------|------|------|
@@ -65,6 +65,16 @@
 | OpenCodeClient | `opencode_client.py` | OpenCode API 客户端（V6 起含信封公共层，原 OpenCodeGateway 已退役拍扁；裸传输改 `_raw_*`，mock/默认模型注入下沉同名方法） |
 | LoomClient | `loom_client.py` + `loom_messages.py` | Loom harness 通道客户端与**页级**消息形状转换（与 opencode 信封逐键同构）：toolResult 按 `toolCallId` 并回同页 assistant toolCall part，同页无宿主的孤儿原位保留独立壳（规则见下节） |
 | LoomSessionLog | `loom_session_log.py` | **W56 新增**：Loom 主会话追加日志 `<AI_ROOT>/.loom/session/loom-main.jsonl` 的只读离线读取层（chatlog 的 loom 腿，不要求 Loom 进程在线）。反向分块扫描 + 时间窗过滤（早于 start_ms 即停），user 字符串 / assistant block 列表归一为（正文, 工具名），thinking 与 toolResult 跳过，坏行逐行容错；只读当前文件，不扫 `.bak-*` 轮转备份 |
+| LoomMainSession | `loom_main_session.py` | **T5 新增**：Loom 主会话唯一解析入口。真源=`GET /sessions/main`：200 以返回 sessionID 覆盖本地 `loom:main-task` 绑定（陈旧绑定自愈）、404 表示无主会话；后端 web 会话端点不得再经 `GET /sessions` 列表或自建随机会话取 Loom 会话 |
+| LoomRuntime | `loom_runtime.py` | **T6 新增**：跨平台运行时管理——模式探测矩阵 `systemd`（有 systemctl + `axeuh-loom` 单元）> `child`（有 node + `loom-harness/packages/server/dist/cli.js`）> `none`；token/配置供给与子进程生命周期。发行版 dist 被 gitignore 且不在发布清单，缺件时如实返回 `none` |
+| LoomSetup | `loom_setup.py` | 一次性托管初始化（向导专用），严格顺序：校验端口/供应商 → 供应商探活（`/models`）→ 持久化 `loom.url` → 补齐 AI 实例与 Loom token → 生成 `ai/.loom/config.yaml` → 重启/启动 Loom → health+catalog 验证 → 持久化 `ai_backend=loom` 与 `loom.token_file` |
+| LoomOnboarding | `loom_onboarding.py` | Loom 引导服务（T8）：token 自动发现顺序固定 `config.yaml loom.token` > env `LOOM_TOKEN` > `loom.token_file`（读 `LOOM_TOKEN=` 行）> `loom.credentials_file`；对外只返回 `found/source/fingerprint`，永不回传 token 明文 |
+| DshClient | `dsh_client.py` | 后端到 dsh `kinship-bridge` 插件的 HTTP 客户端，公开接口面与 `LoomClient`/`OpenCodeClient` 同构（同名方法/同签名/同 `{"ok","data","error"}` 信封），由 `ai_client_factory` 按 `ai_backend` 择路；**只与 bridge 暴露的唯一绑定会话通信** |
+| DshMessages | `dsh_messages.py` | 纯函数：bridge `GET /v1/session/messages` 的扁平行 / `/v1/session/children` 的子会话行 → 后端消费形状，无 IO |
+| DshEventBridge | `dsh_event_bridge.py` | 纯状态机（无 IO）：把 bridge `GET /v1/session/events` 的两类帧（durable Session 事件 + live 助手流）转译成前端 SSE 词表 |
+| DshHealth | `dsh_health.py` | `/health` 的 dsh 就绪缓存，与 `loom_health.py` 同构（模块级缓存 + 后台探针 + 公开读取器）；探针调 `DshClient.health_check()`（bridge `GET /v1/health`，异常也返回 offline 信封不外抛） |
+| DshPaths | `dsh_paths.py` | 把 Kinship 数据路径推给 dsh 计划调度器（bridge `POST /v1/kinship/paths`）：plan master/overlay 路径由后端在生命周期点主动推送一次（`reason` 仅作诊断标签 boot/data_paths/ai_surface/health），bridge 缓存后供排班器定位数据根 |
+| DshToolAuth | `dsh_tool_auth.py` | 把后端内部地址 + 长期 service token 推给 dsh bridge（工具回调凭据，`POST /v1/kinship/tool-auth`）；bridge 只放内存不落盘，GET 只回脱敏状态 |
 
 #### Loom 历史消息转换（`loom_messages.py`，W43/W50 修正）
 
@@ -138,6 +148,93 @@
 | KernelClient | `kernel_client.py` | 外层内核客户端（K2）：spawn（`python -m axeuh_kernel --port 0`，token 只经环境变量不进 argv）+ 握手（stdout 单行 JSON 取 `{port,pid,api_version}`）+ pidfile 复用（`{state_dir}/kernel.pid`；state_dir 缺省=config.KERNEL_STATE_DIR，env AXEUH_KERNEL_STATE_DIR 优先，V14 收编，pid 存活且 `/v1/health` 探通即复用、绝不二次 spawn）+ Bearer HTTP 请求面；断连抛 `KernelUnavailable`，路由层映射 HTTP 503 `state.unavailable` 降级，内核业务错误经 `KernelHttpError` 原样透传 |
 | KernelJobClient | `kernel_job_client.py` | 内核作业客户端（K3f，纯标准库 urllib）：`POST /v1/jobs` 提交（带 `Idempotency-Key` 防重复计算）+ `GET /v1/jobs/{id}?wait=` 长轮询取终态；独立于 `kernel_client`，只做纯 HTTP 作业面（interrupted 重提交助手/作业列表查询/协作取消三个死件随 P0-U6 裁剪移除，零生产调用方）；失败恢复语义=**调用方 requeue 延迟重投**（B2 起绝不回退本地全家桶） |
 
+### 音频分析链（B2 起外层零算法）
+
+| 服务 | 文件 | 职责 |
+|------|------|------|
+| AudioAnalysisPipeline | `audio_analysis_pipeline.py` | 音频分析流水线（**同步函数，绝不 spawn 线程**）：由 `routers/perception.py` 原内联 `_run`（约 600 行）抽出，供单 worker 队列同步调用；算法唯一路径=内核（主链四 kind `vad/asr/scene/diarize` + `unknown.track`），含 `_ensure_wav` 分析旁路与 `_purge_analysis_bypass` 收尾删除 |
+| AudioAnalysisQueue | `audio_analysis_queue.py` | 单 worker + 延迟重试堆的模块级单例队列（`maxsize=32`，队满拒收）：既串行内核推理，也串行锁外 CPU 重活（soundfile 读取、评分、归档写盘）；B2 起支持内核不可达的 requeue 重投 |
+
+### 编排器（`orchestrator/`，2026-11 起唯一子服务编排面）
+
+| 服务 | 文件 | 职责 |
+|------|------|------|
+| ServiceSpec 注册表 | `orchestrator/spec.py` | `ServiceSpec` 数据模型 + `REGISTRY` + `register()`；`critical=True` 的服务参与业务就绪门控与 finish 审计 |
+| Orchestrator | `orchestrator/runtime.py` | gate 判定 + start/stop/pause/resume + `snapshot()`；`AXEUH_ORCHESTRATOR=off` 时整体停用（`/api/services` 也随之禁用） |
+| KernelSpec | `orchestrator/kernel_spec.py` | 内核进程 spec（spawn / 存活探活 / stop） |
+| MossWatcherSpec | `orchestrator/moss_spec.py` | MOSS watcher 子进程 spec：只 spawn `watcher.py --loop --data-root <DATA_DIR>`，**绝不启停 `axeuh-moss.service`**；stop 按精确 PID SIGTERM → 30s → SIGKILL |
+| LoomSpec | `orchestrator/loom_spec.py` | Loom spec（`ai_backend=loom` 时托管） |
+| child_entry | `orchestrator/child_entry.py` | 子进程包装：父进程死亡保护，避免孤儿 |
+
+### 引导与就绪（v4 onboarding）
+
+| 服务 | 文件 | 职责 |
+|------|------|------|
+| OnboardingService | `onboarding_service.py` | 引导状态持久化（真源 `backend/data/onboarding_state.json`，env `AXEUH_ONBOARDING_STATE` 可覆盖）+ 只读环境预检 + 引导动作；写入走 mkstemp + fsync + chmod 0600 + `os.replace` 原子序列 |
+| OnboardingFinish | `onboarding_finish.py` | v4 收口：预检端口/路径 → 一次性应用配置草稿 → 按编排器快照审计 `critical=True` 服务（须 ready 或用户显式接受）；不再负责 attempt/validate/promote |
+| OnboardingJobs | `onboarding_jobs.py` | 引导下载作业：内存注册表 + 全局单活 + 进度/取消；不持久化，对外文本经 `core.redaction.redact_text` 二次脱敏 |
+| OnboardingSecrets | `onboarding_secrets.py` | 引导期密钥文件原子写入：目录 0700 / 文件 0600，同目录临时文件 fsync 后 `os.replace`，失败清理临时文件 |
+| OnboardingQQ / OnboardingXiaomi | `onboarding_qq.py` / `onboarding_xiaomi.py` | QQ 与小米的引导步骤实现：只落配置与密钥文件（token 写独立文件、绝不写回 `config.yaml`），不启停网关、不发网络探测；响应只含字段名与可读消息 |
+| StartupValidation | `startup_validation.py` | 校验态服务面（Wave 2 T11）：只启安全 in-process 子集，把实时服务与条件集成汇总成一份稳定报告；所有探测只读 |
+| StorageLayout | `storage_layout.py` | 只读存储布局解析：`data.root`/`models.dir` 根、剩余空间、可写性、Windows 系统盘位置与遗留缓存检测；**不创建任何目录** |
+| BootstrapRuntime | `bootstrap_runtime.py` | 延迟服务面的可重试生命周期状态机（`deferred→attempted→validated→promoted→committed`），`active` 即引导门禁标志 |
+
+### 内核资产与模型清单
+
+| 服务 | 文件 | 职责 |
+|------|------|------|
+| KernelAssets | `kernel_assets.py` | 内核资产只读巡检与发行包安装：`inspect` **绝不 import/调用 KernelClient**（不 ensure、不 spawn），只读配置/pidfile；安装遵守 C1 守卫（源码检出或有发行标记冲突时拒绝覆盖） |
+| KernelBootstrap | `kernel_bootstrap.py` | 内核本地构建与内核 venv 依赖安装（引导第 4 步）：`build_dist.py --protection pyc` + 断言产物 + venv 装依赖；不下载 kernel tar.gz |
+| KernelModelManifest | `kernel_model_manifest.py` | 内核模型清单加载/校验/目标路径解析/本地落地状态；真源 `backend/resources/kernel-models.json`（只描述元数据，不做下载） |
+| KernelModelAssets | `kernel_model_assets.py` | 模型资产只读状态 + 受控下载：按清单 `source` 分派（`bundled` 永不下载 / `modelscope` 快照下载 / HuggingFace 物化 cache） |
+| KernelModelPaths | `kernel_model_paths.py` | 模型根目录与缓存环境变量解析（下载器与内核 spawn 共用），布局对齐"伪 HOME"（`.cache/{modelscope,huggingface,axeuh-kernel,torch}`） |
+
+### 发行与客户端资产
+
+| 服务 | 文件 | 职责 |
+|------|------|------|
+| ReleaseAssets | `release_assets.py` | 发行资产：清单校验 + 流式下载 + 安全解包 + 前端 dist 自愈。信任锚=HTTPS + 清单 SHA-256；日志固定 `[OnboardingAssets]` / `[FrontendAssets]` 前缀，令牌不落日志 |
+| ClientsCatalog | `clients_catalog.py` | 客户端下载目录：Android APK 与 Windows 桌面端的本地/发行资产元数据；解析优先级 `local -> configured URL -> release manifest -> GitHub 发行页`，每级 fail-open |
+| ClientArtifacts | `client_artifacts.py` | 客户端产物文件元数据：APK 与桌面安装包的发现、哈希与版本解析 |
+| ClientReleaseManifest | `client_release_manifest.py` | 客户端发行清单缓存与 GitHub 发行页地址：正缓存 600s / 负缓存 60s、单次 3s 超时不重试、任何异常退化为 `(None, error_code)` |
+
+### 配置热应用与授权
+
+| 服务 | 文件 | 职责 |
+|------|------|------|
+| ConfigReconciler | `config_reconciler.py` | N11 配置热应用器：把 ConfigStore 变更分发到各运行中子系统。注册顺序即依赖顺序（AI → 音频/归档 → 数据路径 → 外部集成 → 内核 → 监听/TLS）；单个 applier 异常由 `ConfigStore.apply` 如实记入 failed、绝不静默吞；applier 全部懒加载、幂等；`ai_surface` 是 AI 派生面 applier（同步 dsh hub / 工具授权 / 路径推送） |
+| ConfigAuthz | `config_authz.py` | 配置写入授权：常规模式要求密码二次校验，引导模式强制引导令牌（由 `require_config_read` / `require_config_write` 消费） |
+
+### P2P 设备通道（`p2p/`）
+
+| 模块 | 职责 |
+|------|------|
+| `p2p/manager.py` | P2P 管理器（`routers/p2p.py` 的唯一运行时入口）；`p2p.enabled=false` 时整组端点 404 |
+| `p2p/signaling.py` / `protocol.py` / `webrtc.py` | 短时信令票据、协议帧与 WebRTC 面（Phase 1）；日志**不得**输出配对码、设备 token、信令票据或 SDP/ICE 载荷 |
+| `p2p/config.py` / `devices.py` / `records.py` / `store.py` / `tokens.py` / `errors.py` | 配置、设备注册、记录、持久化、票据与错误类型 |
+
+### 数据源健康与就绪门控
+
+| 服务 | 文件 | 职责 |
+|------|------|------|
+| SourceHealth | `source_health.py` | `GET /api/sources/health` 的实现层：每个采集器返回 `{id,name,status,last_sync,records,detail}`，状态只依据本地可验证事实（分片文件、服务状态机、进程内连接表）；无法确定返回 `unknown`，**绝不编造 records/last_sync** |
+| SourceHealthPC | `source_health_pc.py` | PC 感知上报健康：从每日 `perception.jsonl` 读 `pc_sensor` 事件（独立成模块只为控单文件体积，对外入口由 `source_health` 包装） |
+| SchedulerGating | `scheduler_gating.py` | 业务就绪门控：由 `Orchestrator.on_state_change` 回调驱动调度器暂停/恢复派发；只认 `critical=True` 服务，不轮询不 sleep；`AXEUH_ORCHESTRATOR=off` 时放行 |
+
+### MOSS 只读门面
+
+| 服务 | 文件 | 职责 |
+|------|------|------|
+| MossClient | `moss_client.py` | 引导只读校验门面：只读 `GET {base}/v1/models`，**不发送任何凭证、不接受 URL 内嵌用户名/密码**；默认面向回环（非回环只给告警）；不启停任何服务、不写配置与引导状态 |
+| MossProbe | `moss_probe.py` | MOSS 探测原语：URL 归一化、模型列表解析与共享常量 |
+
+### Windows 专项
+
+| 服务 | 文件 | 职责 |
+|------|------|------|
+| WinProcess | `win_process.py` | Windows 进程按 PID 查询与终止（仅 Windows 语义，POSIX 上不导入）；只被 `kernel_client` 的 Windows 分支惰性导入；Win32 入口都是模块级可注入 seam，Linux 单测注入假 DLL 即可覆盖 |
+| FFmpegBootstrap | `ffmpeg_bootstrap.py` | 把 imageio-ffmpeg wheel 自带的 ffmpeg 按需落地到本地 bin 目录（首次复制一次后命中缓存）；`AXEUH_FFMPEG_BIN_DIR` 改写落地目录；缺 wheel 抛 `FFmpegMissing`（消息以 `ffmpeg_missing` 开头） |
+
 ## 依赖关系
 
 ```
@@ -157,14 +254,21 @@ ComponentManager (连接管理)
 └── WebSocket 广播
 
 AIClientFactory (AI 后端统一入口; config `ai_backend` 选通道)
-├── LoomClient / LoomMessages (loom harness 通道; 历史页级转换 + 孤儿 toolResult 原位壳)
-└── OpenCodeClient (opencode 通道; 信封公共层=契约真源; SSE 事件流)
+├── LoomClient / LoomMessages / LoomMainSession / LoomSessionLog (loom harness 通道; 历史页级转换 + 孤儿 toolResult 原位壳)
+├── OpenCodeClient (opencode 通道; 信封公共层=契约真源; SSE 事件流)
+└── DshClient / DshMessages / DshEventBridge / DshHealth / DshPaths / DshToolAuth (dsh bridge 通道; 唯一绑定会话)
+
+Orchestrator (spec 注册表: kernel -> moss_watcher -> loom; gate/start/stop/pause/resume + snapshot)
+├── KernelSpec / MossWatcherSpec / LoomSpec (各子服务生命周期)
+└── SchedulerGating (critical 服务就绪 -> 调度器派发闸门)
 
 PerceptionStore (感知写) / PerceptionReader (感知唯一读层, V11)
 HealthStorage (手机上行薄委派) / health/ 分片存储 (V7 分组单实现, V8 云直写, V9 legacy 停写)
 WakeWordService (唤醒词状态机 + 语音指令采集; KWS 检测在内核)
 DeviceChannelStore (TTS 设备路由回传通道)
+AudioAnalysisQueue (单 worker + 延迟重试堆) -> AudioAnalysisPipeline (同步, 零算法)
 KernelClient / KernelJobClient / SegmentChannel (三条内核通道; 分析链 audio_analysis_pipeline/queue 与无缝流 ingest/stream 会话、唤醒、评分、陌生人 track 全部经此三者触内核; 两侧会话镜像/降级/收割/消费共享 KernelSegmentSessionBase 基类)
+ConfigReconciler (配置热应用, 注册顺序即依赖顺序; `ai_surface` = AI 派生面) / ConfigAuthz (写授权)
 ```
 
 ## 单例模式

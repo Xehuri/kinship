@@ -225,7 +225,7 @@ desktop/
 ## 已知限制与安全注意
 
 - 安装包未签名，SmartScreen 会提示；没有自动更新，升级需要重新下载安装。
-- 桌面端版本 1.0.0 独立于仓库发布版本 1.7.0；两者不需要对齐。
+- 桌面端版本由 `desktop/package.json` 的 `version` 决定（当前 0.1.0，与仓库根 `VERSION` 0.1.0 一致）；两者独立演进，不需要强行对齐。
 - 设置页的“启动与行为”开关可编辑并立即保存：`minimizeToTray` 默认开启，关闭窗口只隐藏到托盘；关闭该开关后关闭会销毁主窗口，但托盘存在时应用与采集端继续运行。`openAtLogin` 在 Windows 上使用 `app.setLoginItemSettings`，便携版以 `PORTABLE_EXECUTABLE_FILE` 为目标；Linux/macOS 为空操作。重置会清除登录项。
 - 网络层、探测、日志流与窗口行为的通道和类型见 [`docs/network-layer-ipc.md`](docs/network-layer-ipc.md)。P2P 仅保留类型占位（UI 显示“未接入”），本轮不接入信令与数据面。
 - 在 Wine 下可以构建产物，但不支持在 Wine 中安装 NSIS 安装器。安装验证请在 Windows 上进行。
