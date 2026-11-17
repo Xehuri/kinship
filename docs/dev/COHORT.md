@@ -6,6 +6,8 @@
 
 ## 落地状态（2026-09-13 更新）
 
+> **2026-11-17 核验**：**可用（现行）**。内核 state-dir 的 `cohort_active.jsonl` 500 行、`cohort_audit.jsonl` 2289 行，两个文件当日仍有更新（采集/压缩闭环在用）；内核逐条 write-through 采集，无外层缓冲池，`/api/admin/cohort/stats` 的 `buffer` 恒 0。
+
 ### 当前快照（2026-09-13）
 
 - `cohort_active.jsonl` 500 条，覆盖 6 天（2026-09-03 ~ 09-11，每日 49~100 条），条目 raw sim 中位数 +0.031、范围 0.0~0.248（全部低于 `COLLECT_SIM_MAX=0.25`，无自收）。
@@ -95,7 +97,7 @@ score = tanh(z_score / 3.0)
 
 ### 感知数据输出格式
 
-后端对每段 60s 录音做 VAD 切分后，为每个有语音的 VAD 段生成声纹数据。输出保存在 `perception.jsonl` 的 voice 条目中：
+后端对每个分析块（上传分段经无缝流合并后的 PCM）做 VAD 切分后，为每个有语音的 VAD 段生成声纹数据。输出保存在 `perception.jsonl` 的 voice 条目中：
 
 ```json
 {
@@ -118,11 +120,12 @@ score = tanh(z_score / 3.0)
       {"c": "气", "v": 0.97},
       {"c": "真", "v": 0.96},
       {"c": "好", "v": 1.00}
-    ],
-    "emo": {"t": "happy", "p": 0.85}  // 可选: 情绪标签
+    ]
   }]
 }
 ```
+
+> 说明：`dur` 为分析块时长（无缝流合并后可变，不再固定 60s）；情绪字段 `emo`（emotion2vec）已于 2026-10-07 整体移除，现行数据不再写入（历史条目可能仍有该键）。
 
 **字段说明**：
 
@@ -130,7 +133,7 @@ score = tanh(z_score / 3.0)
 |------|------|------|
 | `vp.spk` | str | 最高分注册声纹名（**注意**：当前无阈值检查，sim≈0 时 spk 标签不可信）|
 | `vp.sim` | float | AS-Norm tanh 归一化分值，[-1,1]。>0=偏向用户，<0=偏向他人 |
-| `vp.max` | float | 滑窗内最高分值，反映"这 60s 里是否闪过用户声音" |
+| `vp.max` | float | 滑窗内最高分值，反映"当前分析块里是否闪过用户声音" |
 | `vp.pct` | float | 正分窗口占比 [0,1]，衡量匹配稳定性 |
 | `vp.ws` | [float] | 扁平数组 `[t,score,t,score,...]`，高时间分辨率（1s窗/750ms步长）|
 | `tokens[]` | [{c, v}] | 每个字符对应的 v2 分值。有窗段→窗值按时间均匀映射；短段（<1s）→统一 sim 值 |
@@ -295,7 +298,7 @@ sort_key = (-reviewed, -t_recency, sim_ascending)
 
 ### 热更新（reload）
 
-真源在内核 state-dir（`{state}/voiceprint/cohort_active.jsonl`）；该文件被外部更新后可通过热更新使内核内存队列生效，无需重启：
+真源在内核 state-dir（`{state}/voiceprint/cohort_active.jsonl`）。内核每次评分即按请求读盘重建工作集，因此本端点的语义是"确认与磁盘一致并回显计数"（幂等），不是把外部文件同步进内存缓存；外部更新 `cohort_active.jsonl` 后无需重启，下一次评分自然读到新文件。
 
 ```bash
 curl -X POST https://127.0.0.1:8768/api/admin/cohort/reload
@@ -317,7 +320,7 @@ curl -X POST https://127.0.0.1:8768/api/admin/cohort/reload
 # 队列状态
 curl -sk https://127.0.0.1:8768/api/admin/cohort/stats \
   -H "Authorization: Bearer <token>"
-# {"active": 50, "buffer": 23}
+# {"active": 500, "buffer": 0}
 
 # 触发压缩
 curl -sk -X POST https://127.0.0.1:8768/api/admin/cohort/compact \
@@ -411,7 +414,7 @@ python scripts/cohort_review_server.py
 
 - 每条嵌入 192 维 float64 = 1.5KB
 - 500 条活跃队列 ≈ 750KB
-- 缓冲池条目（含元数据）≈ 100 条 ≈ 200KB
+- 缓冲池条目 ≈ 100 条 ≈ 200KB（历史外层语义；内核现行无缓冲池）
 
 ## 故障排查
 

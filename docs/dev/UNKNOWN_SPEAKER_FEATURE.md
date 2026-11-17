@@ -1,6 +1,8 @@
 # 陌生人自动识别与溯源功能
 
 > **现状注（2026-10-08）**：陌生人 L1-L4 全链已迁入**闭源音频内核**（轨道 K/A4-B5，Wave C1 收口）。实现位置 = `kernel/axeuh_kernel/unknown/`（segmenter/session/profile/matcher/storage/health/service/config 同名模块），链状态真源 = **内核 state-dir `{state}/unknown/`**（五文件固定布局）。外层仅保留：`unknown_speaker.enabled` 主开关、`lifecycle.*`（每日清理为调度器内建任务 `builtin_unknown_speaker_cleanup`，回调转内核 `POST /v1/unknown/cleanup`）、`two_step.window_ms/hop_ms`（preview 显示用）、`backend/services/unknown_speaker_config.py`（legacy 配置读）。算法语义不变，阈值以内核内置默认（=生产值，逐键差异见 `kernel/axeuh_kernel/unknown/config.py` docstring）与请求级 `config_override` 为准。**音频归档内核不做、外层无活写者**（`audio_archive.*`/`ai/data/cache/unknown_*` 均为历史存量）；下文旧外层模块路径、验证脚本与配置节按此判读。
+>
+> **当前状态（2026-11-17 核验）**：**可用（生产已启用）**。生产配置 `unknown_speaker.enabled: true`；内核 state-dir `{state}/unknown/` 五文件当日仍有更新（档案 160 条且全部 confirmed，审计日志 17859 行）；当日 `perception.jsonl` 的 voice 条目中 150 条带 entry 级 `unk` 摘要。公开模板 `config.example.yaml` **不含** `unknown_speaker` 节，缺省关闭（fail-safe）；启用需在配置载体中显式加 `unknown_speaker.enabled: true`。
 
 ## 一、任务背景与目标
 
@@ -129,7 +131,10 @@ graph TD
 6. 无论合并或新建，随后执行音频归档（两步切分模式下归档**子段音频**）。
 
 ### 3.4 生命周期（pending / confirmed）
-- **pending**（新建起，count < confirm_min）：**对外 `seg.spk` 按原规则判定**（registered/mixed/env），但附带 `unk_id/unk_status/unk_count` 溯源字段；**不写 entry 级 `unk` 摘要**（agent 感知不到）。
+
+> **现状注（2026-11-17）**：以下 pending/confirmed 语义描述的是旧外层链路。现行内核 A4 链下，`pending` 只存在于内核候选池（`{state}/unknown/unknown_pending_sessions.jsonl`；`/v1/unknown/track` 响应只回 `pending_count` 计数），**外层不写 `seg.spk` 的 pending 溯源字段**（`unk_status`/`unk_count` 全仓零写方）；只有 confirmed 档案会以 `spk.kind=unknown` 直通到 perception，并附带 entry 级 `unk` 摘要。
+
+- **pending**（新建起，count < confirm_min）：**对外 `seg.spk` 按原规则判定**（registered/mixed/env），但附带 `unk_id/unk_status/unk_count` 溯源字段；**不写 entry 级 `unk` 摘要**（agent 感知不到）。（历史外层链路行为）
 - **confirmed**（count >= confirm_min）：`seg.spk.kind = unknown`，并写 entry 级 `unk` 摘要（`{id, count, seg_count, score}`），agent 能感知"这个人在场"。
 
 > 新链路（L2/L3）下单块不再建档、`voiceprint_unk` 不再写入 seg；pending/confirmed 由档案层 `session_count` 与会话内部一致性共同决定，语义见《四层架构》文档。旧链路（flag 关闭）仍走 matcher 的 `voiceprint_unk`。
@@ -145,8 +150,13 @@ graph TD
 - 关闭 `segment_archive` 时回退归档整段（pipeline 处理）。
 
 ### 3.6 审计（`storage.append_audit`）
-每次动作追加一行 JSON 到 `unknown_audit.jsonl`，绝不修改/删除历史：
-- `action=create` / `action=merge` / `action=confirm` / `action=audio_archived` / `action=cleanup` / `action=health_*`（体检告警）
+每次动作追加一行 JSON 到 `unknown_audit.jsonl`，绝不修改/删除历史。现行内核动作词表（2026-11-17 对生产审计日志抽样统计）：
+- 档案动作：`create` / `merge` / `confirm`
+- 会话与候选池：`pending_created` / `pending_merged` / `pending_expired` / `session_gray_zone` / `profile_created_from_session` / `profile_session_merged` / `profile_confirmed`
+- 维护：`cleanup` / `legacy_archived`
+- 体检：`health_*`（实测出现过 `health_内部一致性低` / `health_检测到子簇分裂` / `health_簇间融合` / `health_人工拆分`）
+
+> 旧外层链路曾写 `audio_archived`（归档已随迁移停用，见 §3.5）；若在历史日志中看到该动作，按历史记录处理。
 
 ### 3.7 健康体检（`unknown_speaker_health.check_once`）
 基于每条 unk 的 `support_vectors`（最近 N 个段 embedding），每类问题一条告警（写审计）：
@@ -193,14 +203,14 @@ python -m py_compile main.py services/unknown_speaker_*.py scripts/verify_unknow
 ```
 
 ### 5.3 线上验证（启用后）
-1. 确认 `config.yaml` 的 `unknown_speaker.enabled: true`（当前已设；主开关仍归外层）。
+1. 确认配置载体存在 `unknown_speaker.enabled: true`（公开模板 `config.example.yaml` 无该节 = 默认关闭；本机生产已启用）。
 2. 重启后端服务（后端按需拉起内核）。
-3. 观察日志：内核不可达/链失败时 `audio_analysis_pipeline` 按 requeue 降级重投并记日志；陌生人判定随 voice 条目的 `spk`/`unk` 字段落 `perception.jsonl`，建档与审计经 vaudit 审计台（内核 `/v1/unknown/*`）查看。原"清理线程已启动"日志随外层 daemon 删除已成历史，清理改由调度器内建任务回调内核（见 §3.8 现状注）。
+3. 观察日志：内核不可达/链失败时 `audio_analysis_pipeline` 按 requeue 降级重投并记日志；陌生人判定随 voice 条目的 `spk`/`unk` 字段落 `perception.jsonl`；建档与审计在内核 state-dir（见 §六），vaudit 建档页当前仍读外层 cache 镜像（滞后，见 §六现状注）。原"清理线程已启动"日志随外层 daemon 删除已成历史，清理改由调度器内建任务回调内核（见 §3.8 现状注）。
 4. 检测随每条音频上传实时发生（文件级一次经 `POST /v1/unknown/track`）。
 
 ## 六、如何查看程序运行结果
 
-> **现状注**：链五文件真源 = 内核 state-dir `{state}/unknown/`（生产现址 `backend/data/kernel_state/unknown/`）：`unknown_speakers.jsonl`、`unknown_audit.jsonl`、`unknown_pending_sessions.jsonl`、`unknown_session_state.json`、`unknown_scan_state.json`。外层 `ai/data/cache/unknown_*` 为迁移前存量（无活写者）；vaudit 建档页仍按 cache 候选路径读取（镜像残留读面，可能滞后）。权威程序化查询面：内核 `GET /v1/unknown/profiles`、`GET /v1/unknown/state`（经外层 `/api/vaudit/*`）。
+> **现状注**：链五文件真源 = 内核 state-dir `{state}/unknown/`（默认 `backend/data/kernel_state/unknown/`）：`unknown_speakers.jsonl`、`unknown_audit.jsonl`、`unknown_pending_sessions.jsonl`、`unknown_session_state.json`、`unknown_scan_state.json`。外层 `ai/data/cache/unknown_*` 为迁移前存量（无活写者）；vaudit 建档页 `GET /api/vaudit/unknown` 仍按 cache 候选路径读取（镜像残留读面，可能滞后）。内核权威查询面 `GET /v1/unknown/profiles`、`GET /v1/unknown/state` **已交付但外层未接线**（契约 §15-22 登记，候选消费方 = vaudit V20 单元），因此当前不能经 `/api/vaudit/*` 读到内核实时档案。
 
 ### 6.1 索引库 `unknown_speakers.jsonl`
 每行一个 `unk_id` 条目：
@@ -222,11 +232,11 @@ python -m py_compile main.py services/unknown_speaker_*.py scripts/verify_unknow
 
 ### 6.2 感知数据（perception.jsonl）
 - confirmed 段：`seg.spk.kind = "unknown"`，含 unk_id/count/is_new；entry 级含 `unk` 摘要
-- pending 段：`seg.spk` 保留原判定，附 `unk_id/unk_status/unk_count` 溯源字段
+- pending 段：仅在内核候选池，不落 `perception.jsonl`（`seg.spk` 无 `unk_status/unk_count` 字段）
 - 窗口身份序列：`vp.ws_spk` 数组（每窗口的 speaker 标记，含 unk_id）
 
 ### 6.3 审计日志 `unknown_audit.jsonl`（不可变）
-每一行是一次动作记录：create / merge / confirm / audio_archived / cleanup / health_*。
+每一行是一次动作记录，动作词表现状见 §3.6（create / merge / confirm / pending_* / profile_* / session_gray_zone / cleanup / legacy_archived / health_*）。
 
 ### 6.4 音频归档 `unknown_audio/<unk_id>/`
 
@@ -241,6 +251,8 @@ python -m py_compile main.py services/unknown_speaker_*.py scripts/verify_unknow
 > **现状注**：下表是**外层实现时期**的 `config.yaml unknown_speaker` 生产值快照。内核迁移后（A4/B 系列）：外层实际只消费 `enabled` 主开关、`lifecycle.*`（`cleanup_hour` 定外层调度时点，整节随 config_override 传内核）、`detection.two_step.window_ms/hop_ms`（preview 显示对齐）；其余算法键**不再被外层读取**，内核内置默认 = 本表生产值（逐键差异登记在 `kernel/axeuh_kernel/unknown/config.py` docstring），请求级 `config_override` 可临时覆盖。`storage.*`/`audio_archive.*` 为无活写者的 legacy 键。本表保留作 config_override 兼容结构与调参史参考，现行行为以内核代码与 `docs/kernel-contract.md` 为准。
 
 本地项目根目录的 `config.yaml` 的 `unknown_speaker` 小节（被 `.gitignore` 忽略，未进版本库）。下列为**当时生效值**，括号内标注与代码内置默认值（`services/unknown_speaker_config.py`，已随迁移退役）的差异：
+
+> **当前配置面（2026-11-17 核验）**：公开模板 `config.example.yaml` 没有 `unknown_speaker` 节，因此新部署默认关闭；启用只需写 `unknown_speaker.enabled: true`（其余算法键可省略，内核内置默认即生产值）。外层仍会读取并生效的键只有 `enabled` 与 `lifecycle.cleanup_hour`（清理调度时点），`lifecycle` 整节随 `POST /v1/unknown/cleanup` 的 `config_override` 透传给内核；`detection.two_step.window_ms/hop_ms` 仅用于 preview 显示对齐。`storage.*`、`audio_archive.*`、`detection.*` 其余键、`pyannote.*`/`session.*`/`profile.*` 均为历史配置面，外层不再消费（保留在本表作调参史与 config_override 兼容结构参考）。
 
 ```yaml
 unknown_speaker:
