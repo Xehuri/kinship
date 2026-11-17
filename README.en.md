@@ -4,7 +4,7 @@
 
 **English** | [中文（默认）](README.md)
 
-A self-hosted AI personal data assistant. An Android app continuously collects sensor data from your phone and smart band (heart rate, steps, GPS, ambient audio, notifications, screen state, and more), uploads it to your private backend, where Loom periodically analyzes everything and generates insight reports.
+A self-hosted AI personal data assistant. An Android app continuously collects sensor data from your phone and smart band (heart rate, steps, GPS, ambient audio, notifications, screen state, and more), uploads it to your private backend, where an AI assistant (Loom by default, or an external harness such as dsh) periodically analyzes everything and generates insight reports.
 
 This is not just another health tracker. It is a **continuously running AI agent that learns about you**: your daily rhythms, your behavioral patterns, your anomalies. At the end of each day, it tells you how your day went. All running on your own server.
 
@@ -37,11 +37,11 @@ Kinship spans three locations, not one monorepo:
 
 | Location | Contents | Distribution |
 | --- | --- | --- |
-| `kinship` (this repository) | Backend, Android app, frontend, desktop shell, Loom harness, optional external harness adapters, docs, release assets | Public source tree |
+| `kinship` (this repository) | Backend, Android app, frontend, desktop shell, Loom harness, docs, release assets; the optional external harness adapter (`harness-plugins/`) is maintained here but is not in the export allowlist yet | Public source tree |
 | `kinship-kernel` | Closed-source audio kernel source (`axeuh_kernel`) | Private; PolyForm Noncommercial 1.0.0 |
 | `kinship-data` | `config.yaml`, certificates, `backend/config/auth.json`, AI runtime data and uploads | Private; never committed |
 
-The public tree excludes the AI runtime directory (default `ai/`), the `kernel/` source, `tools/moss-shadow/`, and the CircuitJS1 runtime. AI instances are created from `ai-template/` at the configured AI root (`data.ai_root`; default `<project>/ai`, private example `kinship-data/ai`); the kernel is installed as a prebuilt release asset at `<project>/kernel`; `tools/moss-shadow/` is private; CircuitJS1 is fetched from the separate [kinship-circuitjs](https://github.com/Xehuri/kinship-circuitjs) repository at dev/build time.
+The public tree excludes the AI runtime directory (default `ai/`), the `kernel/` source, `tools/moss-shadow/`, and the CircuitJS1 runtime. AI instances are created from `ai-template/` at the configured AI root (`data.ai_root`; default `<project>/ai`, private example `kinship-data/ai`); the kernel is installed as a prebuilt release asset at `<project>/kernel`; `tools/moss-shadow/` is private; CircuitJS1 is fetched from the separate [kinship-circuitjs](https://github.com/Xehuri/kinship-circuitjs) repository at dev/build time. `harness-plugins/` is maintained in this repository as the optional external harness adapter, but it is not currently part of the `tools/kinship_export/allowlist.toml` export allowlist, so it is not published with the public tree; whether to include it is still pending a decision.
 
 At runtime the backend expects:
 
@@ -102,8 +102,6 @@ graph TB
 
     subgraph FrontendWeb[Frontend]
         MOBILE["Vue 3 SPA /mobile/"]
-        VAUDIT["Voiceprint audit /vaudit/"]
-        PREVIEW["Preview console /preview/"]
     end
 
     subgraph AISystem[AI Assistant - Loom 127.0.0.1:5100]
@@ -142,8 +140,6 @@ graph TB
     NOTIFY -->|Push| UPLOAD
 
     MOBILE -.-> PORTS
-    VAUDIT -.-> PORTS
-    PREVIEW -.-> PORTS
 ```
 
 ### Ports and Processes
@@ -151,8 +147,8 @@ graph TB
 | Process | Bind | Notes |
 | ------- | ---- | ----- |
 | Backend | `8768` | Public entry point (frpc maps the public `8768` to local `8768`); a single port serves HTTP and HTTPS (`ssl.enabled` decides the protocol); the Android app and the web UI connect here |
-| Loom assistant host | `127.0.0.1:5100` | Production assistant; a child of `axeuh-health` in this deployment (standalone `axeuh-loom.service` is disabled/optional) |
-| dsh Kinship bridge (optional) | `127.0.0.1:18765` | Loopback HTTP/SSE bridge used only when the optional dsh adapter is installed; dsh's own web port is chosen by that installation |
+| Loom assistant host | `127.0.0.1:5100` | Template-default assistant; when `ai_backend: loom` it runs as a child of `axeuh-health` (standalone `axeuh-loom.service` disabled/optional) |
+| dsh Kinship bridge (optional) | `127.0.0.1:18765` | Loopback HTTP/SSE bridge used when the optional dsh adapter is installed; this deployment currently runs it (`ai_backend: dsh`). dsh's own web port is chosen by that installation |
 | PC Sensor | `127.0.0.1:18888` | Local HTTP state collector (`desktop/pc-sensor/`); pushes idle/locked/foreground state to `/api/pc/sync` |
 | Local LLM (vLLM) | `127.0.0.1:8000` | Optional local model server (Qwen3.8-27B GPTQ-W4A16, TP=2); not required by the backend |
 | MOSS serve (vLLM) | `127.0.0.1:8100` | MOSS-Audio-4B fp8 on GPU 2 (3060 Ti); formalization in progress (seven steps done, 2-day regression + 7-day observation pending); loopback + `--max-num-seqs 1`; systemd `axeuh-moss` |
@@ -160,7 +156,7 @@ graph TB
 | QQ gateway IPC | `127.0.0.1:8770` | Bearer-token HTTP action surface for the `qq` CLI (`ai/skills/qq-cli/`); qq-mcp is retired; the gateway itself is off by default (enabled in this deployment) |
 | Audio Kernel | `127.0.0.1:<dynamic>` | Closed-source audio algorithm process installed at `<project>/kernel` (source is private; API 1.0.0). Spawned on demand by the backend (`python -m axeuh_kernel --port 0`, loopback bind, ephemeral port reported on the handshake line and reused via a pidfile); it performs all ASR / VAD / voiceprint / KWS / scene / diarization / unknown-speaker computation. Contract: [docs/kernel-contract.md](docs/kernel-contract.md) |
 
-> **Production topology (this deployment):** Loom at `127.0.0.1:5100` is the assistant host. It runs as a child of the backend service; the standalone `axeuh-loom.service` is disabled and kept only for rollback. The MOSS sidecar and the QQ gateway are auxiliary services and do not change this assistant path.
+> **Production topology (this deployment):** the template default is Loom at `127.0.0.1:5100`, running as a child of the backend service when `ai_backend: loom`; the standalone `axeuh-loom.service` is disabled and kept only for rollback. This deployment currently uses the optional dsh adapter instead (`ai_backend: dsh`, bridge at `127.0.0.1:18765`); dsh runs as its own systemd unit, not as a backend child. The MOSS sidecar and the QQ gateway are auxiliary services and do not change this assistant path.
 
 ### Data Flow
 
@@ -186,7 +182,7 @@ sequenceDiagram
     S->>F: write perception.jsonl + health source shards
 
     Note over SC,AI: The scheduler polls task definitions (YAML) and Python scripts every cycle
-    SC->>AI: trigger task via ai_client_factory (Loom in production)
+    SC->>AI: trigger task via ai_client_factory (Loom by default; dsh in this deployment)
 
     Note over AI,F: Three layers: script -> sub-agent -> main agent
     AI->>F: read perception.jsonl + health source shards
@@ -222,7 +218,7 @@ See [docs/ops/STARTUP.md](docs/ops/STARTUP.md) for the full platform matrix, exi
 2. **Run the setup script for your platform.** Linux and macOS use `./scripts/setup.sh`; Windows uses `setup.bat`. It creates `.venv`, installs backend dependencies, and generates `config.yaml` from `config.example.yaml` and the AI root (default `<project>/ai`; use `--ai-root` / `-AiRoot` for another path) from `ai-template/` when missing. Existing files are not overwritten.
 3. **Review `config.yaml`.** Check server, SSL, model, and API keys against [docs/ops/CONFIGURATION.md](docs/ops/CONFIGURATION.md).
 4. **Start the backend.** Linux and macOS use `./scripts/start.sh`; Windows uses `start.bat`. Production runs under systemd with `deploy/kinship.service.example`.
-5. **Open the web UI.** Complete admin registration and the 11-step onboarding: account, dependencies, kernel, models, Xiaomi cloud, QQ, MOSS, Loom, clients, finish.
+5. **Open the web UI.** Complete admin registration and the 11-step onboarding: welcome, account, dependencies, kernel, kernel models, Xiaomi cloud, QQ, MOSS, AI assistant (Loom or dsh), clients, finish.
 6. **Verify health.** `http://127.0.0.1:8768/health` should return `{"status":"healthy"}`.
 7. **Set up clients.** Install the Android app with Gadgetbridge; the PC sensor is optional. See [docs/ops/INSTALL.md](docs/ops/INSTALL.md).
 8. **Run the AI system initialization.** Walk through the AI root's `系统初始化指南.md` (copied from `ai-template/`): scan the directory, get to know the user, register voiceprints, confirm data is flowing, then discuss tasks.
@@ -259,15 +255,15 @@ The scripts do not build the frontend and do not install or build the audio kern
 
 ## AI System
 
-The AI subsystem is required, not optional. Production uses **Loom** at `127.0.0.1:5100`, running as a child of the backend service (`ai_backend: loom`); the standalone `axeuh-loom.service` is disabled and kept only for rollback. See [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) for the full architecture.
+The AI subsystem is required, not optional. The public template defaults to **Loom** at `127.0.0.1:5100` (`ai_backend: loom`), running as a child of the backend service; the standalone `axeuh-loom.service` is disabled and kept only for rollback. This deployment currently runs the optional **dsh** adapter instead (`ai_backend: dsh`, bridge on `127.0.0.1:18765`), while Loom remains the default workflow. See [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) for the full architecture.
 
 - **Three-layer workflow.** Script layer (`ai/analysis/fact_extractor.py`, `check_coverage.py`) -> sub-agent layer (`data_checker` / `reviewer`, prompts in `ai/agents/`) -> main agent layer (dispatch, verify, self-optimize).
-- **Scheduling.** Since 2026-10-28 06:45 the Loom master (`ai/data/plan/master.json`) + daily overlay + WakeQueue + PlanScheduler drive fixed-time work: coverage at 00:00 / 06:00 / 08:00 / 12:00 / 16:00 / 20:00 / 22:00; daily review at 00:40; weather at 07:00; compactor at 04:00; weekly summary Monday 03:00; bi-weekly review on the 1st and 15th at 18:30. The 05:00 plan and 07:30 review anchors run through `axeuh-loom-plan.timer` / `axeuh-loom-review.timer`; old fixed-time YAML tasks are disabled for rollback. MOSS/systemd and event-driven watchers stay external.
+- **Scheduling.** Since 2026-10-28 06:45 the Loom master (`ai/data/plan/master.json`) + daily overlay + WakeQueue + PlanScheduler drive fixed-time work: coverage at 00:00 / 06:00 / 08:00 / 12:00 / 16:00 / 20:00 / 22:00; daily review at 00:40; weather at 07:00; compactor at 04:00; weekly summary Monday 03:00; bi-weekly review on the 1st and 15th at 18:30. The 05:00 and 07:30 anchors are declared in `scheduling.anchors` and fired by PlanScheduler; the standalone `axeuh-loom-plan.timer` / `axeuh-loom-review.timer` units are disabled. Old fixed-time YAML tasks are disabled for rollback. MOSS/systemd and event-driven watchers stay external.
 - **Memory protocol (Phase A).** Evidence flows to `ledger/` (facts / rules / open) and `notes/` (observations / cases / persona / judgments / dossiers / proposals), then to projections. The main session receives 6 projections (must-read, identity, state, core, topics index, active tasks) and only writes proposals under `notes/proposals`; the daily review is the only daily writer. Legacy A-scheme files are frozen read-only, and `memory_finalize.py` is the closing gate.
-- **MOSS sidecar (formalization in progress).** `tools/moss-shadow/` runs `axeuh-moss` (MOSS-Audio-4B fp8 on GPU 2 / 3060 Ti at `127.0.0.1:8100`, loopback, `--max-num-seqs 1`) and `axeuh-moss-watch`, writing `audio_deepdive.jsonl`; seven steps are done, with 2-day regression + 7-day observation pending. `fact_extractor` consumes only `silence`/`ambient` MOSS sublines; human/mixed/device rows remain audit-only. `perception.jsonl` and the main chain are untouched. Each instance can isolate its watcher data and state with `moss.data_root` / `moss.state_dir`.
+- **MOSS sidecar (formalization in progress).** `tools/moss-shadow/` uses `axeuh-moss` (MOSS-Audio-4B fp8 on GPU 2 / 3060 Ti at `127.0.0.1:8100`, loopback, `--max-num-seqs 1`, systemd) plus a watcher that the backend orchestrator supervises as a child process (`moss_watcher` spec; the legacy `axeuh-moss-watch` unit is disabled). It writes `audio_deepdive.jsonl`; seven steps are done, with 2-day regression + 7-day observation pending. `fact_extractor` consumes only `silence`/`ambient` MOSS sublines; human/mixed/device rows remain audit-only. `perception.jsonl` and the main chain are untouched. Each instance can isolate its watcher data and state with `moss.data_root` / `moss.state_dir`.
 - **QQ gateway.** Optional single-WS gateway to NapCat with a SQLite inbox/outbox; IPC at `127.0.0.1:8770` for the `qq` CLI; qq-mcp is retired; `qq_gateway.enabled` defaults to `false` (enabled in this deployment).
 - **Loom features.** Interactive PTY (`pty_*`), auto-wake, simplified receipts, and ops+chat dual-perspective compaction.
-- **Optional dsh runtime.** `harness-plugins/` contains eight Cordis packages plus the `kinship` preset for a bring-your-own dsh install: a single-session bridge (HTTP + SSE), plan scheduling against the same master/overlay as Loom (paths pushed by the backend over the bridge), overlay write-back for `plan_note` / `plan_done`, a model-callable `compact_context`, native notification/reminder/TTS tools through the bridge's tool auth, preset-scoped isolation of host memory sections and tools, and a five-tab Kinship panel (overview / isolation / plan / access / settings) in the dsh sidebar. Loom remains the default; dsh is not plug-and-play and still needs a manual install, session binding and a token.
+- **Optional dsh runtime.** `harness-plugins/` contains eight Cordis packages plus the `kinship` preset for a bring-your-own dsh install: a single-session bridge (HTTP + SSE), plan scheduling against the same master/overlay as Loom (paths pushed by the backend over the bridge), overlay write-back for `plan_note` / `plan_done`, a model-callable `compact_context`, native notification/reminder/TTS tools through the bridge's tool auth, preset-scoped isolation of host memory sections and tools, and a five-tab Kinship panel (overview / isolation / plan / access / settings) in the dsh sidebar. Loom remains the default; dsh is not plug-and-play and still needs a manual install, session binding and a token. This deployment currently runs it (`ai_backend: dsh`).
 
 Optional voice wake word and PC sensor are covered in [`docs/ops/INSTALL.md`](docs/ops/INSTALL.md). The full AI architecture, automation details, memory rules, MOSS/QQ behavior, and design principles live in [`docs/dev/AI_SYSTEM.md`](docs/dev/AI_SYSTEM.md).
 
@@ -302,7 +298,7 @@ See [desktop/README.md](desktop/README.md) for architecture, first-run setup, TL
 | [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) | AI architecture: Loom, tasks, memory, MOSS, QQ |
 | [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) | AI runtime choice: Loom (default), optional dsh, bring-your-own harness |
 | [docs/dev/adapter-contract.md](docs/dev/adapter-contract.md) | Adapter contract for external harnesses (backend boundary and the optional adapter UI convention) |
-| [harness-plugins/README.md](harness-plugins/README.md) | dsh adapter packages: install and sync, panel fields, bridge endpoints and configuration |
+| `harness-plugins/README.md` (in-repo, not exported to the public tree yet) | dsh adapter packages: install and sync, panel fields, bridge endpoints and configuration |
 | [docs/ops/dsh-production-rollout.md](docs/ops/dsh-production-rollout.md) | Taking dsh into production: preparation, restart, binding, switch-over and rollback |
 | [docs/dev/DATA_FORMAT.md](docs/dev/DATA_FORMAT.md) | Perception and health data format |
 | [docs/kernel-contract.md](docs/kernel-contract.md) | Closed-source audio kernel contract |

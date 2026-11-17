@@ -1,6 +1,6 @@
 # 文档索引
 
-> 最后更新：2026-11-15。中文是默认入口；English README 是摘要镜像。
+> 最后更新：2026-11-17。中文是默认入口；English README 是摘要镜像。
 >
 > 本文只列公开文档。内部运维、迁移记录、生产拓扑、研究草稿和私有组件文档不在此索引中，也不在公开树承诺范围内。
 >
@@ -29,6 +29,7 @@
 | [ops/backup-restore.md](ops/backup-restore.md) | 备份对象、恢复顺序与校验 |
 | [ops/system-config-hot-reload.md](ops/system-config-hot-reload.md) | 配置热更新与回滚 |
 | [ops/dsh-production-rollout.md](ops/dsh-production-rollout.md) | 把 Kinship 的 AI 切到生产 dsh：准备、重启、绑定、切流、回滚 |
+| [ops/flow-retirement.md](ops/flow-retirement.md) | flow 面退役的配置开关、观察期与回滚步骤 |
 
 ### 开发者
 
@@ -46,6 +47,9 @@
 | [dev/loom-think-playbook-2026-10-30.md](dev/loom-think-playbook-2026-10-30.md) | Loom think/锦囊机制研究（公开脱敏版） |
 | [dev/think-playbook-experiment-2026-10-30.md](dev/think-playbook-experiment-2026-10-30.md) | Think/Playbook 主会话实验报告（公开脱敏版） |
 | [dev/qq-gateway.md](dev/qq-gateway.md) | QQ 单 WS 网关契约 |
+| [dev/loom-inbox-contract.md](dev/loom-inbox-contract.md) | Loom 统一收件箱（letters）与任务结果契约 |
+| [dev/flow-retirement-inventory.md](dev/flow-retirement-inventory.md) | flow 面退役落点清单（设计快照 + 现行 Phase A/B 状态） |
+| [dev/index-layer-catalog-2026-11-02.md](dev/index-layer-catalog-2026-11-02.md) | 索引层目录与分类（历史设计，已由 stratum 取代） |
 | [dev/onboarding-v4-2026-10-27.md](dev/onboarding-v4-2026-10-27.md) | 初始化引导 v4 契约 |
 | [dev/add-a-service.md](dev/add-a-service.md) | 新增受管服务的模板与检查清单 |
 | [dev/p2p-data-protocol.md](dev/p2p-data-protocol.md) | P2P DataChannel 协议（实验，当前不可用） |
@@ -92,7 +96,7 @@
 ## 三、公开/私有边界
 
 - 公开文档只描述产品行为、接口契约、安装配置和运维方法。
-- 音频内核源码、模型权重、用户数据、生产拓扑、真实主机路径、系统单元名、迁移记录和研究草稿不进入公开文档。
+- 音频内核源码、模型权重、用户数据、真实主机路径与凭据、内部迁移记录和研究草稿不进入公开文档。
 - 公开文档不得链接内部文件；未列入本索引的文档不保证在公开树中存在。
 - 公开索引只维护一份；新增文档必须同时登记到 [`_meta/docs.public.json`](_meta/docs.public.json)。
 
@@ -102,4 +106,4 @@
 2. 先改唯一真源，再改入口；入口包括 `README.md`、`README.en.md` 和本索引。
 3. 新增文档必须有明确的读者、用途和公开/私有归属。
 4. 不把运行时数据、真实凭据、用户 ID、QQ 号、真实主机路径写入公开文档。
-5. 文档检查工具恢复后，提交前应校验链接、锚点、孤儿文档和公开路径扫描。
+5. 提交前运行 `python tools/docs-check/check_docs.py all`：它校验清单里的文档路径与相对链接是否真实存在，不检查锚点、孤儿文档或内容级泄露；公开导出另由 `tools/kinship_export/` 的 allowlist 与内容扫描负责。

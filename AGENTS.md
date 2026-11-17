@@ -3,13 +3,13 @@
 **技术栈**: Python 3.10+ (FastAPI) + Kotlin (Android/Compose) + TypeScript (Vue 3/Vite)
 **仓库模式**: 公开主仓 + 私有组件分离，11 个子系统（含 Windows 桌面端、音频内核、Loom agent harness、外部 harness 适配、MOSS 影子管线、QQ 网关）共用同一后端平台
 **生成时间**: 2026-07-19
-**上次更新**: 2026-11-15
+**上次更新**: 2026-11-17
 
 ## 概览
 
-AI 驱动的健康监测系统。Android App 采集传感器数据(心率/GPS/步数/音频等)，FastAPI 后端接收存储，Loom AI（默认，完整工作流）定时分析健康状态和行为模式。PC 感知采集器 (PC Sensor) 采集 Windows PC 状态（前台窗口、空闲、锁屏）并上报后端。Windows 桌面端（`desktop/`，Electron 45）是现有 SPA 的网页套壳，并把 PC 采集端作为子进程内置；服务器地址与证书在本机设置页配置。全部音频算法（ASR/VAD/声纹/KWS/场景/说话人切分/陌生人）由**独立闭源音频内核进程**（运行时 `<project>/kernel`，源码在私有 `kinship-kernel`，包名 `axeuh_kernel`）承载——后端运行时零 ML、零算法实现，只经 `kernel_client.py` / `kernel_job_client.py` / `segment_channel.py` 调用内核。另有 **MOSS 深度音频理解影子管线**（`tools/moss-shadow/`，1.6.0 起，观察期旁路）：独立 systemd 双单元（vLLM serve + watcher 文件订阅）对落盘 chunk 端到端深读（归因/场景/叙事），产物 `audio_deepdive.jsonl` 旁路文件——**perception.jsonl 一字不改，生产主链零依赖**。Python 环境：生产用 `/opt/venvs/axeuh-health`，内核用 `/opt/venvs/axeuh-kernel`，MOSS 用 `/opt/venvs/axeuh-moss`（2026-11 迁移后的路径；旧 `/opt/kinship/.venv-*` 已不存在）。AI 运行时默认是 Loom（一等、完整工作流）；`harness-plugins/` 提供可选的外部 harness 适配层，dsh 是其中的参考实现，已实现适配层与测试，并在 dsh Web 侧栏提供 Kinship 配置面板与计划排班卡片（`kinship-plan-scheduler` 把 Loom 的计划唤醒调度移植到 dsh，读写同一份 plan master/overlay；计划根等路径由 Kinship 后端经 bridge `/v1/kinship/paths` 推送，dsh 侧无需显式配置；`plan_note`/`plan_done` 可经当日覆盖层写回母版条目，主会话另有模型可调用的 `compact_context`），不是默认路径；运行时切换入口只有 `config.yaml` 的 `ai_backend`（hot 配置，保存即全链生效；旧 `/api/screen/backend` 写入口已退役），dsh 适配层会在 harness 重启后自动恢复绑定会话（不需要人工在 UI 打开）；生产可用性按部署环境验证，其他 harness 按 `docs/dev/adapter-contract.md` 接入（含 §3.1.1 冷启动恢复要求）。运行时定位与选择见 `docs/dev/ai-runtimes.md`。
+AI 驱动的健康监测系统。Android App 采集传感器数据(心率/GPS/步数/音频等)，FastAPI 后端接收存储，Loom AI（默认，完整工作流）定时分析健康状态和行为模式。PC 感知采集器 (PC Sensor) 采集 Windows PC 状态（前台窗口、空闲、锁屏）并上报后端。Windows 桌面端（`desktop/`，Electron 45）是现有 SPA 的网页套壳，并把 PC 采集端作为子进程内置；服务器地址与证书在本机设置页配置。全部音频算法（ASR/VAD/声纹/KWS/场景/说话人切分/陌生人）由**独立闭源音频内核进程**（运行时 `<project>/kernel`，源码在私有 `kinship-kernel`，包名 `axeuh_kernel`）承载——后端运行时零 ML、零算法实现，只经 `kernel_client.py` / `kernel_job_client.py` / `segment_channel.py` 调用内核。另有 **MOSS 深度音频理解影子管线**（`tools/moss-shadow/`，1.6.0 起，观察期旁路）：vLLM serve 由 systemd 单元常驻，watcher 文件订阅由后端编排器托管为子进程（`moss_watcher` spec；旧 `axeuh-moss-watch` 单元停用），对落盘 chunk 端到端深读（归因/场景/叙事），产物 `audio_deepdive.jsonl` 旁路文件——**perception.jsonl 一字不改，生产主链零依赖**。Python 环境：生产用 `/opt/venvs/axeuh-health`，内核用 `/opt/venvs/axeuh-kernel`，MOSS 用 `/opt/venvs/axeuh-moss`（2026-11 迁移后的路径；旧 `/opt/kinship/.venv-*` 已不存在）。AI 运行时默认是 Loom（一等、完整工作流）；`harness-plugins/` 提供可选的外部 harness 适配层，dsh 是其中的参考实现，已实现适配层与测试，并在 dsh Web 侧栏提供 Kinship 配置面板与计划排班卡片（`kinship-plan-scheduler` 把 Loom 的计划唤醒调度移植到 dsh，读写同一份 plan master/overlay；计划根等路径由 Kinship 后端经 bridge `/v1/kinship/paths` 推送，dsh 侧无需显式配置；`plan_note`/`plan_done` 可经当日覆盖层写回母版条目，主会话另有模型可调用的 `compact_context`），不是默认路径；运行时切换入口只有 `config.yaml` 的 `ai_backend`（hot 配置，保存即全链生效；旧 `/api/screen/backend` 写入口已退役），dsh 适配层会在 harness 重启后自动恢复绑定会话（不需要人工在 UI 打开）；生产可用性按部署环境验证，其他 harness 按 `docs/dev/adapter-contract.md` 接入（含 §3.1.1 冷启动恢复要求）。运行时定位与选择见 `docs/dev/ai-runtimes.md`。本仓库模板默认 `ai_backend: loom`；本机生产实例当前为 `dsh`（2026-11-17 实测 `/health` 报 dsh online、Loom 单元停用），Loom 未废弃。
 
-**私有/单独交付**：`ai/`（运行时数据与记忆）、`kernel/`（闭源音频内核）、`tools/moss-shadow/`（MOSS 影子管线）不在本公开仓库发布；`docs/archive/` 与 `docs/dev/记忆-A方案-2026-10-20.md` 属于私有历史/设计文档，公开树不包含。
+**私有/单独交付**：`ai/`（运行时数据与记忆）、`kernel/`（闭源音频内核）、`tools/moss-shadow/`（MOSS 影子管线）不在本公开仓库发布；`docs/archive/` 与 `docs/dev/记忆-A方案-2026-10-20.md` 属于私有历史/设计文档，公开树不包含。`harness-plugins/`（可选外部 harness 适配）当前不在 `tools/kinship_export/allowlist.toml` 的 allow trees 中，因此不随公开树导出；是否纳入公开树待用户决策。
 
 **三目录/仓拓扑**：公开仓 `kinship`（源码、发行资产；不含 `ai/`、内核源码、`tools/moss-shadow/`、CircuitJS1 运行时）；私有仓 `kinship-kernel`（闭源内核源码）；私有实例目录 `kinship-data`（`config.yaml`、证书、`backend/config/auth.json`、AI 运行时数据，不入 git）。运行时内核位 `<project>/kernel` 是发行资产安装位，源码只在私有仓；`data.ai_root` 是唯一 AI 根（默认 `<project>/ai`，可指向 `kinship-data`），`data.dir` / `data.root` / `models.dir` 独立配置。
 
@@ -19,7 +19,7 @@ AI 驱动的健康监测系统。Android App 采集传感器数据(心率/GPS/�
 采集层                       存储层                          处理层                输出层
 Android App ──┐
               ├─ HTTPS :8768 ─→ FastAPI 后端 ─→ ai/data/daily/{date}/ ─→ Loom AI     ─→ 理解/复盘/健康清单
-PC 采集器 ────┘   (对外 8768)      │  本地 HTTP :8769       perception.jsonl     :5100      → ai/memory/ 长期记忆
+PC 采集器 ────┘   (对外 8768)      │  单端口 :8768           perception.jsonl     :5100      → ai/memory/ 长期记忆
               WS 上报            │                       health.json                    → 手机通知
                                  ├─ 调度器(每秒轮询) ─→ ai/data/tasks/*.yaml ─→ 触发 AI 任务
                                  └─ 音频内核 kernel/（闭源独立进程，bind 127.0.0.1 动态端口：ASR/VAD/声纹/KWS/切分/陌生人全在内核）
@@ -56,10 +56,10 @@ AI 处理遵循 **脚本层 → 子智能体层 → 主智能体层** 三层工�
 | 前端 SPA      | `frontend/mobile/` | TypeScript / Vue 3 + Vite（v2-only 壳层） | `src/main.ts`       | `frontend/mobile/AGENTS.md` |
 | AI 分析       | `ai/`（私有，单独交付） | Python + Loom（默认）/ dsh（可选）/ OpenCode | `data/tasks/*.yaml` | 私有侧文档              |
 | Loom agent harness | `loom-harness/` | TypeScript / Node | `packages/server/dist/cli.js` | `loom-harness/docs/` |
-| 外部 harness 适配 | `harness-plugins/`（可选；dsh 为参考实现） | TypeScript / Node | `packages/kinship-bridge/src/server.ts` + `packages/kinship-ui/client.js` + `packages/kinship-plan/` + `packages/kinship-plan-scheduler/`（计划唤醒调度） + `packages/kinship-compact/`（`compact_context`） + `packages/kinship-task-compat/` | `docs/dev/ai-runtimes.md` + `docs/dev/adapter-contract.md` + `harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md` |
+| 外部 harness 适配 | `harness-plugins/`（可选；dsh 为参考实现） | TypeScript / Node | `packages/kinship-bridge/src/server.ts` + `packages/kinship-ui/client.js` + `packages/kinship-plan/` + `packages/kinship-plan-scheduler/`（计划唤醒调度） + `packages/kinship-compact/`（`compact_context`） + `packages/kinship-task-compat/` + `packages/kinship-tools/`（通知/提醒/TTS 原生工具） + `packages/kinship-isolation/`（preset 级排异） | `docs/dev/ai-runtimes.md` + `docs/dev/adapter-contract.md` + `harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md` |
 | PC 感知采集器 | `desktop/pc-sensor/`       | Python / FastAPI          | `pc_sensor_app.py`  | `desktop/pc-sensor/AGENTS.md`       |
 | Windows 桌面端 | `desktop/` | TypeScript / Electron 45 + Vue 3 | `src/main/main.ts` (Electron) | `desktop/AGENTS.md` |
-| MOSS 影子管线 | `tools/moss-shadow/`（私有，单独交付） | Python + vLLM（systemd `axeuh-moss`/`axeuh-moss-watch`，旁路观察期） | `watcher.py --loop` / `merge.py --date` | 私有侧部署说明 |
+| MOSS 影子管线 | `tools/moss-shadow/`（私有，单独交付） | Python + vLLM（systemd `axeuh-moss` serve；watcher 由后端编排器托管，旁路观察期） | `watcher.py --loop` / `merge.py --date` | 私有侧部署说明 |
 | QQ 网关 | `backend/services/qq_gateway/` | Python / 单 WS + qq CLI | `backend/main.py` 按 `qq_gateway.enabled` 启动（默认关闭；生产已启用）；入站 relay + `qq` CLI | `docs/dev/qq-gateway.md` |
 
 ## 常用入口
@@ -73,7 +73,7 @@ AI 处理遵循 **脚本层 → 子智能体层 → 主智能体层** 三层工�
 
 ### 服务管理
 
-- 生产服务用 systemd 管理：`sudo systemctl restart axeuh-health`（编排器托管 Loom/kernel）；独立 `axeuh-loom` 单元默认停用，仅回滚用。后端也可用 `POST /api/screen/restart` 优雅重启
+- 生产服务用 systemd 管理：`sudo systemctl restart axeuh-health`（编排器托管 kernel、MOSS watcher；`ai_backend=loom` 时还托管 Loom。dsh 是独立的 `axeuh-dsh` 单元，不归后端编排器）；独立 `axeuh-loom` 单元默认停用，仅回滚用。后端也可用 `POST /api/screen/restart` 优雅重启
 - 不得用 `Stop-Process` / `taskkill` 释放端口；确需结束进程时只按 PID `kill <PID>`，禁止 `pkill` / `killall` 按名称批量杀
 - PC 感知采集器有 `/restart` 端点；后端重启端点为 `POST /api/screen/restart`（需 Bearer 认证，定义于 `backend/routers/maintenance.py`，路由前缀 `/api/screen`）
 
@@ -103,7 +103,7 @@ AI 处理遵循 **脚本层 → 子智能体层 → 主智能体层** 三层工�
 - 项目根目录的 `config.yaml`、`.env` 不提交到 git
 - `backend/config/auth.json` 包含加密密码 —— **注意不要在 git 中泄露**
 - AGENTS.md 用中文编写，子目录不重复父目录内容
-- 首次启动：11 步 onboarding（`welcome`→`account`→`dependencies`→`kernel`→`kernel_models`→`xiaomi`→`qq`→`moss`→`loom`→`clients`→`finish`），state v4；bootstrap 模式延迟服务面，`finish` 内合并预检/启动校验并在进程内激活；模型根在 `kernel_models` 步选择（只写 `models.dir`）；发行清单固定 frontend/kernel/Android/Windows 资产。详见 `docs/ops/INSTALL.md` 与 `docs/dev/onboarding-v4-2026-10-27.md`。
+- 首次启动：11 步 onboarding（`welcome`→`account`→`dependencies`→`kernel`→`kernel_models`→`xiaomi`→`qq`→`moss`→`loom`→`clients`→`finish`），state v4；单一启动路径，未配置服务以编排器 `blocked` 状态表达（不再有 bootstrap 延迟服务面），`finish` 内依次合并预检、应用草稿与就绪审计并记录 completed；模型根在 `kernel_models` 步选择（只写 `models.dir`）；发行清单固定 frontend/kernel/Android/Windows 资产。详见 `docs/ops/INSTALL.md` 与 `docs/dev/onboarding-v4-2026-10-27.md`。
 
 ### Python 约定 (backend/ + desktop/pc-sensor/)
 
@@ -124,8 +124,8 @@ AI 处理遵循 **脚本层 → 子智能体层 → 主智能体层** 三层工�
 - Vue 3 Composition API + `<script setup>`，严格TS模式
 - 无 Pinia —— 所有状态用 composables 管理，参考 `frontend/mobile/src/composables/`
 - Router hash 模式，路径别名 `@` -> `./src`
-- 前端共 3 个目录：`mobile/`（主 SPA，`npm run dev` Vite proxy 到后端 HTTPS 8768）、`preview/`（单页预览）、`vaudit/`（声纹审计静态页）；`npm run build` 产出 mobile 的 dist
-- 前端为 v2-only 壳层：桌面 5 项（对话/提醒/报告/文件/设置），移动端 3 项（对话/报告/设置）；旧健康看板已移除，`/dashboard` 落 404
+- 前端只有 `mobile/`（主 SPA，`npm run dev` Vite proxy 到后端 HTTPS 8768；`npm run build` 产出 `dist`）；历史 `frontend/preview/`（音频预览台）与 `frontend/vaudit/`（声纹审计静态页）目录已不在仓库树中，后端 `main.py` 仍挂 `/preview/`、`/vaudit/` 静态路由，目录缺失时返回 404（2026-11-17 实测）
+- 前端为 v2-only 壳层：桌面 6 项（对话/计划/提醒/报告/文件/设置），移动端 4 项（对话/计划/报告/设置），共享 `config/navV2.ts`；旧健康看板已移除，`/dashboard` 落 404
 - 集中式Store模式: SSE事件直接修改 `messages.value`，不依赖占位符注册
 - 子智能体系统: 多级嵌套栈 (`parentChain`)，API + 消息扫描双重数据源
 - Token用量: 双路径更新 (SSE实时 + API历史加载)
@@ -138,8 +138,8 @@ AI 处理遵循 **脚本层 → 子智能体层 → 主智能体层** 三层工�
 python launcher.py                     # 推荐，支持 --config / --data-dir
 start.bat                              # Windows 开发便捷脚本（生产用 systemd）
 
-# 后端开发（HTTP 开发端口 8769）
-cd backend && python -m uvicorn main:app --reload --port 8769
+# 后端开发（单端口 8768；本地开发先把 ssl.enabled 设为 false）
+cd backend && python -m uvicorn main:app --reload --port 8768
 
 # 前端开发
 cd frontend/mobile && npm run dev

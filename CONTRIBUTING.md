@@ -73,7 +73,7 @@ docs: 更新 README 中的 API 文档
 
 ## 项目结构
 
-完整目录树与子系统地图见 [docs/dev/PROJECT_MAP.md](docs/dev/PROJECT_MAP.md)。公开树包含 `backend/`、`app/`、`frontend/mobile/`、`desktop/`、`loom-harness/`、`ai-template/`、`tools/`、`scripts/`、`docs/`；`kernel/`、`ai/`、`tools/moss-shadow/` 是私有或闭源组件，不在公开树中。
+完整目录树与子系统地图见 [docs/dev/PROJECT_MAP.md](docs/dev/PROJECT_MAP.md)。公开树包含 `backend/`、`app/`、`frontend/mobile/`、`desktop/`、`loom-harness/`、`ai-template/`、`tools/`、`scripts/`、`docs/`；`kernel/`、`ai/`、`tools/moss-shadow/` 是私有或闭源组件，不在公开树中。`harness-plugins/` 是仓库内维护的可选外部 harness 适配层，当前不在 `tools/kinship_export/allowlist.toml` 的导出白名单内，因此不随公开树发布（是否纳入待决策）。
 
 ## 文档改动
 
@@ -81,7 +81,7 @@ docs: 更新 README 中的 API 文档
 
 ## 测试范围
 
-公开树 CI 运行 backend 语法检查、frontend typecheck/unit/build、Android debug APK 构建、Loom typecheck/build 和 docs-check。完整 backend/Loom 测试依赖私有 `ai/`、`kernel/` 与 `loom-harness/fixture-workspace`；Android JVM 单测当前有 4 个公开树已知失败，暂不纳入公开 CI。
+公开树 CI 运行 backend 语法检查、frontend typecheck/unit/build、Android debug APK 构建、Loom typecheck/build、docs-check 和 Stratum prompt 契约校验。完整 backend/Loom 测试依赖私有 `ai/`、`kernel/` 与 `loom-harness/fixture-workspace`；Android JVM 单测当前有 4 个公开树已知失败，暂不纳入公开 CI。
 
 ## 开发环境设置
 

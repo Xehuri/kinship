@@ -45,11 +45,11 @@ Kinship 分为三个位置，不是单一仓库：
 
 | 位置 | 内容 | 分发方式 |
 | --- | --- | --- |
-| `kinship`（本仓库） | 后端、Android App、前端、桌面端、Loom harness、可选外部 harness 适配、文档、发行资产 | 公开源码树 |
+| `kinship`（本仓库） | 后端、Android App、前端、桌面端、Loom harness、文档、发行资产；可选外部 harness 适配（`harness-plugins/`）仍在仓库内维护，但暂不在导出白名单 | 公开源码树 |
 | `kinship-kernel` | 闭源音频内核源码（`axeuh_kernel`） | 私有；PolyForm Noncommercial 1.0.0 |
 | `kinship-data` | `config.yaml`、证书、`backend/config/auth.json`、AI 运行时数据与上传文件 | 私有；不入 git |
 
-公开树不包含 AI 运行时目录（默认 `ai/`）、`kernel/` 源码、`tools/moss-shadow/` 与 CircuitJS1 运行时。AI 实例由 `ai-template/` 创建到配置的 AI 根（`data.ai_root`，默认 `<project>/ai`，私有部署示例 `kinship-data/ai`）；内核以预编译发行资产安装到 `<project>/kernel`；`tools/moss-shadow/` 为私有组件；CircuitJS1 在 dev/build 时从独立的 `kinship-circuitjs` 仓库获取。
+公开树不包含 AI 运行时目录（默认 `ai/`）、`kernel/` 源码、`tools/moss-shadow/` 与 CircuitJS1 运行时。AI 实例由 `ai-template/` 创建到配置的 AI 根（`data.ai_root`，默认 `<project>/ai`，私有部署示例 `kinship-data/ai`）；内核以预编译发行资产安装到 `<project>/kernel`；`tools/moss-shadow/` 为私有组件；CircuitJS1 在 dev/build 时从独立的 `kinship-circuitjs` 仓库获取。`harness-plugins/` 是仓库内维护的可选外部 harness 适配层，但当前不在 `tools/kinship_export/allowlist.toml` 的导出白名单中，因此不随公开树发布；是否纳入公开树待决策。
 
 运行时后端依赖三个位置：`<project>/kernel`（已安装的内核包，无需源码）、`data.ai_root`（唯一 AI 根，默认 `<project>/ai`，可指向私有 `kinship-data`）、以及独立的私有数据根（配置、证书、认证状态、模型与运行时数据）。全部内核模型（含 ERes2NetV2）由 `kernel_models` 引导步骤下载；内核压缩包不含 `models/` 目录与 `.ckpt` 文件；内核 API 保持 1.0.0。
 
@@ -81,7 +81,8 @@ Android App / PC Sensor
 Caddy 443/8443
   -> https://127.0.0.1:8768       (跳过上游证书校验)
 FastAPI 后端 8768（HTTP/HTTPS 同端口）
-  -> Loom 127.0.0.1:5100          (默认助手宿主，由 axeuh-health 托管为子进程)
+  -> Loom 127.0.0.1:5100          (模板默认助手宿主，ai_backend=loom 时由 axeuh-health 托管为子进程)
+  -> dsh bridge 127.0.0.1:18765   (可选运行时；本机生产当前 ai_backend=dsh)
   -> 音频内核 127.0.0.1:<动态>     (后端 spawn，闭源进程)
   -> MOSS 127.0.0.1:8100          (转正执行中，卡2)
 ```
@@ -95,9 +96,9 @@ FastAPI 后端 8768（HTTP/HTTPS 同端口）
 | `18888` | PC 感知采集器本地 HTTP |
 | `8000` | 本地 27B LLM（vLLM，按需） |
 | `8100` | MOSS serve（转正执行中，loopback） |
-| `8790` | 音频工作台（素材试听/人耳标注） |
+| `8790` | 音频工作台（可选，本仓不含该工具；按需自备） |
 | `8770` | QQ 网关 IPC（qq CLI） |
-| `18765` | dsh 适配 bridge（仅接入可选 dsh 运行时，loopback） |
+| `18765` | dsh 适配 bridge（loopback；本机生产当前使用） |
 | `5173` | Vite 开发服务器 |
 | `127.0.0.1:<动态>` | 音频内核（实际端口见 pidfile） |
 
@@ -135,16 +136,16 @@ sudo systemctl enable --now kinship
 
 脚本不构建前端，也不安装或构建音频内核。`frontend/dist` 缺失时由首次引导下载发行资产；手动构建仅用于开发，需要单独的 CircuitJS 仓库。音频功能依赖外部内核，缺少内核时后端仍可启动，但音频不可用。
 
-启动后打开 Web UI 完成管理员注册与 11 步初始化（账户、依赖、内核、模型、小米健康云、QQ、MOSS、Loom、客户端、完成），并确认 `http://127.0.0.1:8768/health` 返回 `{"status":"healthy"}`。Android App 与 PC 感知采集器的安装见 [docs/ops/INSTALL.md](docs/ops/INSTALL.md)，首次 AI 初始化按 AI 根内的 `系统初始化指南.md`（来自 `ai-template/`）执行。
+启动后打开 Web UI 完成管理员注册与 11 步初始化（欢迎、账户、依赖、内核、内核模型、小米健康云、QQ、MOSS、AI 助手、客户端、完成），并确认 `http://127.0.0.1:8768/health` 返回 `{"status":"healthy"}`。Android App 与 PC 感知采集器的安装见 [docs/ops/INSTALL.md](docs/ops/INSTALL.md)，首次 AI 初始化按 AI 根内的 `系统初始化指南.md`（来自 `ai-template/`）执行。
 
 ## 核心能力
 
 - **Loom 助手（默认，完整工作流）**：`127.0.0.1:5100`，由 `axeuh-health` 托管为子进程（独立 `axeuh-loom.service` 停用，仅回滚）；`ai_backend: loom`。
-- **dsh 适配路径（可选）**：`harness-plugins/` 提供 8 个插件包与 `kinship` preset，把已有的 dsh 接成 Kinship 运行时；需要自带 dsh、手动安装（`link:` 依赖或同步脚本）、绑定会话并配置 token，不是开箱即用。已覆盖：计划排班（与 Loom 读同一份母版/覆盖层，计划根由后端经 bridge 推送）、`plan_note` / `plan_done` 覆盖层写回、模型可调用的 `compact_context`、通知/提醒/TTS 原生工具（经 bridge tool-auth 直连后端），以及 preset 级排异（遮蔽 host 记忆提示词段、限制 `memory_*` 工具）。dsh Web 左侧栏的 **Kinship** 面板分「概览 / 排异 / 计划 / 接入 / 设置」五页。Loom 仍是默认工作流；见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) 与 [harness-plugins/README.md](harness-plugins/README.md)。
+- **dsh 适配路径（可选）**：`harness-plugins/` 提供 8 个插件包与 `kinship` preset，把已有的 dsh 接成 Kinship 运行时；需要自带 dsh、手动安装（`link:` 依赖或同步脚本）、绑定会话并配置 token，不是开箱即用。已覆盖：计划排班（与 Loom 读同一份母版/覆盖层，计划根由后端经 bridge 推送）、`plan_note` / `plan_done` 覆盖层写回、模型可调用的 `compact_context`、通知/提醒/TTS 原生工具（经 bridge tool-auth 直连后端），以及 preset 级排异（遮蔽 host 记忆提示词段、限制 `memory_*` 工具）。dsh Web 左侧栏的 **Kinship** 面板分「概览 / 排异 / 计划 / 接入 / 设置」五页。本机生产实例当前使用 dsh（`/health` 报 dsh online、Loom 单元停用）；模板默认仍是 Loom，见 [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) 与 `harness-plugins/README.md`（该目录当前不在公开导出白名单）。
 - **三层工作流**：脚本层（`fact_extractor.py` / `check_coverage.py`）→ 子智能体层（data-check / reviewer）→ 主智能体层（派发、验收、自优化）。
 - **定时调度**：默认 7 个数据检查窗口（00/06/08/12/16/20/22），每日复盘 00:40，双周复盘 1/15 18:30，周报周一 03:00。
 - **记忆协议（Phase A）**：证据 → `ledger/`（facts / rules / open）与 `notes/`（观察 / 案例 / 人格 / 判断 / 长尾 / 提案）→ 投影。主会话注入 6 件投影（必读、身份、state、core、topics INDEX、active-tasks），只写 `notes/proposals` 等提案；02 日复盘是唯一日更写入者，旧 A 方案文件冻结只读，`memory_finalize.py` 做收尾门。
-- **MOSS 旁路（转正执行中）**：`tools/moss-shadow/`，`axeuh-moss` + `axeuh-moss-watch`，输出 `audio_deepdive.jsonl`；七步已完成，待两日回归 + 七天观察；事实文件只消费 `静音`/`ambient`，human/mixed/device 留审计；`perception.jsonl` 与主链零改动。多实例部署可用 `moss.data_root` / `moss.state_dir` 隔离各自的 watcher 数据与状态。
+- **MOSS 旁路（转正执行中）**：`tools/moss-shadow/`，vLLM serve 由 systemd `axeuh-moss` 常驻，watcher 文件订阅由后端编排器托管为子进程（`moss_watcher` spec；旧 `axeuh-moss-watch` 单元停用），输出 `audio_deepdive.jsonl`；七步已完成，待两日回归 + 七天观察；事实文件只消费 `静音`/`ambient`，human/mixed/device 留审计；`perception.jsonl` 与主链零改动。多实例部署可用 `moss.data_root` / `moss.state_dir` 隔离各自的 watcher 数据与状态。
 - **QQ 网关**：单 WS + SQLite inbox/outbox/read-state/water-state + qq CLI IPC `127.0.0.1:8770`；qq-mcp 已退役；群聊元数据提醒与水群模式；默认关闭，生产已启用。
 - **Loom 运行时**：交互式 PTY、自动唤醒、回执简化、ops+chat 双视角压缩。
 
@@ -169,7 +170,7 @@ sudo systemctl enable --now kinship
 | [docs/dev/AI_SYSTEM.md](docs/dev/AI_SYSTEM.md) | AI 架构：Loom、任务、记忆、MOSS、QQ |
 | [docs/dev/ai-runtimes.md](docs/dev/ai-runtimes.md) | AI 运行时选择：Loom、dsh 与自带 harness |
 | [docs/dev/adapter-contract.md](docs/dev/adapter-contract.md) | AI 运行时适配器契约 |
-| [harness-plugins/README.md](harness-plugins/README.md) | dsh 适配包：安装与同步、面板字段、bridge 端点与配置 |
+| `harness-plugins/README.md`（仓库内，暂不进公开树） | dsh 适配包：安装与同步、面板字段、bridge 端点与配置 |
 | [docs/ops/dsh-production-rollout.md](docs/ops/dsh-production-rollout.md) | dsh 生产接入：准备、重启、绑定、切流与回滚 |
 | [docs/dev/DATA_FORMAT.md](docs/dev/DATA_FORMAT.md) | 感知与健康数据格式 |
 | [docs/kernel-contract.md](docs/kernel-contract.md) | 闭源音频内核契约 |
@@ -180,8 +181,8 @@ sudo systemctl enable --now kinship
 ## 常见问题
 
 - **首次启动没有账号密码**：打开 Web UI 完成首次设置，凭据写入 `backend/config/auth.json`；默认要求一次性引导令牌（`backend/config/.setup_token`，通过 `X-Setup-Token` 提交），仅可信内网可显式设 `auth.setup_require_token: false` 关闭。
-- **Android App 连不上**：确认使用 `https://`、端口与 `server.https_port` 一致、服务器证书被系统信任；自签证书不能靠浏览器接受一次解决。
-- **前端 404**：`frontend/mobile/dist/` 不存在，执行 `npm run build` 后重启后端。
+- **Android App 连不上**：确认使用 `https://`、端口与 `server.port` 一致、服务器证书被系统信任；自签证书不能靠浏览器接受一次解决。
+- **前端 404**：`frontend/mobile/dist/` 不存在且后台自愈下载尚未完成；先看后端日志中的下载与校验结果，仍失败再在 `frontend/mobile/` 执行 `npm run build`（替换 `dist/` 后无需重启后端）。
 - **后台服务被杀**：小米/OPPO/华为等需锁定最近任务、关闭电池优化并允许自启动。
 
 完整 FAQ、故障排查与部署细节见 [README.en.md](README.en.md) 和私有仓部署指南。

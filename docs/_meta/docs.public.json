@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-15",
+  "updated": "2026-11-17",
   "scope": "public-docs-only",
   "notes": "Only public documentation is listed. Internal, migration, production-topology, and research documents are intentionally absent.",
   "docs": [
@@ -309,6 +309,34 @@
       "path": "adr/0006-ffmpeg-via-pypi.md",
       "title": "ADR 0006：ffmpeg 经 PyPI",
       "audience": "architect",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "ops/flow-retirement.md",
+      "title": "flow 退役运维",
+      "audience": "operator",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "dev/loom-inbox-contract.md",
+      "title": "Loom 收件箱契约",
+      "audience": "developer",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "dev/flow-retirement-inventory.md",
+      "title": "flow 退役落点清单",
+      "audience": "developer",
+      "status": "ready",
+      "language": "zh"
+    },
+    {
+      "path": "dev/index-layer-catalog-2026-11-02.md",
+      "title": "索引层目录（历史）",
+      "audience": "developer",
       "status": "ready",
       "language": "zh"
     }

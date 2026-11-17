@@ -11,7 +11,7 @@ MOSS 是旁路音频理解服务，对已经落盘的音频 chunk 做场景、�
 1. 首次引导的 `moss` 步骤可以直接填写 MOSS 服务地址并启用。
 2. 已经在用的实例，把 `moss.enabled` 设为 `true`，并确认 `moss.base_url` 指向 MOSS vLLM 服务，默认 `http://127.0.0.1:8100`。
 
-前提：单独部署 `axeuh-moss` 推理服务；没有 GPU 或没有该服务时保持关闭。转正门与观察口径属于私有运维文档，公开树不提供链接。
+前提：单独部署 `axeuh-moss` 推理服务；watcher 由后端编排器随 `moss.enabled` 托管（`moss_watcher`），不需要单独启动 systemd 单元。没有 GPU 或没有该服务时保持关闭。转正门与观察口径属于私有运维文档，公开树不提供链接。
 
 ## 小米健康云
 
@@ -23,7 +23,7 @@ MOSS 是旁路音频理解服务，对已经落盘的音频 chunk 做场景、�
 
 ## QQ 网关
 
-把 QQ 私聊和群聊接进 Loom 助手，使用单 WebSocket 加 SQLite 收件箱，`qq` CLI 通过本机 `127.0.0.1:8770` 发送消息。
+把 QQ 私聊和群聊接进 Kinship 的主 AI 会话（由 `ai_backend` 决定，Loom 或 dsh），使用单 WebSocket 加 SQLite 收件箱，`qq` CLI 通过本机 `127.0.0.1:8770` 发送消息。
 
 在哪里开：把 `qq_gateway.enabled` 设为 `true`，并按 [QQ 网关契约](../dev/qq-gateway.md) 配置 NapCat 地址和账号。默认关闭。
 
