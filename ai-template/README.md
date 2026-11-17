@@ -26,7 +26,7 @@ AI 子智能体的批次入库、卡片/claim 写入、review 与 query 通过 *
 ./scripts/install-stratum.sh /path/to/ai
 
 # Windows
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-stratum.ps1 -AiRoot D:\path\to\ai
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-stratum.ps1 -AiRoot D:\Kinship\ai
 ```
 
 手工安装等价版本后，再单独验证并初始化 AI 根：
@@ -74,7 +74,7 @@ cp -a ai-template "$AI_ROOT"
 ./scripts/setup.sh --ai-root "$AI_ROOT"
 
 # Windows
-powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -AiRoot "D:\path\to\ai"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -AiRoot "D:\Kinship\ai"
 ```
 
 两条硬约束：
