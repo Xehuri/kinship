@@ -44,7 +44,7 @@ describe('fetchWebBackend', () => {
     mockApiGet.mockResolvedValue({ ok: true, backend: 'opencode' })
     await expect(fetchWebBackend()).resolves.toEqual({
       backend: 'opencode',
-      options: ['opencode', 'loom'],
+      options: ['opencode', 'loom', 'dsh'],
     })
   })
 
