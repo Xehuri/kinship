@@ -31,13 +31,13 @@ Model weights are downloaded separately by the `kernel_models` onboarding step. 
 
 Models resolve through `AXEUH_KERNEL_MODEL_DIR`, then a package `models/` directory if present, then the download landing directory. The wizard writes `models.dir` and downloads required models from ModelScope and HuggingFace; `kws-zipformer` and `cnn14` use their upstream releases and mirrors.
 
-Required models cover ASR, VAD, speaker embedding, diarization, wake-word KWS, and environmental sound classification. See [docs/ops/INSTALL.md](../ops/INSTALL.md) for the current list.
+Model downloads cover ASR, VAD, speaker embedding, diarization, wake-word KWS (recommended tier), and environmental sound classification (optional tier). See [docs/ops/INSTALL.md](../ops/INSTALL.md) for the current list.
 
 ## API
 
 The kernel exposes HTTP and WebSocket on one loopback port. The handshake line reports `{port, pid, api_version}` with `api_version` fixed at `1.0.0`. The endpoint and error contract is [docs/kernel-contract.md](../kernel-contract.md).
 
-Do not start the kernel manually (`python -m axeuh_kernel`). A manual spawn can overwrite the shared pidfile and make the backend reuse the wrong interpreter. The backend starts and supervises the process.
+Do not start the kernel manually (`python -m axeuh_kernel`). A manual spawn shares the same `--state-dir` private state (jobs, artifacts, voiceprints, unknown) as the backend-supervised kernel and can corrupt it. The backend spawns one supervised instance, records it in `{state-dir}/kernel.pid`, and refuses to start another while that pid is alive.
 
 ## License
 

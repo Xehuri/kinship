@@ -2,7 +2,7 @@
 
 > **状态**: 已按 `kernel/axeuh_kernel/` 已实现代码逐节核对（K0-K4d 全通道 + Wave A1-A6 全部 additive 回填），非纸上推演。
 > **定稿时间**: 2026-09-23（K 波）；2026-09-24 回填 A1-A6（提交 `38c9e61c`/`962640ce`/`24d8e512`/`b1309839`/`0436ae3f`/`9601f3c7`）。
-> **原则**: 本文是**事实契约**——以代码为准；`docs/kernel-design.md`（设计总纲）保持只读，凡与设计不一致处一律**以本文为准**，偏差集中登记于 [§15 事实与设计偏差](#15-事实与设计偏差以代码为准)。
+> **原则**: 本文是**事实契约**——以代码为准；`docs/kernel-design.md`（设计总纲，**私有侧文档，本仓不含**）保持只读，凡与设计不一致处一律**以本文为准**，偏差集中登记于 [§15 事实与设计偏差](#15-事实与设计偏差以代码为准)。
 > **fork 校验**: 每节标注 **实现指针**（源文件）与 **测试指针**（`kernel/tests/` 对应测试），fork 可按指针逐节复核。
 > **一次性核对命令**（caps kinds 与本文 §13.1 表格一致性）见 [§13](#13-能力自描述-v1capabilities)。
 
@@ -92,7 +92,7 @@ python -m axeuh_kernel --port 0 --state-dir <dir> [--config <path>]
 
 注册库文件在 `<state-dir>/voiceprints/voiceprints.json`（复数目录，首次落盘时自动创建）；A2 cohort 采集落 `<state-dir>/voiceprint/cohort_active.jsonl` + `cohort_audit.jsonl`；A4 陌生人链五文件落 `<state-dir>/unknown/`（§11.4）。`--state-dir`（不是 `--data-dir`）：业务数据归外层，内核只有私有状态根。服务实例经构造参数注入路径（**不做 import 时快照**）；测试未注入时在调用期创建临时状态根。内核生命周期独立于外层。
 
-**外层→内核首启播种（2026-10-08 登记，审计 W3）**：外层 `kernel_client` 在 spawn 时对 `voiceprints/` 注册库与 cohort 文件做 **copy2 播种**——仅目标缺失时复制，属**一次性首启引导**语义；外层注册库镜像退役（P2-V10 进行中）后**仅首部署触发**。系跨进程文件旁路而非契约通道，与 §15-20~22 同批回写登记。
+**外层→内核首启播种（2026-10-08 登记，审计 W3）**：外层 `kernel_client` 在 spawn 时对 `voiceprints/` 注册库与 cohort 文件做 **copy2 播种**——仅目标缺失时复制，属**一次性首启引导**语义；外层注册库镜像已随 P2-V10 退役，此后**仅首部署触发**。系跨进程文件旁路而非契约通道，与 §15-20~22 同批回写登记。
 
 ### 3.4 模型权重统一解析链（A1，`models_source.py`）
 
@@ -306,7 +306,7 @@ WAV 输入 `decode_wav_b64`：非单声道/非 16bit/非 16kHz → **415 `input.
 
 ### 7.6 P2-K1a 注册库全量元数据快照 `GET /v1/voiceprint/registry`（2026-10-08 additive）
 
-**存在根因**: 契约此前只有四键摘要 `GET /v1/voiceprint/speakers`，无全量注册库快照端点，K4c 双写方案只好跨进程直读内核私有 state-dir 文件 `{state}/voiceprints/voiceprints.json`（野生通道 W1，取证 `docs/archive/audit/2026-10-08/raw/02-kernel-contract.md`）——文件面把注册库**连同 embedding 向量**复刻进外层 v4 镜像，绕开 §5/§7.5 向量红线。本端点交付合法 HTTP 面，外层接线与镜像退役在 **V10**（本单元不动 backend/）。
+**存在根因**: 契约此前只有四键摘要 `GET /v1/voiceprint/speakers`，无全量注册库快照端点，K4c 双写方案只好跨进程直读内核私有 state-dir 文件 `{state}/voiceprints/voiceprints.json`（野生通道 W1，取证 `docs/archive/audit/2026-10-08/raw/02-kernel-contract.md`）——文件面把注册库**连同 embedding 向量**复刻进外层 v4 镜像，绕开 §5/§7.5 向量红线。本端点交付合法 HTTP 面；外层接线与镜像退役已随 **V10** 落地（取证 `backend/routers/voiceprint_audit.py::list_voices`——数据源即本端点，backend 已无跨进程直读 state-dir 注册库的通道）。
 
 - **形状**: 内核信封三键（§7.1）；`facts = {count, speakers:[条目]}`，`count` = 条目数（与 speakers 长度恒等）。
 - **条目 11 键白名单**（`voiceprint/service.py::_REGISTRY_META_KEYS`，`_persist_enrollment` 落盘键集的元数据投影）：
@@ -343,11 +343,11 @@ WAV 输入 `decode_wav_b64`：非单声道/非 16bit/非 16kHz → **415 `input.
 
 ### 8.1 DELETE 语义裁定（P3-K2a，2026-10-08）
 
-- **不存在 = 幂等成功（200）**，非 404。理由：外层消费方是"消费即删"的重试友好路径（取证 `backend/services/segment_channel.py::_delete_artifact`——外层现在对缺失文件先 `is_file()` 判存在再 unlink、失败只 WARNING 不阻断，即**外层语义本就是幂等**）；404 会把"已成功删除"与"从未存在/已被并发删除"两类都算作失败，逼外层写特判。删除是收敛操作，天然幂等。
+- **不存在 = 幂等成功（200）**，非 404。理由：外层消费方是"消费即删"的重试友好路径（取证 `backend/services/segment_channel.py::_delete_artifact`——P3-V15 起直接走本契约 `DELETE` 面、绝不回退文件直删，失败只 WARNING 不阻断，即**外层语义本就是幂等**）；404 会把"已成功删除"与"从未存在/已被并发删除"两类都算作失败，逼外层写特判。删除是收敛操作，天然幂等。
 - 与 `DELETE /v1/voiceprint/speakers/{id}`（缺席 → 404）的**不对称是有意的**：注册声纹是业务实体，误删需暴露；产物是瞬态传输介质，重复删除无害。
 - **错误码只用 §4.2 封闭表既有项**：`input.invalid`（非法 id）、`state.unavailable`（unlink 失败，retryable=true，外层按重试处理）、401/403 `auth.failed`（中间件统一）。零新增码。
 - **TTL 采最小口径**：不发明后台清扫任务；启动清扫只是 crash 残留兜底（默认 7 天，防跨进程泄漏的最后防线），主泄漏治理靠外层消费即删 + DELETE 纪律。**已知理论边界**：内核宕机 >7 天且重启时仍有 queued 作业引用超龄产物时，启动清扫可能先删其输入（该作业将按既有语义失败）——宕机 7 天的 queued 作业早已无业务时效，接受此边界，登记于此。
-- **能力标记**：caps `kinds` 新增 `artifacts.delete`（§13.1 第 34 位，additive 组插在 inspect 组与 `kws.encode` 之间）；外层 V15 接线时据此做运行时校验（旧内核无此 kind → 外层不得依赖 HTTP 删除）。PUT/GET artifacts 维持不进 kinds（§15-3）。
+- **能力标记**：caps `kinds` 新增 `artifacts.delete`（§13.1 第 34 位，additive 组插在 inspect 组与 `kws.encode` 之间）；外层 V15 已接线——`segment_channel.py` 消费即删直连 `DELETE`（旧内核回 405/404 仅 WARNING、残留交内核启动清扫）；外层无现成 caps 缓存查询，本 kind 作**部署面**校验锚而非运行期判据。PUT/GET artifacts 维持不进 kinds（§15-3）。
 
 ---
 
@@ -548,7 +548,7 @@ WAV 输入 `decode_wav_b64`：非单声道/非 16bit/非 16kHz → **415 `input.
 | 35 | `kws.encode` | sync | POST `/v1/kws/encode` |
 
 > kinds 顺序 = `_VOICEPRINT_KINDS + _UNKNOWN_KINDS + _JOB_KINDS + _STREAM_KINDS + _INSPECT_KINDS + _ARTIFACT_KINDS + _KWS_KINDS`（**`kws.encode` 恒末尾**为 `caps.py`/`kws_encode.py` 注释约定；A4 unknown 组插在 voiceprint 后、A5 inspect 组插在 stream 后、P3-K2a artifact 组插在 inspect 组后 kws 前——既有 kind 相对顺序历波零变动，`test_caps_inspect_kinds_order_and_tail` 锁尾部，`test_job_residual_kinds.py` 锁 `kinds[-1]=="kws.encode"`）。
-> **不进 kinds 的辅助端点**：`/v1/health`、`/v1/ready`、`/v1/capabilities` 自身、`PUT/GET /v1/artifacts`（偏差 §15-3；P3-K2a 起产物通道仅 `DELETE` 以 `artifacts.delete` 进 kinds——外层 V15 运行时校验所需的能力标记，§8.1）。
+> **不进 kinds 的辅助端点**：`/v1/health`、`/v1/ready`、`/v1/capabilities` 自身、`PUT/GET /v1/artifacts`（偏差 §15-3；P3-K2a 起产物通道仅 `DELETE` 以 `artifacts.delete` 进 kinds——外层 V15 部署面校验锚（非运行期判据），§8.1）。
 
 **一次性核对命令**（拉实际响应与上表 diff；TestClient 不绑端口）：
 
@@ -615,7 +615,7 @@ PY
 | 2026-09-24 | A4 `b1309839` | kinds +6（`unknown.*`，19→25）；models +diar-3.1（8→9）；`/v1/unknown/*` 六端点（§11）；state 布局 +`unknown/`；`GET /v1/voiceprint/unknown` 接真库（count/items 向后兼容，source 值变化 §15-18）；迁移脚本 | 既有 kinds/models 相对顺序零变动 |
 | 2026-09-24 | A5 `0436ae3f` | kinds +4（`inspect.*` 三条 + `voiceprint.space`，25→29）；models +fsmn-vad（9→10）；inspect 通道（§12）+ D2 豁免登记；`audio_input.py` 三模共享层；diar-3.1 类级共享缓存 | kws.encode 恒末尾不动；既有端点零变化 |
 | 2026-09-24 | A6 `9601f3c7` | kinds +4（`voiceprint.cohort_{reload,compact,stats,audit}`，29→**33**）；`analyze.asr` options `weak_split`（默认关逐字节回归）；WS `session.start` 扩展 `{mode,segment,t0_ms}` + `segment.closed` additive `seq` + segment 模式（§10.4，wakeup 模式零变化）；cohort 管理四端点（§7.2） | 帧类型集合不新增（复用 segment.closed 加键）；错误码/信封/认证不变 |
-| 2026-10-08 | P2-K1a | kinds +1（`voiceprint.registry`，33→**34**）；`GET /v1/voiceprint/registry` 注册库全量元数据快照（§7.6，为消外层 W1 野生直读而生，外层接线在 V10） | 既有 kind 相对顺序零变动（组尾追加、`kws.encode` 恒末尾）；既有端点响应逐键不变（`test_voiceprint_registry.py` 含 speakers 摘要回归锁）；错误码/信封/认证不变 |
+| 2026-10-08 | P2-K1a | kinds +1（`voiceprint.registry`，33→**34**）；`GET /v1/voiceprint/registry` 注册库全量元数据快照（§7.6，为消外层 W1 野生直读而生，外层接线已随 V10 落地） | 既有 kind 相对顺序零变动（组尾追加、`kws.encode` 恒末尾）；既有端点响应逐键不变（`test_voiceprint_registry.py` 含 speakers 摘要回归锁）；错误码/信封/认证不变 |
 
 **终值**：caps **kinds 35 / models 10 / error_codes 12 / limits {}**；错误码、信封、WS 帧类型集、握手行键集、认证机制、时间纪律（§5，含 §15-9/§15-16 登记项）**全部零破坏**（§13.1 一次性核对命令实证）。测试基线 `kernel/tests` **379 passed + 3 skipped**（A6 gate 实测；P2-K1a 在其上 +14 用例，见 `test_voiceprint_registry.py`）。
 
@@ -649,7 +649,7 @@ PY
 | 20 | §6.4/§13.1 `analyze.emotion` 消费漂移（2026-10-08 登记） | 契约列 8 个 analyze.* kind、caps 恒 33 kinds | **外层已于 2026-10-07 停用该 kind 的消费**：emotion2vec_plus_base 权重 decoder miss、输出恒空且零消费方（取证 `backend/services/kernel_job_client.py` RESIDUAL_KINDS 已剔除，提交 `e194366e`「内核退 CPU + 整体移除 analyze.emotion」；死链清理 P0-U7 `4710030e`）。内核 handlers/caps/§13.1 清单**冻结保留、零变化**（合法 additive 面，fork 与三方对拍不受影响）——本条登记的是**消费方漂移**，非实现事实漂移；§6.4 两处 emotion 行已加括注（审计 D13） |
 | 21 | §6.1/§6.3 interrupted 恢复归属（2026-10-08 裁定） | 「外层据 `GET /v1/jobs?state=interrupted` 重新提交」「列表是外层重启恢复在途任务的唯一途径」 | **裁定：恢复语义由外层 requeue 队列（`audio_analysis_queue`/pipeline 降级重投）唯一承担**。原客户端 `resubmit_interrupted`/`list_jobs` 恢复路径从未接入 lifespan、属死件，已随 P0-U6 删除（提交 `0dfaa732`）；内核 `interrupted` 作业不再被收割重投，`GET /v1/jobs?state=interrupted` **降级为仅供运维观测**（僵尸作业记录观测面，审计 D5）；§6.1 重启 reload 与 §6.3 列表表述已同步改注 |
 | 22 | §11.1 陌生人管理四端点外层消费（2026-10-08 登记） | A4（提交 `b1309839`）交付 profiles/confirm/reject/state 完整管理链 | 外层仅接线 `track` + `cleanup`；`GET /v1/unknown/profiles`、`POST /v1/unknown/profiles/{id}/confirm`、`POST /v1/unknown/profiles/{id}/reject`、`GET /v1/unknown/state` 四端点**内核面已交付、外层零消费方**——「建档后无人确认」，档案生命周期停在内核半程（审计 D6-D10）。属外层消费欠账而非内核缺陷；可选消费方 = vaudit 陌生人确认 UI 接线（计划 V20 单元，P2-V10 链条后实施）；§11.1 对应四行已加括注 |
-| 23 | W1 野生直读注册库的契约缺口（2026-10-08 登记，P2-K1a） | 设计 §4.1 声纹通道只列 6 端点、无「全量注册库快照」；state-dir 是内核私有状态（§3.3） | 外层 K4c 双写经 `kernel_voiceprint_registry_path` 跨进程直读 `{state}/voiceprints/voiceprints.json`（审计 raw/02 W1），文件面把 embedding 向量复刻进外层镜像、绕开 §5 红线——**契约缺口倒逼的野生通道**。**已补 `GET /v1/voiceprint/registry`**（§7.6，additive，kinds 33→34）提供合法 HTTP 元数据面；**外层接线改走端点 + v4 镜像退役 = 计划 V10 单元**（本单元只动 kernel/，backend/ 野生通道暂存原样）。注：`/voices` 面板的 `centroids/centroid_info` 派生块与 `audio_path` 属外层镜像文件自产字段，非内核数据，V10 退役镜像时由 V10 一并裁定去向；内核 `space` 端点（§12）投影所需质心恒在内核内构建，不外带 |
+| 23 | W1 野生直读注册库的契约缺口（2026-10-08 登记，P2-K1a） | 设计 §4.1 声纹通道只列 6 端点、无「全量注册库快照」；state-dir 是内核私有状态（§3.3） | 外层 K4c 双写经 `kernel_voiceprint_registry_path` 跨进程直读 `{state}/voiceprints/voiceprints.json`（审计 raw/02 W1），文件面把 embedding 向量复刻进外层镜像、绕开 §5 红线——**契约缺口倒逼的野生通道**。**已补 `GET /v1/voiceprint/registry`**（§7.6，additive，kinds 33→34）提供合法 HTTP 元数据面；**外层接线改走端点 + v4 镜像退役已随 V10 落地**（取证 `backend/routers/voiceprint_audit.py::list_voices`；backend 已无 `kernel_voiceprint_registry_path` 跨进程直读）。注：`/voices` 面板的 `centroids/centroid_info` 派生块与 `audio_path` 属外层派生字段，非内核数据——V10 后 `centroids` 由快照条目按 name 分组派生、`audio_url` 按外层规范音频文件是否存在给出；内核 `space` 端点（§12）投影所需质心恒在内核内构建，不外带 |
 
 ---
 
