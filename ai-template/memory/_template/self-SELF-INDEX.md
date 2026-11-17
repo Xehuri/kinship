@@ -1,56 +1,47 @@
 ---
-tags: [模板, 记忆, 索引]
+tags: [模板, 记忆, 索引, 投影]
 type: template
-date: {date}
+projection: true
+budget_bytes: 4096
 ---
-# self/SELF-INDEX.md
+# self/SELF-INDEX.md（关键词 → 文件导航）
 
-> 记忆体系关键词导航（查什么，去哪）。本文件不存正文、不存历史；导航只指向当前源文件，复盘收割后更新本表。
+> 02 日复盘每次收割后按实际读写重写；主会话只读。只放导航，不复制规则或正文。
 
-## 查什么 | 去哪 | 备注
+## 先看哪里（按问题类型）
 
-| 查什么 | 去哪 | 备注 |
-|---|---|---|
-| 热快照（主线、任务、红线、状态） | `self/必读.md` | 会话开始必读，L0 投影层 |
-| 人格投影（怎么说话、怎么办事） | `self/persona-lite.md` + `self/身份.md` | 投影不是真值 |
-| 用户画像投影 | `profile/core-lite.md` + `profile/core.md` | 细节回 core 与 semantic |
-| 未成型的念头或草稿 | `self/scratch/{date}.md` | 临时层，7 天清 |
-| 某个话题讨论到哪了 | `topics/INDEX.md` + 同名话题卡 | 讨论脉络层 |
-| 身份、署名、通知语气 | `self/身份.md` | 发通知前参考 |
-| 红线、坑、禁忌 | `self/纠错.md` | 分析前扫一遍 |
-| 偏好、协作方式、去 AI 味 | `self/价值校准.md` | 正向行为准则 |
-| 观察中的假设 | `self/认知.md` | 有判据、验证、到期 |
-| 执行型待办与排班 | `self/任务.md` | 完成即销 |
-| 承诺、里程碑、态度变化 | `self/关系.md` | 关系对话前读 |
-| 领域职责与触发条件 | `self/tasks/{领域}.md` | 数据检查按条件挂载 |
-| 某日或某月发生了什么 | `analysis/query_catalog.py` + `data/daily/` | 事件检索走索引层；旧日期回 daily/复盘 |
-| 人物档案 | `profile/semantic/people/{人物}.md` | 歧义归属先登记 |
-| 事项编年史 | `profile/semantic/事项/{事项}.md` | 完结不删 |
-| 画像全景与当前状态 | `profile/core.md` + `profile/state.md` | 复盘收割更新 |
-| 当前成立的规律 | `profile/规律.md` + `profile/规律-摘要.md` | 摘要机载，ttl 72h |
-| 已归档旧账 | `archive/` | 几乎不读 |
+| 要找 | 去哪 |
+|---|---|
+| 规则 / 事实 / 未决 | `ledger/rules.md`、`ledger/facts.md`、`ledger/open.md` |
+| 观察 / 案例 / 判断 / 长尾 | `notes/observations.md`、`notes/cases/`、`notes/judgments/`、`notes/dossiers/` |
+| 主会话热投影 | `self/必读.md`、`self/身份.md`、`profile/state.md`、`profile/core.md`、`topics/INDEX.md`、`self/active-tasks.md` |
+| 当前任务 | `self/active-tasks.md`（投影） |
+| 人格草稿 / 提案 | `notes/persona/`、`notes/proposals/` |
+| 话题讨论 | `notes/topics/`、`topics/INDEX.md` |
+| 事件 / 报告 / 证据 | `analysis/query.py`、`analysis/query_chatlog.py`、Stratum |
+| 领域业务 | `self/tasks/{领域}.md` |
+| 身份 / 语气 | `self/身份.md`（定义以 `agents/main.md` 为准） |
 
-## 何时读 / 何时写（全记忆体系）
+## 何时读 / 何时写
 
 | 文件 | 何时读 | 何时写 |
-|------|--------|--------|
-| `memory/self/身份.md` | 发通知前参考 | 改署名或语气时写 |
-| `memory/self/必读.md` | 会话开始 | 复盘每日刷新，主会话即时更新 |
-| `memory/self/persona-lite.md` | 主会话常驻 | 复盘从身份与价值校准刷新 |
-| `memory/profile/core-lite.md` | 主会话常驻 | 复盘从 core 与 semantic 刷新 |
-| `memory/profile/core.md` + `state.md` | 需要用户背景时 | 复盘收割更新，主会话即时写 |
-| `memory/profile/规律.md` | 批次与复盘开工 | 复盘每日核对 |
-| `memory/profile/规律-摘要.md` | 批次角色常驻 | 复盘生成，超过 ttl 重生成 |
-| `memory/profile/semantic/` | 分析遇具体人物、事项、偏好、健康存疑时 | 复盘收割 ADD/UPDATE |
-| `memory/self/任务.md` | 会话开始与执行前 | 主会话即时写，复盘补漏 |
-| `memory/self/纠错.md` + `价值校准.md` | 分析前扫红线 | 用户纠正或认可时写 |
-| `memory/self/认知.md` | 执行相关任务时 | 复盘收割，验证后升入 profile |
-| `memory/self/关系.md` | 关系相关对话前 | 里程碑、承诺、态度变化时写 |
-| `memory/self/chat-mode.md` | 可选，仅实例显式启用时注入 | 来源覆盖规则变化时写 |
-| `memory/self/scratch/{date}.md` | 复盘收割时 | 主会话、批次、复盘随手记 |
-| `memory/topics/` | 需要讨论脉络时 | 复盘每天 1 到 2 张卡 |
-| `memory/self/tasks/{领域}.md` | 数据检查挂载时 | 新增或修改领域职责时写 |
-| `memory/self/执行日志/{月}.md` | 追溯子智能体操作 | 每个子智能体收尾追加一行 |
-| `memory/archive/` | 几乎不读 | 不写，或经用户指示 |
+|---|---|---|
+| `memory/self/身份.md` | 对外说话前参考署名/语气 | 用户确认后由 02 更新 |
+| `memory/self/必读.md` | 会话开始必读（投影） | 02 每日刷新 |
+| `memory/profile/state.md` | 需要当前状态 | 02 整文件覆盖 |
+| `memory/profile/core.md` | 需要长期背景 | 02/03 更新，≤8KB |
+| `memory/self/active-tasks.md` | 需要当前待办 | 02 更新，完成即销 |
+| `memory/topics/INDEX.md` | 需要话题索引 | 02 一行一话题维护 |
+| `memory/ledger/` | 需要规则/事实依据 | 02 日更；03 复核 |
+| `memory/notes/` | 需要观察/案例/判断 | 02/03/04；主会话只写 proposals/persona/judgments |
+| `memory/self/tasks/{领域}.md` | 数据检查步骤 8 挂载 | 新增/修改领域职责时写 |
 
-> 记忆哲学：主会话是传感器与直接写入方；子智能体是执行轨迹记录者；复盘是每日收割器；周报与双周是清理者。一切按需，无增量零写入。值得记的信息，是会在凌晨压缩中消失且消失有害的信息。
+## 已退役（不要重建）
+
+`persona-lite` / `core-lite` / `规律-摘要` / `self/scratch/` / `self/执行日志/`；旧 `self/纠错.md`、`self/认知.md`、`self/任务.md`、`self/价值校准.md`、`self/关系.md`、`profile/semantic/**`、`topics/*.md` 只读备查，不再追加。新内容写 `ledger/` 或 `notes/`。
+
+## 记忆原则
+
+- 记忆是本地文件系统，不是外部 Auto Memory；无增量零写入。
+- **值得记 = 会在凌晨压缩中消失且消失有害的信息**（断连续性 / 失判断准 / 丢成长 / 退关系）。
+- 写前查键与预算，写后跑 `analysis/memory_finalize.py` 收尾。

@@ -1,119 +1,109 @@
-# 记忆系统
+---
+tags: [记忆, 导航, PhaseA]
+type: memory/readme
+date: 2026-11-14
+---
+# 记忆系统（Phase A，2026-11-14）
 
-> `{AI目录}/memory/` 是 AI 的长期记忆文件系统。Markdown 是唯一真源，主会话负责消费注入与少量即时写入，子智能体记录执行轨迹，复盘每日收割，周报与双周清理。主智能体规则见 `../AGENTS.md`，完整读写时机见 `self/SELF-INDEX.md`。
+> 唯一规则源：`memory/PROTOCOL.md`。本文件只做导航，不重复 schema/预算/归属。
+> 当前阶段：提示词 + 结构治理。CLI、索引、Stratum memory 统一放到 Phase B。
+> 真源：`ledger/`、`notes/` 和旧文件（冻结备查）；投影是生成/提炼层，不是真源。
 
-> 记忆保存在本地文件，不写入编辑器的 Auto Memory。核心判断：**值得记 = 会在凌晨压缩中消失、且消失有害的信息**（断连续性、失判断准、丢成长、退关系）。
+## 快速导航
 
-## 分层（按读取频率，L0 最热、L2 最冷）
+| 要什么 | 去哪 |
+|---|---|
+| 规则/事实/未决 | `ledger/rules.md`、`ledger/facts.md`、`ledger/open.md` |
+| 观察/案例/人格/判断/长尾 | `notes/observations.md`、`notes/cases/`、`notes/persona/`、`notes/judgments/`、`notes/dossiers/` |
+| 主会话热投影 | `self/必读.md`、`self/身份.md`、`profile/state.md`、`profile/core.md`、`topics/INDEX.md`、`self/active-tasks.md` |
+| 旧文件为什么还在 | `legacy/FROZEN.md`；旧文件只读，不再追加 |
+| 写入规则 | `PROTOCOL.md` §2–§8 |
+| 当前状态/检查 | `MEMORY-STATUS.json`（运行期生成）、`self/SELF-INDEX.md` |
+| 话题与提案 | `topics/INDEX.md`、`notes/topics/`、`notes/proposals/` |
 
-| 层 | 文件 | 何时读 | 何时写 |
-|----|------|--------|--------|
-| **L0 热快照** | `self/必读.md`（<3KB，投影层） | 会话开始必读 | 复盘每日刷新，主会话即时更新 |
-| **L1 全景** | `profile/core.md`（画像树 + 细节摘要 + 导航）、`profile/state.md`（当前态快照，整文件覆盖，≤3KB）、`profile/规律.md`（当前规律） | 需要用户背景或判断规律时 | 复盘收割更新，主会话确认新事实即时写 |
-| **L2 主题档案** | `profile/semantic/`、`self/*.md`、`topics/` | 按需（人物、事项、红线） | 复盘 ADD/UPDATE，主会话直写 |
+## Phase B0（设计，未启用）
 
-> 投影不是真值：`self/persona-lite.md` 来自 `self/身份.md` + `self/价值校准.md`；`profile/core-lite.md` 来自 `profile/core.md` + `profile/semantic/`；`profile/规律-摘要.md` 是 `profile/规律.md` 的机载摘要，ttl 72h。
+- **EPI 情景记忆设计**：`EPISODIC.md`（12 字段、准入闸门、wake digest、cue recall、遗忘/巩固）。
+- **30 cue gold set 模板**：`eval/EPI-GOLDSET-TEMPLATE.md`。
+- **状态**：B2 前不写 `EPI-` entry；当前 02 只写 `ledger/`、`notes/`、6 个投影。
 
-## 主会话常驻与批次注入（A 方案）
+## 分层
 
-主会话常驻 6 件（`self/chat-mode.md` 可选，启用时最多 7 件）：
+| 层 | 内容 | 是否注入 | 写入者 |
+|---|---|---|---|
+| 证据 | `{AI目录}/data/daily/`、`{AI目录}/data/reports/`、Stratum | 否 | 01/02/03/04 |
+| 内核 | `ledger/facts.md`、`rules.md`、`open.md` | 间接 | 02 日更；03 复核 |
+| 便签 | `notes/observations.md`、`notes/{cases,persona,judgments,dossiers,topics,proposals}/` | 否 | 02/03/04/main（仅 notes/proposals） |
+| 投影 | `profile/core.md`、`state.md`、`self/必读.md`、`身份.md`、`active-tasks.md`、`topics/INDEX.md`、`SELF-INDEX.md` | 是 | 02 主写；03/04 校正 |
+| ↑ 其中 `self/必读.md` 的「**硬事实（不许压缩）**」节 | 项目名/人/截止日/住址这类不可丢的硬事实 | 是 | **重写时逐字保留**；缺节或少于 3 条即投影失败 |
+| 冷档 | `archive/`、`legacy/` | 否 | 04/迁移 |
 
-1. `AGENTS.md`
-2. `memory/self/必读.md`
-3. `memory/self/persona-lite.md`
-4. `memory/profile/state.md`
-5. `memory/profile/core-lite.md`
-6. `memory/topics/INDEX.md`
+## 角色
 
-批次与复盘 core 5 件（`profile/规律-摘要.md` 可选，启用时最多 6 件）：
+- **主会话**：读 6 个投影；写 `notes/proposals/`、`notes/persona/`、`notes/judgments/`；不写 ledger，不追加旧文件。
+- **01 数据检查**：读 `AGENTS-lite / state / core / topics-INDEX / 规律`；不写长期记忆，观察写批次文件。
+- **02 日复盘**：日更唯一写入者；写 `ledger/`、`notes/`、6 个投影；结束后 commit，次日主会话直接可读。
+- **03 双周**：事后审阅；观察升格、去重、过期标记；不阻塞 02，不自我审批。
+- **04 周报**：事后压缩；notes/legacy/archive；不改 active rule，不阻塞 02。
+- **05 审计**：只读；核对预算/新鲜度/旧文件是否增长；只报不改。
 
-1. `agents/AGENTS-lite.md`
-2. `self/必读.md`
-3. `profile/state.md`
-4. `profile/core-lite.md`
-5. `topics/INDEX.md`
+## 预算
 
-`SELF-INDEX`、`纠错`、`认知`、`任务`、`关系`、`core`、`semantic` 不自动注入，按 `SELF-INDEX` 检索。`profile/规律-摘要.md` 是可选注入项（启用时占第 6 件），未注入时按需读取，不占 core 名额。
+`core` 8KB、`必读` 3KB、`state` 3KB、`身份` 5KB、`active-tasks` 3KB、`topics/INDEX` 2KB、`SELF-INDEX` 4KB；`ledger` 合计 ≤60KB；`notes` 热数据 ≤200KB；`archive` 不限。超预算不净增长。
 
-`chat-mode` 是可选项，不是默认常驻文件（启用时占第 7 件）。可选骨架为 `_template/self-chat-mode.md`；实例确有需要时自行复制为 `self/chat-mode.md`，并在注入清单里显式加入，模板不预置 live 文件。若实例已把 Chat 模式并入 `persona-lite`，可不使用该骨架。
+## 冻结
 
-## 事件检索与记忆的边界
+`self/纠错.md`、`self/认知.md`、`self/任务.md`、`self/价值校准.md`、`self/关系.md`、`profile/semantic/**`、`topics/*.md`（`topics/INDEX.md` 除外）、`self/人格方案-{date}.md`、`self/人物判断-{主题}.md` 从 2026-11-14 起只读。新规则/观察/任务/长尾写 `ledger/` 或 `notes/`。详见 `legacy/FROZEN.md`。
 
-- 记忆层回答“我是谁、他是什么样、现在什么状态、以后怎么做”。
-- 事件层回答“哪天发生了什么、上次某行为是什么时候、金额/关系/原文在哪”。
-- 事件检索走 `analysis/query_catalog.py`（blocks/cards/relations + 原文行号回指）；旧日期没有索引时回 `data/daily/{date}/` 的复盘/理解。
-- 不把每日流水、月度事实摘要、事件卡复制进记忆层；记忆只存稳定结论、决定、偏好、关系和待办。
+## 退役
 
-## 侧车：anchors
+`persona-lite.md`、`core-lite.md`、`规律-摘要.md`、`self/执行日志/`、`self/scratch/` 已退役，不重建。`memory_write.py` 不使用。
 
-- **anchors/**：锚点侧车目录，运行时由流程写入 `anchors.jsonl`；模板只保留目录占位，不预置内容。
-- **不注入**：anchors 只用于引文定位/校验，不参与主会话注入。
-- **运行期产物边界**：`memory/MEMORY-STATUS.json`、`memory/anchors/*.jsonl`、`data/plan/master*.json`、`data/plan/long-tasks/` 属于运行期产物，不进 git，也不参与注入。
+一切按需，无增量零写入。写前查键，写后核预算，commit 前跑 `memory_finalize.py`。
 
 ## 目录结构
 
 ```text
 memory/
-├── _template/          ← 记忆文件骨架
-├── self/               ← AI 工作台
-│   ├── 必读.md          ← L0 热快照（投影层）
-│   ├── persona-lite.md  ← 人格投影（身份 + 价值校准）
-│   ├── SELF-INDEX.md   ← 关键词到文件导航
-│   ├── 身份.md          ← 署名与语气真源
-│   ├── 任务.md 认知.md 纠错.md 价值校准.md 关系.md
-│   ├── 执行日志/{月}.md  ← 子智能体收尾追加（冷层）
-│   ├── scratch/        ← 草稿纸，7 天清理
-│   └── tasks/{领域}.md  ← 领域任务包
-├── profile/            ← 用户客观事实
-│   ├── core.md         ← L1 画像树
-│   ├── core-lite.md    ← 用户画像投影
-│   ├── state.md        ← 当前状态快照
-│   ├── 规律.md          ← 当前成立的规律
-│   ├── 规律-摘要.md     ← 规律机载摘要
-│   └── semantic/       ← L2 主题档案（people/、事项/、属性四文件）
-├── topics/             ← 话题卡与索引
-├── anchors/            ← 锚点侧车目录（运行时生成，不注入）
-│   └── .gitkeep
-└── archive/            ← 旧体系归档（几乎不读）
+├── PROTOCOL.md          ← 唯一规则源
+├── README.md            ← 本文件（导航）
+├── EPISODIC.md          ← EPI B0 设计（未启用）
+├── MEMORY-STATUS.json   ← 收尾状态（运行期生成，模板不预置）
+├── eval/                ← EPI gold set 模板
+├── ledger/              ← facts / rules / open
+├── notes/               ← observations + cases/persona/judgments/dossiers/topics/proposals
+├── legacy/              ← 冻结清单
+├── profile/             ← core / state / 规律
+├── self/                ← 必读 / 身份 / active-tasks / SELF-INDEX / tasks
+├── topics/              ← INDEX（投影）
+├── anchors/             ← 锚点侧车目录（运行时生成，不注入）
+├── archive/             ← 冷档
+└── _template/           ← 文件骨架库（不参与注入）
 ```
 
 ## 工具
 
-- `analysis/memory_write.py`：唯一写入入口，提供原子写、目录锁、去重、superseded 标记与快照。
-- `analysis/memory_retrieve.py`：只读词法检索，返回带行号片段与 UTF-8 字节预算。
-- `analysis/memory_audit.py`：只读体检，核对注入清单、预算与禁注入项。
-- `analysis/memory_consolidate.py`：离线巩固，默认 dry-run；daily 清理已收割草稿，weekly 只做体检。
-- `analysis/query_catalog.py`：只读事件检索，按概念/日期/槽位/关系/金额查 blocks 与 cards。
-- `analysis/validate_catalog.py`：只读校验事件索引的结构、来源哈希与回指。
+- `{AI目录}/analysis/memory_audit.py`：旧检查器，保留参考；Phase A 验收用 `memory_finalize.py`，不要依赖它的 lite 注入检查。
+- `{AI目录}/analysis/memory_finalize.py`：收尾门，写 `MEMORY-STATUS.json`，核对改动/投影状态。
+- `{AI目录}/analysis/query.py`：统一只读检索入口（事件/观察/报告/证据/记忆/对话）。
+- `{AI目录}/analysis/query_chatlog.py`：按时间窗检索过去对话。
+- 脚本统一用 `{Python解释器路径}` 执行；`analysis/` 内其余工具见各脚本头部说明。
 
 > 未替换 `{date}` 占位符时，`memory_audit.py check` 会报 `projection.missing_updated`，属预期；替换并刷新投影后应为 0 errors。`daily.no_dates` 在还没有数据目录时也是预期 warning。
 
-## 角色分工
+## 模板使用（新实例）
 
-- **主会话**：记忆的主要消费者与少量即时写入方，交互当下可读写；日常聊天只回复，归档归批次。
-- **子智能体**：执行轨迹记录者，收尾追加 `self/执行日志/{月}.md`。
-- **复盘**：每日收割器，刷新投影与规律摘要。
-- **周报与双周**：清理者，处理认知证伪、规则淘汰与归档。
-
-一切按需，无增量零写入。
-
-## 首次初始化（新用户）
-
-1. **清空示例**：带 `{}` 的文件是示例，按需重命名或复制。
-2. **替换占位符**：把 `{主智能体名称}`、`{用户称呼}`、`{项目名称}`、`{AI目录}`、`{人物}`、`{事项}`、`{领域}`、`{date}`、`{月}`、`{年}` 换成本项目实际值。
-3. **建立画像**：把用户背景写入 `profile/core.md` 与 `profile/state.md`。
-4. **建立档案**：稳定事实写入 `profile/semantic/`。
-5. **建立事件索引**：用 `analysis/build_blocks.py` 切块，用 `analysis/card_admin.py` 建卡并挂概念/关系。
-6. **建立红线与身份**：纠正写入 `self/纠错.md`，认可写入 `self/价值校准.md`，承诺写入 `self/关系.md`，署名与语气写入 `self/身份.md`。
-7. **刷新投影**：由复盘生成 `self/persona-lite.md`、`profile/core-lite.md`、`profile/规律-摘要.md`。
-8. **按需启用可选骨架**：确需 `chat-mode` 时，从 `_template/self-chat-mode.md` 复制出 `self/chat-mode.md` 并显式加入注入清单。
+1. **替换占位符**：`{主智能体名称}`、`{用户称呼}`、`{项目名称}`、`{AI目录}`、`{date}`、`{月}`、`{年}`、`{领域}`、`{人物}`、`{事项}`、`{Python解释器路径}` 换成实际值。
+2. **骨架库**：`_template/` 只存写法骨架，不被注入；实例需要哪个文件就从这里复制并填占位符。
+3. **按 PROTOCOL 建首条 entry**：先写 `ledger/facts.md`、`ledger/rules.md`、`notes/observations.md`，再由 02 生成 6 个投影。
+4. **运行期产物**：`MEMORY-STATUS.json`、`anchors/*.jsonl` 由脚本生成/覆盖，模板不预置。
 
 ## 管理原则
 
 - **只写本地文件**，不写入编辑器的 Auto Memory。
 - **每条记录标注时间与来源**：`[{date} 来源]`，来源可以是理解文件、会话、复盘。
 - **条目 = 浓缩事实 + 日期 + 指针**，不复制正文，细节留在当日复盘。
-- **一事一议**：人物、事项各建独立档案，新增档案后同步 `profile/core.md`。
+- **一事一议**：人物、事项各建长尾档（`notes/dossiers/`），稳定事实抽到 `ledger/facts.md`。
 - **按需增删，无增量零写入**：不值得记的不写。
-- **归档而非删除**：旧内容移入 `archive/`，保留历史可追溯。
+- **归档而非删除**：旧内容移入 `archive/`，保留历史可追溯；按 `{年}` 分档。
 - **防膨胀**：新收集类文件先定分片键、单文件上限、索引位置。

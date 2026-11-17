@@ -1,55 +1,54 @@
 ---
-tags: [记忆, 索引, self]
+tags: [记忆, 索引, self, 投影]
 type: self
 date: {date}
+projection: true
+owner: 02-daily-review
+budget_bytes: 4096
 ---
 # SELF-INDEX
 
-> 记忆体系关键词导航（查什么，去哪）。本文件不存正文、不存历史；导航只指向当前源文件，复盘收割后更新本表。
+> 记忆关键词导航（查什么 → 去哪）。只指向当前源文件，不存正文、不存历史；历史由 git／`{AI目录}/data/daily/` 承担。02 日复盘重写；主会话只读。
 
-## 查什么 | 去哪 | 备注
+## 〇、Phase A 结构
 
 | 查什么 | 去哪 | 备注 |
 |---|---|---|
-| 热快照（主线、任务、红线、状态） | `self/必读.md` | 会话开始必读，L0 投影层，<3KB |
-| 人格投影（怎么说话、怎么办事） | `self/persona-lite.md` + `self/身份.md` | 投影不是真值，真源是身份与价值校准 |
-| 用户画像投影 | `profile/core-lite.md` + `profile/core.md` | 投影给主会话，细节回 core 与 semantic |
-| 未成型的念头或草稿 | `self/scratch/{date}.md` + `self/scratch/README.md` | 临时层，不当真值，复盘收割，7 天清 |
-| 某个话题讨论到哪了 | `topics/INDEX.md` + 同名话题卡 | 讨论脉络层，复盘维护，不搬事实 |
-| 通知要不要发、发几条 | `topics/` 与 `self/价值校准.md` | 重复推送与自主发起分开判断 |
-| 身份、署名、通知语气 | `self/身份.md` | 发通知前参考，唯一真源 |
-| 红线、坑、禁忌 | `self/纠错.md` | 分析前扫一遍 |
-| 偏好、协作方式、去 AI 味 | `self/价值校准.md` | 正向行为准则 |
-| 观察中的假设 | `self/认知.md` | 每条必须有判据、验证、到期 |
-| 执行型待办与排班 | `self/任务.md` | 完成即销，覆盖更新 |
-| 承诺、里程碑、态度变化 | `self/关系.md` | 关系对话前读 |
-| 领域职责与触发条件 | `self/tasks/{领域}.md` | 数据检查按触发条件挂载 |
-| 某日或某月发生了什么 | `analysis/query_catalog.py` + `data/daily/` | 事件检索走索引层；旧日期回 daily/复盘 |
-| 人物档案 | `profile/semantic/people/{人物}.md` | 歧义归属先登记待确认人物 |
-| 事项编年史 | `profile/semantic/事项/{事项}.md` | 完结不删，转历史时间线 |
-| 画像全景与当前状态 | `profile/core.md` + `profile/state.md` | 复盘收割更新 |
-| 当前成立的规律 | `profile/规律.md` + `profile/规律-摘要.md` | 摘要机载给批次，ttl 72h |
-| 已归档旧账 | `archive/` | 几乎不读，按用户指示才写 |
+| 记忆规则/读写/预算 | `memory/PROTOCOL.md` | 唯一规则源 |
+| 稳定事实 | `memory/ledger/facts.md` | FACT-...，只看 active |
+| 耐久规则/偏好 | `memory/ledger/rules.md` | RULE-...，只看 active |
+| 未决问题 | `memory/ledger/open.md` | OPEN-...；blocking 才进必读 |
+| 观察中（不注入） | `memory/notes/observations.md` | OBS-...，03 复核 |
+| 案例 | `memory/notes/cases/` | 长案例，entry 只留指针 |
+| 判断/态度 | `memory/notes/judgments/` | NOTE-... |
+| 完整画像 | `memory/notes/dossiers/` | 实例约定 `core-full.md` 全文版 |
 
-## 何时读 / 何时写（全记忆体系）
+## 一、投影（每次会话注入）
 
-| 文件 | 何时读 | 何时写 |
-|------|--------|--------|
-| `self/身份.md` | 发通知前参考 | 改署名或语气时写 |
-| `self/必读.md` | 会话开始 | 复盘每日刷新，主会话即时更新 |
-| `self/persona-lite.md` | 主会话常驻 | 复盘从身份与价值校准刷新 |
-| `profile/core-lite.md` | 主会话常驻 | 复盘从 core 与 semantic 刷新 |
-| `profile/core.md` + `profile/state.md` | 需要用户背景时 | 复盘收割更新，主会话即时写 |
-| `profile/规律.md` | 批次与复盘开工 | 复盘每日核对，稳定规律才加条 |
-| `profile/规律-摘要.md` | 批次角色常驻 | 复盘从规律生成，超过 ttl 重生成 |
-| `profile/semantic/` | 分析遇人物、事项、偏好、健康存疑时 | 复盘收割 ADD/UPDATE |
-| `self/任务.md` | 会话开始与执行前 | 主会话即时写，复盘补漏 |
-| `self/纠错.md` + `self/价值校准.md` | 分析前扫红线 | 用户纠正或认可时写 |
-| `self/认知.md` | 执行相关任务时 | 复盘收割，验证后升入 profile |
-| `self/关系.md` | 关系相关对话前 | 里程碑、承诺、态度变化时写 |
-| `self/scratch/{date}.md` | 复盘收割时 | 主会话、批次、复盘随手记 |
-| `topics/` | 需要讨论脉络时 | 复盘每天 1 到 2 张卡 |
-| `self/tasks/{领域}.md` | 数据检查挂载时 | 新增或修改领域职责时写 |
-| `self/执行日志/{月}.md` | 追溯子智能体操作 | 每个子智能体收尾追加一行 |
+| 查什么 | 去哪 |
+|---|---|
+| 当前态（主线/健康/待办/长期口径） | `memory/profile/state.md` |
+| 本轮注意点与红线（L0） | `memory/self/必读.md` |
+| 稳定画像（身份/学业/关系/偏好/健康基线/地点） | `memory/profile/core.md` |
+| 规律表 | `memory/profile/规律.md` |
+| 话题索引 | `memory/topics/INDEX.md`（正文 `memory/notes/topics/`） |
+| 未完成任务 | `memory/self/active-tasks.md` |
+| 子角色投影 | `agents/AGENTS-lite.md` |
 
-> 记忆哲学：主会话是传感器与直接写入方；子智能体是执行轨迹记录者；复盘是每日收割器；周报与双周是清理者。一切按需，无增量零写入。值得记的信息，是会在凌晨压缩中消失且消失有害的信息。
+## 二、常用查询
+
+| 查什么 | 去哪/怎么查 |
+|---|---|
+| 某日发生了什么 | `{AI目录}/data/daily/{date}/复盘-{date}.md` 与批次理解文件 |
+| 某条结论的来龙去脉 | `{AI目录}/analysis/query.py --scope evidence`，或沿 notes 指针回证据文件 |
+| 讲题/核题该给什么形态 | `memory/ledger/rules.md` 里的口吻/判题类 RULE |
+| 对话原话 | `{AI目录}/analysis/query_chatlog.py --start ... --end ...` |
+| 健康/睡眠 | `{AI目录}/data/daily/{date}/健康清单-{date}.md` |
+| 错题/学习进度 | `{AI目录}/data/daily/`、学习进度目录 |
+| 计划/长任务 | `{AI目录}/data/daily/{date}/计划-{date}.md`、长任务目录 |
+| 卡片/关系线 | `{AI目录}/analysis/` 下的卡片与关系工具（按实例实际工具为准） |
+| 人物/事项长尾 | `memory/notes/dossiers/`；旧 `profile/semantic/` 只读 |
+
+## 三、已退役（不要重建）
+
+`persona-lite`／`core-lite`／`规律-摘要`／`memory/self/scratch/`／`memory/self/执行日志/`。旧 `self/纠错.md`、`认知.md`、`任务.md`、`价值校准.md`、`关系.md`、`profile/semantic/**`、`topics/*.md` 只读备查，不再追加。
