@@ -1,15 +1,15 @@
 # Configuration Reference
 
-> Extracted from `README.md` (2026-10-22). The canonical key list remains `config.example.yaml`.
+> Extracted from `README.md` (2026-10-22); keys and apply strategies re-verified 2026-11-17. The canonical key list remains `config.example.yaml`.
 
 ## Configuration Reference
 
-The canonical key list is `config.example.yaml` (the committable template); the production `config.yaml` lives in the project root and is not tracked by git. The main sections are documented below. Most keys are optional and fall back to the shown default. Missing or partial configuration no longer blocks startup: the backend runs degraded with schema defaults, and the Loom connection settings can be completed later from the web onboarding wizard.
+The canonical key list is `config.example.yaml` (the committable template); the production `config.yaml` lives in the project root and is not tracked by git. The main sections are documented below. Most keys are optional and fall back to the shown default. Missing or partial configuration no longer blocks startup: the backend runs degraded with schema defaults, and the AI-runtime settings can be completed later from the web onboarding wizard. The apply-strategy column in prose below reflects `backend/config/config_schema.py`; the canonical template is `config.example.yaml`.
 
 ### Runtime carriers and apply strategy
 
 - Carriers: YAML (default), JSON, SQLite, or environment only. `AXEUH_CONFIG_BACKEND` selects the backend; `AXEUH_CONFIG_PATH` / `AXEUH_CONFIG_SQLITE_PATH` set the location. `AXEUH_SETTINGS__<DOTTED_UPPER>` is a read-only overlay with higher priority than the stored document.
-- Apply strategy: most keys are `hot`; `qq_gateway.*` and `p2p.*` (实验，当前不可用) reconnect in place; `kernel.*` respawns the audio kernel; the retired `launcher.*` rollback metadata is deployment wiring and is read-only over HTTP.
+- Apply strategy: most keys are `hot`; `qq_gateway.*` and `p2p.*` (实验，当前不可用) reconnect in place; `moss.base_url` / `moss.model` reconnect, `moss.enabled` / `moss.python` / `moss.data_root` / `moss.state_dir` respawn the MOSS watcher; `kernel.*` respawns the audio kernel; `ssl.*`, `opencode.enabled`, and `api.baidu_map_ak` are `deployment` wiring (HTTP writes return 409 `deployment_required`; edit the file and restart). `launcher.*` was removed from the schema: old keys can only be cleared, explicit writes return 422 `unknown_key`.
 - Full contract, API, onboarding, security and rollback: [system-config-hot-reload.md](system-config-hot-reload.md).
 
 > Ports and paths below are examples; set them for your environment. For the full nested `health`, `kernel`, `qq_gateway`, `audio`, and `unknown_speaker` structures, use `config.example.yaml` as the single source of truth. Where this file says a change requires a restart, the apply strategy in `system-config-hot-reload.md` takes precedence.
@@ -25,15 +25,15 @@ The canonical key list is `config.example.yaml` (the committable template); the 
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `ssl.enabled` | bool | `true` | Enable HTTPS (required by the Android app) |
+| `ssl.enabled` | bool | `true` (code); template ships `false` | Enable HTTPS (required by the Android app). `deployment` strategy: HTTP writes are rejected, edit the file and restart the backend |
 | `ssl.cert` | str | `""` | Certificate file path |
 | `ssl.key` | str | `""` | Private key file path |
 
-### `ai_backend` / `loom` / `dsh` - AI runtime selection (Loom default)
+### `ai_backend` / `loom` / `dsh` - AI runtime selection (template default: Loom)
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `ai_backend` | str | `loom` | AI runtime selector. The public template and onboarding set `loom`; `dsh` is an optional BYO-harness path |
+| `ai_backend` | str | code fallback `opencode`; template/onboarding `loom` | AI runtime selector (`opencode` / `loom` / `dsh`). The public template and onboarding default to `loom`; `dsh` is an optional BYO-harness path. `opencode` is a legacy compatibility value and is filtered out of the settings UI |
 | `loom.url` | str | `http://127.0.0.1:5100` | Loom assistant host URL |
 | `loom.token` | str | `""` | Loom Bearer token. The `LOOM_TOKEN` environment variable is the fallback; Loom rejects empty tokens |
 | `loom.token_file` | path | `""` | Optional env-style file containing `LOOM_TOKEN=...`; relative paths resolve from the project root. Masked in config APIs |
@@ -54,6 +54,26 @@ The canonical key list is `config.example.yaml` (the committable template); the 
 
 On the dsh side, the adapter's own settings live in the profile's plugin configuration and can be inspected or changed from the **Kinship** panel in the dsh Web sidebar: it shows the bridge URL the backend should use, reveals or rotates the bearer token (a token supplied by an environment variable cannot be rotated), edits the bridge listener and binding policy, and binds a live `kinship` Session. Saving from that panel writes the active dsh profile's plugin configuration and reloads the bridge; the written configuration is a complete override, so values the bundle patch derives from environment variables are pinned at save time.
 
+### `tasks` — Scheduled-task delivery
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `tasks.letter_dispatch` | bool | `false` | `false` keeps direct `send_message` delivery; `true` routes prompt tasks to the Loom inbox as letters (only valid with `ai_backend: loom`). Tasks then stay `accepted` until the inbox receipt arrives; timeout becomes `unknown` |
+| `tasks.letter_result_timeout_seconds` | int | `1800` | Receipt wait cap (seconds) |
+| `tasks.letter_reconcile_interval_seconds` | int | `5` | Receipt reconciliation interval (seconds), rate-limited by the scheduler's 2 s tick |
+
+### `opencode` — Legacy compatibility keys (not a supported runtime)
+
+> `opencode.*` is kept for existing config validation and old installs only. The settings API and editor filter the whole section out (`_HIDDEN_CONFIG_TOP_LEVELS`), `opencode.enabled` is `deployment`-strategy, and the public docs provide no install or switch instructions. `features.opencode_mock_enabled` (bool, default `false`, `hot`, advanced) is a dev-only mock switch and is not present in `config.example.yaml`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `opencode.enabled` | bool | `true` (schema) / `false` in the template | Legacy launcher/SSE-hub switch; does not change `ai_backend` |
+| `opencode.url` | str | `http://127.0.0.1:4096` | Legacy OpenCode service URL |
+| `opencode.directory` | path | `""` | Legacy workspace sent as `x-opencode-directory` |
+| `opencode.default_agent` / `default_model` / `default_provider` | str | `main-task` / `deepseek-flash` / `deepseek` | Legacy request defaults |
+| `opencode.model_config_path` | path | `""` | Legacy model-config path |
+
 ### `onboarding` — First-run downloads
 
 | Key | Type | Default | Description |
@@ -69,11 +89,14 @@ On the dsh side, the adapter's own settings live in the profile's plugin configu
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `moss.enabled` | bool | `false` | Consume MOSS deep-audio outputs; the MOSS service itself is external and is not started/stopped by the backend |
+| `moss.enabled` | bool | `false` | Enable the MOSS sidecar: the backend spawns the file-subscription watcher as an orchestrator child (`moss_watcher`). The vLLM serve itself is external (systemd `axeuh-moss`) and is never started/stopped by the backend |
+| `moss.python` | path | `""` | Watcher interpreter; empty = `resolve_moss_python` probes the code fallback `/opt/kinship/.venv-moss/bin/python` then `<repo>/.venv-moss`. Production sets `/opt/venvs/axeuh-moss/bin/python` |
 | `moss.base_url` | str | `http://127.0.0.1:8100` | External MOSS vLLM endpoint |
 | `moss.model` | str | `moss-audio-4b` | Model id expected from `/v1/models` |
+| `moss.data_root` | path | `""` | Data root passed to `watcher.py --data-root`; empty = backend `data.dir` |
+| `moss.state_dir` | path | `""` | Optional watcher state root (`--state-root`); empty = watcher's own default |
 
-> v4 onboarding no longer exposes systemd unit/helper/command management. `moss.manage_units` is a legacy key and is ignored/cleared.
+> v4 onboarding only manages `moss.enabled` / `moss.base_url` / `moss.model`, and does not manage systemd units, helpers, or commands. Legacy `moss.manage_units` is no longer a schema key: it can only be cleared, and an explicit write returns 422 `unknown_key`.
 
 ### `clients` — Client download catalog
 
@@ -116,19 +139,23 @@ On the dsh side, the adapter's own settings live in the profile's plugin configu
 |-----|------|---------|-------------|
 | `audio_compressor.enabled` | bool | `false` | Enable daily auto-compression (WAV/FLAC files older than `keep_days` are merged into a single M4A archive and the originals deleted); when off, all raw audio files are kept |
 | `audio_compressor.keep_days` | int | `3` | Keep the most recent N days of raw audio (today + previous N-1 days); older ones are compressed |
+| `audio_compressor.ffmpeg_threads` | int | `0` | ffmpeg thread cap (0 = ffmpeg decides; clamped 0..64) |
+| `audio_compressor.nice` | int | `0` | nice value for the ffmpeg child (0 = unchanged; POSIX only; clamped -20..19) |
 
 ### `kernel` — Audio kernel process
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `kernel.device` | str | `cpu` | Torch device for the kernel (`cpu` / `gpu` / `auto`); `gpu` falls back to CPU when CUDA is unavailable. sherpa-onnx KWS stays on CPU |
-| `kernel.python` | path | `""` | Kernel interpreter (config > `AXEUH_KERNEL_PYTHON` > `/opt/kinship/.venv-kernel` > project venv > backend interpreter). The same chain is used for kernel spawn and onboarding asset checks |
+| `kernel.python` | path | `""` | Kernel interpreter (config > `AXEUH_KERNEL_PYTHON` > code fallback `/opt/kinship/.venv-kernel` > `<repo>/.venv-kernel` > backend interpreter). Production sets `AXEUH_KERNEL_PYTHON=/opt/venvs/axeuh-kernel/bin/python`. The same chain is used for kernel spawn and onboarding asset checks |
 | `kernel.model_dir` | path | `""` | Kernel model root; empty = the kernel's own resolution chain. Overrides `AXEUH_KERNEL_MODEL_DIR` for spawned kernels |
 | `kernel.cuda_visible_devices` | str | `""` | `CUDA_VISIBLE_DEVICES` injected into the kernel spawn; empty = no injection |
 | `kernel.cpu_affinity` | list/str | `[]` | CPU affinity after spawn (`[2,3,4]` or `"2-4"` / `"2,3,4"`); POSIX only |
 | `kernel.nice` | int/null | `null` | Process nice value after spawn (-20..19); POSIX only |
+| `kernel.state_dir` | path | `backend/data/kernel_state` | Kernel state/pidfile directory; the backend writes the pidfile (`<state_dir>/kernel.pid`) here after a successful handshake (the kernel itself does not) |
+| `kernel.torch_index_url` | str | `""` | Torch index used by the onboarding kernel-venv job; empty = auto-select cu124/cu128/PyPI |
 
-> Kernel changes respawn the kernel through hot apply; in-flight audio jobs may be interrupted. The kernel's ML stack lives in `/opt/kinship/.venv-kernel`, not in the backend environment.
+> Kernel changes respawn the kernel (`respawn` strategy); in-flight audio jobs may be interrupted. The kernel's ML stack lives in its own interpreter (`/opt/venvs/axeuh-kernel` in production), not in the backend environment.
 
 ### `audio` — Audio subsystem
 
@@ -173,8 +200,8 @@ Loaded by `backend/services/audio_config.py` (built-in defaults + `_deep_merge`,
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `audio.wake_word.enabled` | bool | `false` | Master switch (fail-safe: off when unconfigured) |
-| `audio.wake_word.keywords_file` | str | `ai/data/wake_word/keywords.txt` | Keyword file (one pinyin-token line per word) |
-| `audio.wake_word.model_dir` | str | `ai/data/wake_word/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20` | KWS model directory sent to the kernel with each `kws_encode` request (word-list encoding). The live wake-word detection inside the kernel's `/v1/stream` resolves its own model via the kernel chain (`AXEUH_KERNEL_MODEL_DIR` etc.), independent of this key |
+| `audio.wake_word.keywords_file` | str | `""` = `<data.ai_root>/data/wake_word/keywords.txt` | Keyword file (one pinyin-token line per word) |
+| `audio.wake_word.model_dir` | str | `""` = `<data.ai_root>/data/wake_word/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20` | KWS model directory sent to the kernel with each `kws_encode` request (word-list encoding). The live wake-word detection inside the kernel's `/v1/stream` resolves its own model via the kernel chain (`AXEUH_KERNEL_MODEL_DIR` etc.), independent of this key |
 | `audio.wake_word.chunk` | int | `8` | (display/compat only — kernel uses built-in chunk=8) |
 | `audio.wake_word.num_threads` | int | `1` | (display/compat only — kernel built-in) |
 | `audio.wake_word.keywords_score` | float | `1.8` | Keyword boosting score (calibrated 2026-09-14); the kernel's stream KWS has the same value built in |
@@ -243,6 +270,14 @@ Loaded by `backend/services/audio_config.py` (built-in defaults + `_deep_merge`,
 | `qq_gateway.mcp.host` / `port` | str/int | `127.0.0.1` / `8770` | Bearer-token MCP action surface |
 | `qq_gateway.mcp.token_file` | path | `""` | 0600 file containing the MCP Bearer token; v4 onboarding generates it when needed |
 | `qq_gateway.qzone.*` | dict | off | QZone read/write gates; `mode: http_sidecar` is the implemented mode |
+| `qq_gateway.account.self_qq` / `ws_token_env` | str | `""` / `NAPCAT_WS_TOKEN` | Bot account id; env var name holding the NapCat WS token |
+| `qq_gateway.connection.*` | dict | heartbeat 20/90 s, action 15 s, reconnect 1-30 s, max message 50 MB | WebSocket connection and reconnect limits |
+| `qq_gateway.outbound.dry_run` / `min_interval_ms` / `max_upload_mb` | bool/int | `false` / `300` / `100` | Send dry-run, pacing floor, upload cap |
+| `qq_gateway.forward.*` | dict | enabled `true`, depth 3, nodes 200, chars 8000, cache 3600 s, `parse_mult_msg` false | Forwarded-message expansion limits |
+| `qq_gateway.media.*` | dict | dir `ai/data/qq_gateway/media`, `max_mb` 100, `keep_days` 7, `gif_sniff` true | Downloaded chat media cache |
+| `qq_gateway.delivery.max_retries` / `retry_backoff_sec` / `queue_limit` / `reconcile` | int/bool | `5` / `5` / `1000` / `true` | Delivery retry/queue controls for the inbound relay |
+| `qq_gateway.mcp.enabled` / `token_env` | bool/str | `false` / `QQ_GATEWAY_MCP_TOKEN` | MCP action surface switch and token env name |
+| `qq_gateway.logging.level` / `log_payloads` | str/bool | `INFO` / `false` | Gateway log controls; keep payload logging off in production |
 
 > The QQ gateway is a separate path from the Loom chat assistant. Full nested keys and production caveats: [docs/qq-gateway.md](../dev/qq-gateway.md).
 
@@ -252,20 +287,13 @@ Loaded by `backend/services/audio_config.py` (built-in defaults + `_deep_merge`,
 |-----|------|---------|-------------|
 | `auth.setup_require_token` | bool | `true` | Require the bootstrap token for first-run setup (anti-takeover). Credentials live in `backend/config/auth.json`, not here |
 
-### `launcher` - Retired rollback metadata
+### `launcher` - Removed
 
-> `launcher.py` is retired. These keys only remain for migration rollback; new deployments start with `scripts/start.sh`, `start.bat`, or `python -m core.hot_server`.
+> `launcher.py` is retired and `launcher.*` was removed from the config schema (it is no longer an accepted key). Old values can only be cleared; explicit writes return 422 `unknown_key`. New deployments start with `scripts/start.sh`, `start.bat`, or `python -m core.hot_server`.
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `launcher.conda_python` | str | `python` | Python interpreter path kept for the retired launcher rollback path |
+### `agent` — Agents (deprecated)
 
-### `agent` — Agents (reserved)
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `agent.default_type` | str | `explore` | Default sub-agent type (reserved; not wired into code) |
-| `agent.available` | list | `[explore]` | Available agents list (reserved) |
+> `agent.default_type` and `agent.available` are deprecated schema keys: existing values are tolerated with a warning, explicit writes are rejected, and neither is wired into code.
 
 ### `data` — Data directories (relative to project root; absolute paths override)
 
@@ -273,11 +301,12 @@ Loaded by `backend/services/audio_config.py` (built-in defaults + `_deep_merge`,
 |-----|------|---------|-------------|
 | `data.dir` | str | `ai/data` | AI data root (perception/health stored under its `daily/`); independent from `data.root` |
 | `data.root` | str | `""` | Runtime data root for `secrets/`, `run/`, `logs/` and local models. Empty = `<project root>/var`; `AXEUH_DATA_ROOT` wins over config. Put it on a data disk (Linux `/mnt/data/...`, Windows `D:\...`) |
-| `data.sessions` | str | `ai/data/cache/usersessions.json` | User session list |
-| `data.voiceprints` | str | `ai/data/cache/voiceprints.json` | Voiceprint data |
-| `data.tasks` | str | `ai/data` | Scheduled-task data directory |
-| `data.upload_dir` | str | `ai/data/uploads` | User upload directory |
-| `data.ai_root` | str | `ai` | AI root: Loom workspace/config and the mobile file browser root. `AXEUH_AI_ROOT` is read by helper scripts; the backend uses this key |
+| `data.sessions` | str | `""` = `<data.ai_root>/data/cache/usersessions.json` | User session list |
+| `data.voiceprints` | str | `""` = `<data.ai_root>/data/cache/voiceprints.json` | Voiceprint data |
+| `data.tasks` | str | `""` = `<data.ai_root>/data` | Scheduled-task data directory |
+| `data.upload_dir` | str | `""` = `<data.ai_root>/data/uploads` | User upload directory |
+| `data.ai_root` | str | `ai` | AI root: runtime workspace/config and the mobile file browser root. `AXEUH_AI_ROOT` is read by helper scripts; the backend uses this key |
+| `data.stream_dir` / `data.task_logs` / `data.health_*` | path | `""` | Advanced derived paths exposed by the schema (stream audio, task logs, health cloud state/devices/source selection); empty = derived. Not present in `config.example.yaml` |
 
 ### `models` — Local model storage
 
@@ -305,18 +334,13 @@ Loaded by `backend/services/audio_config.py` (built-in defaults + `_deep_merge`,
 |-----|------|---------|-------------|
 | `pc_sensor.exe_path` | str | `desktop/pc-sensor/dist/Kinship-PCSensor.exe` | Path to the Windows PC sensor executable served by the Settings page ("设备" group, PC only). The file is **not** in git (`*.exe` / `dist/` are ignored), so run `desktop/pc-sensor/build.bat` once. Also overridable via the `PC_SENSOR_EXE_PATH` environment variable. |
 
-### `log` — Logging
+### `log` — Logging (deprecated)
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `log.level` | str | `INFO` | Log level |
+> `log.level` is a deprecated key: existing values in an old `config.yaml` are tolerated with a warning but no longer control logging; explicit writes are rejected with `deprecated_key`.
 
-### `memory` — Memory search (reserved)
+### `memory` — Memory search (deprecated)
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `memory.search_threshold` | float | `0.7` | Memory search similarity threshold (reserved; not wired into code) |
-| `memory.search_limit` | int | `10` | Memory search result limit (reserved) |
+> `memory.search_threshold` and `memory.search_limit` are deprecated schema keys: existing values are tolerated with a warning, explicit writes are rejected, and neither is wired into code.
 
 ### `voiceprint` — Speaker recognition (legacy; enrollment quality is enforced kernel-side)
 
@@ -330,13 +354,13 @@ Loaded by `backend/services/audio_config.py` (built-in defaults + `_deep_merge`,
 | `voiceprint.min_speech_ratio` | float | `0.5` | Minimum speech ratio of the audio — historical |
 | `voiceprint.min_duration` | float | `3.0` | Minimum enrollment audio duration (s) — historical |
 
-> `voiceprint.vad_threshold` and `voiceprint.cohort_max_samples` are also **no longer read**: the VAD threshold moved to `audio.vad.threshold` (wake-chain only; the main-chain VAD runs kernel-side) and the cohort collection now executes inside the kernel with its own built-in gates.
+> These `voiceprint.*` keys are deprecated in `config_schema.py` (`DEPRECATED_PATHS`): an existing value in an old `config.yaml` is loaded with a warning but no longer read, and explicit writes are rejected with `deprecated_key`. `voiceprint.vad_threshold` and `voiceprint.cohort_max_samples` are also **no longer read**: the VAD threshold moved to `audio.vad.threshold` (wake-chain only; the main-chain VAD runs kernel-side) and the cohort collection now executes inside the kernel with its own built-in gates.
 
 ### `unknown_speaker` — Unknown-speaker detection (advanced, off by default)
 
 Requires `unknown_speaker.enabled: true`. See [docs/UNKNOWN_SPEAKER_FEATURE.md](../dev/UNKNOWN_SPEAKER_FEATURE.md) for the algorithm.
 
-> **Kernel separation note (Wave A4/B2/B5/C1).** The full L1-L4 unknown-speaker chain (diarization blocks, session accumulation, profile matching, lifecycle) now runs **inside the kernel** (`/v1/unknown/track` and `/v1/unknown/*`), with its own state under the kernel state dir. The outer layer keeps only: the `enabled` business switch, `lifecycle.*` (the daily cleanup job passes the `lifecycle` section through `config_override`), and `detection.two_step.window_ms / hop_ms` (read by the preview console for display alignment). The `audio_archive.*` and `storage.*` keys are legacy paths with no live writer anymore (the chain's archives/index now live in the kernel state dir). The kernel's **built-in defaults equal the production values**, which differ from several historical defaults listed below (e.g. `detection.max_reg_sim` production `0.99`, `min_duration_sec` `2.5`, `lifecycle.confirm_min_count` `8`, `pyannote/session/profile.enabled` all `true` in the kernel defaults; see kernel `unknown/config.py` docstring for the key-by-key deltas). The table below documents the legacy outer defaults and their structure; treat it as reference for `config_override`-compatible sections, not live backend behaviour.
+> **Kernel separation note (Wave A4/B2/B5/C1).** The full L1-L4 unknown-speaker chain (diarization blocks, session accumulation, profile matching, lifecycle) now runs **inside the kernel** (`/v1/unknown/track` and `/v1/unknown/*`), with its own state under the kernel state dir. The outer layer keeps only: the `enabled` business switch, `lifecycle.*` (the daily cleanup job passes the `lifecycle` section through `config_override`), and `detection.two_step.window_ms / hop_ms` (read by the preview console for display alignment). The `audio_archive.*` and `storage.*` keys are legacy paths with no live writer anymore (the chain's archives/index now live in the kernel state dir). The kernel's **built-in defaults equal the production values**, which differ from several historical defaults listed below (e.g. `detection.max_reg_sim` production `0.99`, `min_duration_sec` `2.5`, `lifecycle.confirm_min_count` `8`, `pyannote/session/profile.enabled` all `true` in the kernel defaults; see kernel `unknown/config.py` docstring for the key-by-key deltas). The table below documents the legacy outer defaults and their structure; treat it as reference for `config_override`-compatible sections, not live backend behaviour. Only `enabled`, `lifecycle.*`, and `detection.two_step.window_ms` / `hop_ms` are in the config schema; the remaining keys are not writable through the config API and are ignored on load if an old `config.yaml` still carries them.
 
 | Key | Default | Description |
 |-----|---------|-------------|

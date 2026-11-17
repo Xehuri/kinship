@@ -1,24 +1,29 @@
 # 备份与恢复手册
 
-> 状态：现行（2026-10-29）。
+> 状态：现行（2026-11-17）。
 > 适用：Ubuntu + systemd + 进程编排器的生产部署。
+> 本机参考部署的 AI 运行时当前是 dsh（`ai_backend: dsh`）；Loom 相关步骤只在 `ai_backend: loom` 时适用。MOSS watcher 是后端 `moss_watcher` 受管子进程，不再是独立 systemd 单元。
 > 相关手册：[部署](deploy-linux.md)、编排器迁移（公开树不包含）、[故障处置](troubleshoot.md)。
 > 备份含有账号 token、会话内容和个人音频。备份目录权限必须为 0700，离机副本必须加密。
 
 ## 1. 备份对象
 
-三个核心对象：
+核心对象（第 3、4 项按 `ai_backend` 二选一）：
 
 | 对象 | 默认路径 | 内容 | 一致性要求 |
 | --- | --- | --- | --- |
 | AI 数据 | `ai/data/` | `daily/{date}/perception.jsonl`、音频、`audio_deepdive.jsonl`、`plan/`、`reports/`、`tasks/`、`wake_word/`、`memory` 相关数据 | 写入频繁，必须停机或文件系统快照 |
 | 后端配置状态 | `backend/config/` | `auth.json`、`.setup_token`（若存在）；同目录也含代码 | 必须停机；恢复时只取运行时文件 |
-| Loom 会话 | `ai/.loom/session/` | `{sessionID}.jsonl` 转录分片、`main-session.json`、`wake/`、`wake-queue/`、`queue/`、`compaction/` | Loom 持续写，必须停机 |
+| Loom 会话（仅 `ai_backend: loom`） | `ai/.loom/session/` | `{sessionID}.jsonl` 转录分片、`main-session.json`、`wake/`、`wake-queue/`、`queue/`、`compaction/` | Loom 持续写，必须停机 |
+| dsh 运行态（仅 `ai_backend: dsh`；本机生产） | `<DSH_HOME>/kinship/` + `<DSH_HOME>/sessions/` | `kinship/binding.json`、`kinship/bridge-token`（0600）、`kinship/paths.json`、`kinship/state/`（唤醒队列/影子文件）；`sessions/` 是 dsh 自己的会话转录 | dsh 持续写，必须停 `axeuh-dsh` |
+
+`<DSH_HOME>` 由 `axeuh-dsh` 单元决定（本机参考部署在项目目录之外）。`kinship/bridge-token` 是凭据，按第 3.4 节加密保存，不要放进普通备份目录。dsh 数据不在项目根下：只备份 `ai/` 而不备份 `<DSH_HOME>/sessions/` 时，恢复后 dsh 会话历史会缺失。
 
 建议同批备份的部署基线：
 
 - 项目根 `config.yaml` 与其侧车备份 `config.yaml.bak-*`，单文件配置，含端口、证书路径、模型开关。
-- `/etc/systemd/system/axeuh-health.service` 及 `*.d/*.conf`。
+- `/etc/systemd/system/axeuh-health.service` 及 `*.d/*.conf`；`axeuh-dsh`、`axeuh-moss` 的单元与 drop-in。
+- `/etc/axeuh-dsh/env`（dsh 的 `KINSHIP_*` 环境变量；不含 token）与 `<DSH_HOME>/profiles/<name>/` 下的 `package.json`、`pnpm-lock.yaml`、`cordis.patch.yml`（`link:` 依赖写在这里，决定桥接插件能否加载）。
 - `git rev-parse HEAD` 与 `git status --porcelain` 输出。
 - 当前部署的 systemd 单元文件及其 drop-in；通用示例见 `deploy/kinship.service.example`。
 - `/etc/kinship-loom/credentials.conf`、`/etc/kinship-qq-gateway/mcp.token`、`/etc/kinship-moss/credentials.conf` 的加密副本。不要放进普通备份目录。
@@ -43,37 +48,45 @@ install -d -m 0700 "$BACKUP_ROOT" "$SNAP" "$SNAP/ai/.loom" "$SNAP/systemd"
 
 df -h / /mnt/d
 du -sh "$ROOT/ai/data" "$ROOT/backend/config" "$ROOT/ai/.loom/session" 2>/dev/null || true
-systemctl is-active axeuh-health axeuh-loom axeuh-moss-watch
+systemctl is-active axeuh-health axeuh-dsh axeuh-moss axeuh-loom axeuh-moss-watch
+systemctl list-timers 'axeuh-moss-*' --no-pager
 ```
 
-- 备份盘剩余空间至少是三个对象大小之和的 1.2 倍。
+- 备份盘剩余空间至少是本次纳入对象大小之和的 1.2 倍。
 - 记录当前 `git HEAD` 与 unit 内容，恢复后用于核对版本。
-- 如果 `ai/.loom/session` 不存在，记录 `session_dir=absent`。这通常表示 Loom 尚未产生会话或 `LOOM_STATE` 指向了别处，不能当作"备份成功"。
+- 预期状态：`axeuh-health`、`axeuh-moss` active；`ai_backend: dsh` 时 `axeuh-dsh` active；`axeuh-loom`、`axeuh-moss-watch` 应为 `inactive`/`failed` 且 `disabled`（仅回滚/旧拓扑用）。MOSS 回归与告警 timer 为 oneshot，可能排在待执行队列里。
+- 如果 `ai/.loom/session` 不存在而 `ai_backend: loom`，记录 `session_dir=absent`。这通常表示 Loom 尚未产生会话或 `LOOM_STATE` 指向了别处，不能当作"备份成功"。`ai_backend: dsh` 时对应检查 `<DSH_HOME>/sessions/`；不存在但 `/health` 的 dsh 为 bound 时，说明 `DSH_HOME` 指错了。
 
 ## 3. 一致性备份（推荐，停机）
 
 ### 3.1 停止写入
 
 ```bash
-sudo systemctl stop axeuh-moss-watch 2>/dev/null || true
-sudo systemctl stop axeuh-loom 2>/dev/null || true
+# 可选：备份期间让 MOSS 回归/告警 oneshot 任务避开（不影响主链）
+sudo systemctl stop axeuh-moss-alert.timer axeuh-moss-regression.timer 2>/dev/null || true
+
+# AI 运行时：只有备份 <DSH_HOME> 时停 dsh（独立单元，不归后端编排器）
+sudo systemctl stop axeuh-dsh 2>/dev/null || true
+
+# 停后端：编排器按注册逆序停止子服务（loom -> moss_watcher -> kernel）
 sudo systemctl stop axeuh-health
 ```
 
 顺序说明：
 
-- 先停 MOSS watcher，避免它继续追加 `audio_deepdive.jsonl`。
-- 再停 systemd Loom（如果当前是迁移前拓扑），避免继续写 `ai/.loom/session`。
-- 最后停后端。稳定态下 Loom 与 watcher 是后端子进程，会随 `axeuh-health` 的 15 秒关停预算一起停止。
+- dsh 是独立 systemd 单元，`ai_backend: dsh` 时由它托管 bridge 与会话写入；要一致的 dsh 会话/桥接备份就必须停它。`ai_backend: loom` 时不需要这一步。
+- 后端关停时由编排器按注册逆序停止子服务：`loom`（仅 loom 模式）→ `moss_watcher` → `kernel`，总预算 15 秒；watcher 是后端子进程，随 `axeuh-health` 一起停，**没有独立的 `axeuh-moss-watch` 单元参与稳定态关停**。
+- 不要再去停 `axeuh-loom` / `axeuh-moss-watch`：稳定态它们本就 `inactive`/`disabled`；如果它们是 active，说明拓扑异常（见[故障处置](troubleshoot.md)），先按故障处理再备份。
+- `axeuh-moss`（vLLM serve）不读写 `ai/data`，备份期间可以保留运行。
 
 确认没有写入者：
 
 ```bash
-systemctl is-active axeuh-health axeuh-loom axeuh-moss-watch
-ps -eo pid,ppid,args | grep -E '[h]ot_server|[l]oom-harness|[m]oss-shadow/watcher' || true
+systemctl is-active axeuh-health axeuh-dsh axeuh-loom axeuh-moss-watch
+ps -eo pid,ppid,args | grep -E '[h]ot_server|[l]oom-harness|[m]oss-shadow/watcher|[b]in/dsh ' || true
 ```
 
-三条 `is-active` 应为 `inactive` 或 `failed`（本来未启用）。`ps` 不应有上述进程。仍有进程时先按[故障处置](troubleshoot.md)的 PID 流程处理，不要直接复制。
+`is-active` 中 `axeuh-health` 与（dsh 模式下的）`axeuh-dsh` 应为 `inactive`/`failed`；`axeuh-loom`、`axeuh-moss-watch` 本来就是 `inactive`/`failed`。`ps` 不应再有 `hot_server`、Loom、watcher 或 dsh 进程。仍有进程时先按[故障处置](troubleshoot.md)的 PID 流程处理，不要直接复制。
 
 ### 3.2 复制
 
@@ -87,21 +100,42 @@ rsync -aH --numeric-ids "$ROOT/backend/config/" "$SNAP/backend/config/"
 if [ -d "$ROOT/ai/.loom/session" ]; then
   rsync -aH --numeric-ids "$ROOT/ai/.loom/session/" "$SNAP/ai/.loom/session/"
 else
-  echo "WARN: ai/.loom/session 不存在" | tee "$SNAP/session-dir-absent.txt"
+  echo "WARN: ai/.loom/session 不存在（ai_backend=loom 时才需要）" | tee "$SNAP/session-dir-absent.txt"
+fi
+
+# ai_backend: dsh 时备份 dsh 运行态（<DSH_HOME> 由 axeuh-dsh 单元决定）
+if [ -n "${DSH_HOME:-}" ] && [ -d "$DSH_HOME/sessions" ]; then
+  install -d -m 0700 "$SNAP/dsh"
+  rsync -aH --numeric-ids "$DSH_HOME/kinship/" "$SNAP/dsh/kinship/"
+  rsync -aH --numeric-ids "$DSH_HOME/sessions/" "$SNAP/dsh/sessions/"
+  for prof in "$DSH_HOME/profiles"/*/; do
+    [ -d "$prof" ] || continue
+    name=$(basename "$prof")
+    install -d -m 0700 "$SNAP/dsh/profiles/$name"
+    cp -a "$prof/package.json" "$prof/pnpm-lock.yaml" "$prof/cordis.patch.yml" \
+      "$SNAP/dsh/profiles/$name/" 2>/dev/null || true
+  done
 fi
 
 cp -a "$ROOT/config.yaml" "$SNAP/config.yaml"
 [ -f "$ROOT/ai/.loom/config.yaml" ] && cp -a "$ROOT/ai/.loom/config.yaml" "$SNAP/ai/.loom/config.yaml"
 
 systemctl cat axeuh-health > "$SNAP/systemd/axeuh-health.service"
-systemctl cat axeuh-loom > "$SNAP/systemd/axeuh-loom.service" 2>/dev/null || true
+systemctl cat axeuh-dsh > "$SNAP/systemd/axeuh-dsh.service" 2>/dev/null || true
 systemctl cat axeuh-moss > "$SNAP/systemd/axeuh-moss.service" 2>/dev/null || true
+systemctl cat axeuh-moss-alert.service > "$SNAP/systemd/axeuh-moss-alert.service" 2>/dev/null || true
+systemctl cat axeuh-moss-alert.timer   > "$SNAP/systemd/axeuh-moss-alert.timer" 2>/dev/null || true
+systemctl cat axeuh-moss-regression.service > "$SNAP/systemd/axeuh-moss-regression.service" 2>/dev/null || true
+systemctl cat axeuh-moss-regression.timer   > "$SNAP/systemd/axeuh-moss-regression.timer" 2>/dev/null || true
+# 回滚/旧拓扑单元：内容也留着，恢复时不要随手启用
+systemctl cat axeuh-loom > "$SNAP/systemd/axeuh-loom.service" 2>/dev/null || true
 systemctl cat axeuh-moss-watch > "$SNAP/systemd/axeuh-moss-watch.service" 2>/dev/null || true
+[ -f /etc/axeuh-dsh/env ] && cp -a /etc/axeuh-dsh/env "$SNAP/systemd/axeuh-dsh.env"
 git -C "$ROOT" rev-parse HEAD > "$SNAP/git-head.txt"
 git -C "$ROOT" status --porcelain > "$SNAP/git-status.txt"
 ```
 
-`ai/data/tmp/` 是可再生临时目录，默认排除。`*.part` 是未完成文件，不进入备份。
+`ai/data/tmp/` 是可再生临时目录，默认排除。`*.part` 是未完成文件，不进入备份。`axeuh-moss-watch` 是旧拓扑遗留单元，**不要**把它当稳定态组件恢复或启用；稳定态 watcher 由后端编排器 spawn。
 
 ### 3.3 清单与校验
 
@@ -171,7 +205,7 @@ rsync -aHn --itemize-changes "$ROOT/ai/.loom/session/" "$SNAP/ai/.loom/session/"
 
 ## 4. 在线备份（不推荐用于配置和会话）
 
-`ai/data` 可以在线做一次 rsync，再用第二次增量补齐；但 `perception.jsonl`、`audio_deepdive.jsonl` 与音频文件可能跨文件不一致。`backend/config/auth.json` 和 `ai/.loom/session` 必须停机备份。
+`ai/data` 可以在线做一次 rsync，再用第二次增量补齐；但 `perception.jsonl`、`audio_deepdive.jsonl` 与音频文件可能跨文件不一致。`backend/config/auth.json`、`ai/.loom/session`（loom 模式）与 `<DSH_HOME>/sessions`（dsh 模式）必须停机备份。
 
 如果必须在线：
 
@@ -185,7 +219,7 @@ rsync -aH --numeric-ids "$ROOT/ai/data/" "$SNAP/ai/data/"
 
 ## 5. 恢复顺序
 
-恢复顺序固定为：配置基线、后端配置状态、AI 数据、Loom 会话、启动、验证。
+恢复顺序固定为：配置基线、后端配置状态、AI 数据、AI 运行时会话（Loom 或 dsh，按 `ai_backend`）、启动、验证。
 
 先准备回退副本。恢复失败时用它回到恢复前状态：
 
@@ -198,11 +232,12 @@ cp -a "$ROOT/config.yaml" "$ASIDE/config.yaml"
 ### 5.1 停止服务并确认没有写入者
 
 ```bash
-sudo systemctl stop axeuh-moss-watch 2>/dev/null || true
-sudo systemctl stop axeuh-loom 2>/dev/null || true
+sudo systemctl stop axeuh-dsh 2>/dev/null || true   # 仅 dsh 模式；独立单元
 sudo systemctl stop axeuh-health
-systemctl is-active axeuh-health axeuh-loom axeuh-moss-watch
+systemctl is-active axeuh-health axeuh-dsh axeuh-loom axeuh-moss-watch
 ```
+
+`axeuh-health`（以及 dsh 模式下的 `axeuh-dsh`）应为 `inactive`/`failed`。`axeuh-loom`、`axeuh-moss-watch` 本就是回滚/旧拓扑单元，不要在这里启动它们。
 
 ### 5.2 恢复配置基线
 
@@ -255,7 +290,7 @@ rsync -aH --numeric-ids --exclude 'tmp/' --exclude '*.part' \
 
 `mv` 而不是删除，保证恢复失败时可以回退。`ai/data` 可能很大，`mv` 在同一文件系统内是原子的；跨文件系统时会复制，时间会更长。
 
-### 5.5 恢复 Loom 会话
+### 5.5 恢复 Loom 会话（仅 `ai_backend: loom`）
 
 ```bash
 install -d -m 0700 "$ROOT/ai/.loom"
@@ -275,15 +310,44 @@ fi
 
 恢复后检查 `main-session.json` 与 `wake-queue/` 是否存在。`main-session.json` 决定 Web 聊天绑定哪个主会话；缺失时 Loom 可能新建会话，表现为"历史会话不见了"。
 
-### 5.6 启动
+### 5.6 恢复 dsh 运行态（仅 `ai_backend: dsh`；本机生产）
+
+dsh 的数据不在项目根下。`<DSH_HOME>` 要与 `axeuh-dsh` 单元的 `Environment=` / `EnvironmentFile=` 一致；路径不对时恢复会"成功"但面板仍显示未绑定。下面命令要求先在 shell 里 `export DSH_HOME=<实际路径>`。
+
+```bash
+if [ -d "$SNAP/dsh" ]; then
+  install -d -m 0700 "$DSH_HOME"
+  for sub in kinship sessions; do
+    [ -d "$SNAP/dsh/$sub" ] || continue
+    [ -e "$DSH_HOME/$sub" ] && mv "$DSH_HOME/$sub" "$ASIDE/dsh-$sub"
+    install -d -m 0700 "$DSH_HOME/$sub"
+    rsync -aH --numeric-ids "$SNAP/dsh/$sub/" "$DSH_HOME/$sub/"
+  done
+  chmod 600 "$DSH_HOME/kinship/bridge-token" 2>/dev/null || true
+fi
+```
+
+profile 的 `package.json` / `pnpm-lock.yaml` / `cordis.patch.yml` 属于部署接线：只有在确认要回到备份时的插件版本时才覆盖，覆盖前先备份当前三件套。`link:` 依赖指向仓库路径，仓库挪位后要重新 `dsh plugin ... add link:...`（见 [dsh-production-rollout.md](dsh-production-rollout.md) 第 9 节）。
+
+如果不想重放备份时点的计划唤醒，恢复前先移走 `<DSH_HOME>/kinship/state/session/wake-queue/`，让 `kinship-plan-scheduler` 启动后重新对账；`binding.json` 与 `sessions/` 仍按上面恢复。
+
+### 5.7 启动
 
 稳定态（stage4 之后）：
 
 ```bash
+# dsh 模式：先起 dsh，让 bridge 在链路里，再起后端
+sudo systemctl start axeuh-dsh
 sudo systemctl start axeuh-health
 ```
 
-编排器会按 `kernel`、`moss_watcher`、`loom` 顺序启动。`axeuh-loom` 与 `axeuh-moss-watch` 必须保持 `inactive`、`disabled`，不要手工启动。
+编排器会按 `kernel`、`moss_watcher`、`loom` 顺序启动；`loom` 只在 `ai_backend: loom` 时进入 ready，`ai_backend: dsh` 时它是 `blocked (disabled)`，属预期。`axeuh-loom` 与 `axeuh-moss-watch` 必须保持 `inactive`、`disabled`，不要手工启动。
+
+按需恢复备份期间停掉的 MOSS 定时器：
+
+```bash
+sudo systemctl start axeuh-moss-alert.timer axeuh-moss-regression.timer
+```
 
 迁移前或回滚态：
 
@@ -299,11 +363,13 @@ sudo systemctl start axeuh-moss-watch axeuh-loom
 ### 6.1 服务与端口
 
 ```bash
-systemctl is-active axeuh-health
-systemctl is-active axeuh-loom axeuh-moss-watch   # 稳定态应为 inactive
-ss -lntp | grep -E ':(8768|5100|8100)\b'
+systemctl is-active axeuh-health axeuh-dsh axeuh-moss
+systemctl is-active axeuh-loom axeuh-moss-watch   # 稳定态应为 inactive/failed
+ss -lntp | grep -E ':(8768|18765|3080|5100|8100)\b'
 curl -kfsS https://127.0.0.1:8768/health
 ```
+
+`18765`（bridge）与 `3080`（dsh Web）只在 `ai_backend: dsh` 时存在，监听者属于 `axeuh-dsh`；`5100` 只在 `ai_backend: loom` 时存在。MOSS watcher 没有端口，用 `/api/services` 的 `moss_watcher=ready` 判断。
 
 `/api/services` 需要 user token：
 
@@ -316,9 +382,22 @@ api_get() {
 api_get /api/services
 ```
 
-稳定态期望 `orchestrator=on`，`kernel`、`moss_watcher`、`loom` 全为 `ready`。迁移前拓扑期望 `orchestrator=off`，`services=[]`。
+稳定态期望 `orchestrator=on`，`kernel` 与 `moss_watcher` 为 `ready`；`loom` 在 `ai_backend: loom` 时应为 `ready`，在 `ai_backend: dsh` 时为 `blocked (disabled)`（预期，不是故障）。迁移前拓扑期望 `orchestrator=off`，`services=[]`。
 
-### 6.2 Loom 会话
+### 6.2 AI 运行时会话
+
+`ai_backend: dsh`（本机生产）：
+
+```bash
+curl -sk https://127.0.0.1:8768/health   # 期望 status=healthy、ai_backend=dsh、dsh.status=online
+TOKEN=$(cat <DSH_HOME>/kinship/bridge-token)
+printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" |
+  curl -fsS -K - http://127.0.0.1:18765/v1/health
+```
+
+期望 bridge 返回 `status=bound`，`session_id` 与恢复的 `kinship/binding.json` 及 `/health` 的 `dsh.session_id` 一致。`status=unbound` 表示绑定记录丢失；`409 bound_session_missing` / `bound_session_unavailable` 表示 dsh 里找不到或恢复不了该会话，按 [troubleshoot.md](troubleshoot.md) 的 dsh 症状处理。
+
+`ai_backend: loom`：
 
 ```bash
 printf 'header = "Authorization: Bearer %s"\n' "${LOOM_TOKEN:?先 export LOOM_TOKEN}" |
@@ -355,14 +434,15 @@ api_get /api/services
 ### 6.5 进程唯一性
 
 ```bash
-ps -eo pid,ppid,args | grep -E '[h]ot_server|[l]oom-harness/packages/server/dist/cli.js|[m]oss-shadow/watcher'
+ps -eo pid,ppid,args | grep -E '[h]ot_server|[l]oom-harness/packages/server/dist/cli.js|[m]oss-shadow/watcher|[b]in/dsh ' || true
 ```
 
 - 后端 1 个。
-- Loom 1 个，父进程是后端 `MainPID`（稳定态）。
-- MOSS watcher 1 个，父进程是后端 `MainPID`（稳定态）。
+- dsh 1 个（`ai_backend: dsh` 时），父进程是 systemd `axeuh-dsh`（不是后端 `MainPID`）。
+- Loom 1 个（仅 `ai_backend: loom`），父进程是后端 `MainPID`。
+- MOSS watcher 1 个，父进程是后端 `MainPID`；不应同时存在 `axeuh-moss-watch` 单元进程。
 
-出现两个 Loom 或两个 watcher，按[故障处置](troubleshoot.md)处理，不要直接结束不确定归属的进程。
+出现两个 Loom、两个 watcher 或两个 dsh，按[故障处置](troubleshoot.md)处理，不要直接结束不确定归属的进程。
 
 ## 7. 恢复失败的回退
 
@@ -370,6 +450,7 @@ ps -eo pid,ppid,args | grep -E '[h]ot_server|[l]oom-harness/packages/server/dist
 
 ```bash
 sudo systemctl stop axeuh-health
+sudo systemctl stop axeuh-dsh 2>/dev/null || true
 
 mv "$ROOT/ai/data" "$ASIDE/ai-data-restored-failed"
 mv "$ASIDE/ai-data" "$ROOT/ai/data"
@@ -379,12 +460,20 @@ if [ -d "$ASIDE/loom-session" ]; then
   mv "$ASIDE/loom-session" "$ROOT/ai/.loom/session"
 fi
 
+for sub in kinship sessions; do
+  if [ -n "${DSH_HOME:-}" ] && [ -d "$ASIDE/dsh-$sub" ]; then
+    mv "$DSH_HOME/$sub" "$ASIDE/dsh-$sub-restored-failed" 2>/dev/null || true
+    mv "$ASIDE/dsh-$sub" "$DSH_HOME/$sub"
+  fi
+done
+
 [ -f "$ASIDE/config.yaml" ] && cp -a "$ASIDE/config.yaml" "$ROOT/config.yaml"
 
 for f in auth.json .setup_token; do
   [ -f "$ASIDE/$f" ] && cp -a "$ASIDE/$f" "$ROOT/backend/config/$f"
 done
 
+sudo systemctl start axeuh-dsh 2>/dev/null || true
 sudo systemctl start axeuh-health
 curl -kfsS https://127.0.0.1:8768/health
 ```

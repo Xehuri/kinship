@@ -3,16 +3,26 @@
 > 适用：本机同机部署（Kinship 后端与 dsh 在同一台机器）。跨机场景不适用——适配器契约要求
 > bridge 只监听 loopback，公网 URL 只是给人用的 Web UI。
 >
-> 目标实例：systemd `axeuh-dsh`，profile `web`，`DSH_HOME=/mnt/d/Users/Axeuh/Desktop/Axeuh-server/dsh-home`，
-> UI `127.0.0.1:3080`，公网 `https://dsh.xehuri.top/`（IPv4 443）与 `https://dsh.xehuri.top:8443/`（IPv6 直连）。
+> 目标实例：systemd `axeuh-dsh`，profile `web`，`DSH_HOME=<dsh-home>`，
+> UI `127.0.0.1:3080`，公网 `<DSH_WEB_URL>`（IPv4 443）与 `<DSH_WEB_URL>:8443`（IPv6 直连）。
+>
+> 路径占位符（按本机实际替换）：`<dsh-home>`（dsh 数据根）、`<AI_ROOT>`（Kinship AI 根）、
+> `<SERVER_ROOT>`（包含本仓与其兄弟目录的父目录）、`<REPO>`（本仓根）、`<TMP_DIR>`（临时目录）、
+> `<NODE_BIN>`（Node 可执行目录）。
 >
 > 状态（2026-11-15 20:24）：A–D 已完成并验证，生产 `ai_backend` 已是 `dsh`、`/health.dsh=online`，
-> Loom 已被编排器判 blocked 并停用；E 为回滚预案（现在回滚 Loom 需要重启一次后端或手动启动）。详见第 3.1 节。
+> Loom 已被编排器判 blocked 并停用；E 为回滚预案。W53 起回滚是**热切换**：把 `ai_backend` 改回 `loom`
+> 会在同一次配置应用里由 `apply_ai_surface` 拉起 Loom，不需要重启后端；只有编排器处于 `off` 模式时才需手动启动
+> 或恢复编排器（详见第 10 节）。
 >
 > 2026-11-17 补充：当天 00:50 主 profile 安装 `dsh-state-notifier` 时，pnpm 把之前由
 > `sync-profile.sh` 拷入、但未在 `package.json` 声明的 Kinship 八个包移入
 > `node_modules/.ignored/`，HMR 热重载后 bridge 掉线（重启 dsh 无效）。已改用 `link:` 依赖恢复，
 > 机理、判据与维护流程见第 9 节；后续部署/升级 profile 前先读这一节。
+>
+> 2026-11-17 当前状态：生产 `ai_backend: dsh`，`/health` 为 `status=healthy`、`dsh.status=online`；
+> `axeuh-dsh` active（18765 bridge / 3080 Web），`axeuh-loom` 为 `failed`/`disabled`、
+> 编排器 `loom=blocked (disabled)`，`/health.loom.status=unknown`。这四项都是预期状态，不是故障。
 
 ## 1. 结论先行
 
@@ -46,8 +56,8 @@
 3. `/etc/axeuh-dsh/env` 追加（不含 token 变量，让插件生成 0600 文件，后端用 `dsh.token_file` 引用）：
 
    ```
-   KINSHIP_AI_ROOT=/mnt/d/Users/Axeuh/Desktop/Axeuh-server/kinship-data/ai
-   KINSHIP_PLAN_ROOT=/mnt/d/Users/Axeuh/Desktop/Axeuh-server/kinship-data/ai/data
+   KINSHIP_AI_ROOT=<AI_ROOT>
+   KINSHIP_PLAN_ROOT=<AI_ROOT>/data
    KINSHIP_BRIDGE_PORT=18765
    KINSHIP_BRIDGE_POLICY=first
    KINSHIP_BRIDGE_REBIND_ON_MISSING=1
@@ -58,7 +68,7 @@
 6. 组合校验（无需重启）：
 
    ```bash
-   cd /mnt/d/Users/Axeuh/Desktop/Axeuh-server/server
+   cd <SERVER_ROOT>
    DSH_HOME=<dsh-home> KINSHIP_AI_ROOT=.../kinship-data/ai KINSHIP_PLAN_ROOT=.../kinship-data/ai/data \
      dsh --profile web --dump-config | grep -E 'id: (kinship-bridge|kinship-ui|preset-kinship|agent-instructions)' -A2
    ```
@@ -81,7 +91,7 @@
 | 20:36 | 修会话面 | 仅改 W30 状态文件还不够：`/session/list` 没有 dsh 腿、且把带 `loom:main-task` 绑定的旧会话标 `backend:"loom"`，前端于是把 `backend=loom` 显式塞进发送请求 → 直调已停用的 Loom（日志 `[LOOM-CLIENT] session=ses_6320…` + 5100）。代码修复（W52）：`/session/list` 增 dsh 聚合腿（bridge 绑定会话）、`current_session` 取该 id、dsh 模式下本地条目一律归 dsh、全局 dsh 时忽略显式 loom/opencode、Loom 腿不探活；4 条新测试先红后绿（stash 实现验证），相关 105 条全绿；重启后端（PID 2218881）后实测 `current_session=session-2f8b68aa…`、`partial=[]`、dsh 行首位 |
 | 21:02 | 冷会话 E2E | 测试栈：起 dsh 建会话 A → 按 PID 停 → `KEEP_BINDING=1` 重启（**不打开任何 dsh UI 会话**）→ `/v1/health` 直接 `status:"bound"`（session A）、`/v1/session` 与 `/v1/session/messages` 均 200；同启动的 probe 新会话 B 未被改绑；主仓后端连测试栈发消息收到回复（`只回复一个字：好` → `好`） |
 | 21:05 | W53 热切换实测 | 测试栈（主仓后端）：`PUT /api/system/config` 切 `loom` → `applied` 含 `ai_surface`、Loom 探针启动、dsh 探针停（unknown）；切回 `dsh` → 反向成立，`/session/list` `current_session` 仍为绑定会话、`partial=[]` |
-| 21:06 | 部署 W53+W54 | 生产 profile 插件备份 `/mnt/d/tmp-opencode/dsh-web-plugins-bak/web-plugins-20261115-210605.tgz` → `sync-profile.sh web` 同步 resume 版 bridge；后端热重启（新 PID 2258115）：`[AiSurface] ai_backend=dsh：健康探针已按生效通道对齐`、`[WebBackend] 旧状态文件已归档 …（legacy=dsh, effective=dsh）`、`[Config] 热应用器已注册: ai, ai_surface, audio, …`；`/health` dsh online / loom `unknown`、`/api/screen/backend` 返回 3 个选项、POST 410；21:06 起 LoomHealth WARN 计数 0。dsh 进程需重启才加载 resume 版 bridge（本页第 4 节） |
+| 21:06 | 部署 W53+W54 | 生产 profile 插件备份 `<TMP_DIR>/dsh-web-plugins-bak/web-plugins-20261115-210605.tgz` → `sync-profile.sh web` 同步 resume 版 bridge；后端热重启（新 PID 2258115）：`[AiSurface] ai_backend=dsh：健康探针已按生效通道对齐`、`[WebBackend] 旧状态文件已归档 …（legacy=dsh, effective=dsh）`、`[Config] 热应用器已注册: ai, ai_surface, audio, …`；`/health` dsh online / loom `unknown`、`/api/screen/backend` 返回 3 个选项、POST 410；21:06 起 LoomHealth WARN 计数 0。dsh 进程需重启才加载 resume 版 bridge（本页第 4 节） |
 
 ## 4. B 段：重启 dsh（已完成 20:15）
 
@@ -130,8 +140,11 @@ UI 检查：左侧栏出现 **Kinship**；设置里的预设列表出现 **Kinsh
 5. 点「显示令牌」并「复制」；点片段区「复制」拿到 `config.yaml` 片段。**不要**把 token 写进
    任何日志或聊天记录。
 
-运行规则：**dsh 每次重启后，先在 UI 里打开一次该会话**（让它变 live），bridge 才能继续服务；
-否则面板显示「绑定会话已丢失」，后端 `/health` 的 `dsh` 会 degraded。
+运行规则（W54，2026-11-15 21:06 起）：dsh 重启后 **不需要**人工在 UI 打开 Kinship 会话。
+`kinship-bridge` 启动时预热一次，并在请求期经 `sessionController.resolveAgent`（与 UI 打开会话同一条路径，
+含 preset 装配）懒恢复持久化绑定会话；只有运行时明确回答 `session/not-found` 才回落到
+`bound_session_missing`，其它恢复失败是 409 `bound_session_unavailable`（需要人/配置介入）。实测口径见 §3.1
+的 21:02 冷会话 E2E 与 §7.1。若面板仍显示「绑定会话已丢失」，按 [troubleshoot.md](troubleshoot.md) 症状 20 处置。
 
 ## 7. D 段：切换生产后端（已完成 20:20，热切换）
 
@@ -143,7 +156,7 @@ PUT /api/system/config
   "changes": {
     "ai_backend": "dsh",
     "dsh.url": "http://127.0.0.1:18765",
-    "dsh.token_file": "/mnt/d/Users/Axeuh/Desktop/Axeuh-server/dsh-home/kinship/bridge-token",
+    "dsh.token_file": "<dsh-home>/kinship/bridge-token",
     "dsh.timeout_seconds": 30
   },
   "dry_run": true
@@ -199,7 +212,7 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
 `kinship-plan-scheduler` 把 Loom 的计划调度器搬进 dsh，读生产已经在用的
 `plan/master.json` 与当日 `plan-{date}.overlay.json`，按锚点对账，把唤醒写成
 绑定会话里的普通用户消息。设计与全部差异见
-[harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)。
+`harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md`（仓库内路径；该目录当前不随公开树导出）。
 
 ### 8.1 步骤
 
@@ -208,7 +221,7 @@ curl -sk -H "Authorization: Bearer <token>" https://127.0.0.1:8768/api/screen/ba
 2. 同步进 profile（`sync-profile.sh` 现在拷八个包 + bundle patch）：
 
    ```bash
-   DSH_HOME=/mnt/d/Users/Axeuh/Desktop/Axeuh-server/dsh-home \
+   DSH_HOME=<dsh-home> \
      bash harness-plugins/scripts/sync-profile.sh web
    # 期望输出 8 行 [sync] <package> 加 [sync] kinship-harness-plugins / [sync] profile: …
    ```
@@ -447,9 +460,9 @@ dsh 不会恢复**，因为包仍未声明。
 先备份 profile 的三件套（`package.json`、`pnpm-lock.yaml`、`cordis.patch.yml`），再执行：
 
 ```bash
-cd /mnt/d/Users/Axeuh/Desktop/Axeuh-server/server
-export PATH=/mnt/d/tools/node-v24.22.3-linux-x64/bin:$PATH
-REPO=/mnt/d/Users/Axeuh/Desktop/Axeuh-server/server/kinship/harness-plugins
+cd <SERVER_ROOT>
+export PATH=<NODE_BIN>:$PATH
+REPO=<REPO>/harness-plugins
 DSH_HOME=<dsh-home> dsh plugin --profile web add \
   "link:$REPO" \
   "link:$REPO/packages/kinship-bridge" \
@@ -558,10 +571,10 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18765/v1/health
 
 ## 12. 相关文件
 
-- [harness-plugins/README.md](../../harness-plugins/README.md)：插件、面板 API、测试
-- [harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md)：计划调度器设计、配置表与移植差异
-- [harness-plugins/packages/kinship-plan/docs/DETAIL.md](../../harness-plugins/packages/kinship-plan/docs/DETAIL.md)：日计划工具与覆盖层写回（`plan_note` / `plan_done` / `plan_overlay_read`）
-- [harness-plugins/packages/kinship-compact/docs/DETAIL.md](../../harness-plugins/packages/kinship-compact/docs/DETAIL.md)：`compact_context` 工具、延迟触发与配置
+- `harness-plugins/README.md`：插件、面板 API、测试（以下 `harness-plugins/**` 均为仓库内路径，该目录当前不随公开树导出）
+- `harness-plugins/packages/kinship-plan-scheduler/docs/DETAIL.md`：计划调度器设计、配置表与移植差异
+- `harness-plugins/packages/kinship-plan/docs/DETAIL.md`：日计划工具与覆盖层写回（`plan_note` / `plan_done` / `plan_overlay_read`）
+- `harness-plugins/packages/kinship-compact/docs/DETAIL.md`：`compact_context` 工具、延迟触发与配置
 - [docs/dev/ai-runtimes.md](../dev/ai-runtimes.md)：运行时定位与能力对比
 - [docs/dev/adapter-contract.md](../dev/adapter-contract.md)：适配器契约与适配器 UI 约定
 - [docs/ops/CONFIGURATION.md](CONFIGURATION.md)：`ai_backend` / `dsh.*` 配置键

@@ -5,30 +5,32 @@
 ## 配置热应用与无配置启动
 
 - 配置载体：YAML（默认）、JSON、SQLite、env 覆盖层。`AXEUH_CONFIG_BACKEND` 选后端，`AXEUH_CONFIG_PATH` / `AXEUH_CONFIG_SQLITE_PATH` 定位置，`AXEUH_SETTINGS__<DOTTED_UPPER>` 为只读覆盖层。完整契约见 [system-config-hot-reload.md](system-config-hot-reload.md)。
-- 无配置启动：后端不因 `config.yaml` 缺失、为空或损坏而退出，按 schema 默认值降级运行；`GET /api/system/config/status` 的 `degraded` 会给出原因。无证书时 SSL 自动降级关闭，实际监听 `server.http_port`。已有用户时该端点需 user Bearer；仅无用户 bootstrap 可匿名。
-- 保存与生效：Web 设置页或 `PUT /api/system/config` 保存后原子替换快照并按域应用。大多数键热生效；`qq_gateway.*` / `p2p.*`（实验，当前不可用）原地重连；`kernel.*` 重启内核；已退役 `launcher.*` 回滚元数据属部署接线，HTTP 只读。
+- 无配置启动：后端不因 `config.yaml` 缺失、为空或损坏而退出，按 schema 默认值降级运行；`GET /api/system/config/status` 的 `degraded` 会给出原因。无证书时 SSL 自动降级关闭，实际监听 `server.port`。已有用户时该端点需 user Bearer；仅无用户引导期可匿名。
+- 保存与生效：Web 设置页或 `PUT /api/system/config` 保存后原子替换快照并按域应用。大多数键热生效；`qq_gateway.*` / `p2p.*`（实验，当前不可用）原地重连；`kernel.*` 重启内核；`moss.enabled` / `moss.python` / `moss.data_root` / `moss.state_dir` 重新拉起 MOSS watcher 子进程。`ssl.enabled` / `ssl.cert` / `ssl.key`、`opencode.enabled`、`api.baidu_map_ak` 属部署接线（deployment）：HTTP 写入被 409 `deployment_required` 拒绝，改配置后按确认窗口重启后端。`launcher.*` 已从配置 schema 删除，旧键仅能被读取清除，显式写入返回 422 `unknown_key`。
 - 认证：无用户时配置写入必须带 `X-Setup-Token`，令牌启动时生成于 `backend/config/.setup_token`（0600，已 gitignore）。启动日志以 INFO 输出完整令牌，并标记来源（`新生成` / `文件`）；`backend.log` 在 POSIX 启动时收紧为 0600。该令牌仅用于首次配置，创建管理员后失效。HTTP/WS 响应不回显令牌。已有用户时必须用 user Bearer 加当前密码；service/device Token 无权写配置。引导入口用只读 `POST /auth/verify-password` 一次性验证当前密码（user Bearer + `password`，5 次/60 秒限流，不签发 Token）；后续写请求仍逐次携带密码。
 - 回滚：YAML/JSON 每次保存前生成 `<file>.bak-YYYYMMDD-HHMMSS[-N]`；先停服务，复制备份回原路径，`chmod 600`，再启动并检查 `/api/system/config/status`（已有用户需 user Bearer）。SQLite 无同名侧车备份，需定期 `.backup`。
 - 载体切换：v1 不支持运行中切换，必须停进程、改环境变量、再启动。
 - staging：`python3 backend/scripts/qa_config_staging.py --smoke`，默认报告 `<TMP_DIR>/system-config/staging-report.md`（内容为 JSON）。脚本已用 `AXEUH_AUTH_STATE_DIR` / `AEUH_ONBOARDING_STATE` / `AXEUH_PROJECT_ROOT` 隔离 auth、引导状态与初始化动作目标目录；不要在 staging 中省略 `AXEUH_PROJECT_ROOT`，否则 `copy_ai_template` 会指向代码仓库的生产 `ai/`。
 
-## AI 运行时选择（2026-11-15）
+## AI 运行时选择（2026-11-17）
 
-- 默认 `ai_backend: loom`，它是 Kinship 的完整工作流。`dsh` 是可选的自带 harness 接入路径，不是开箱即用：需要安装 `harness-plugins/`、启动 bridge、在 dsh 中创建并绑定 Kinship session，再配置后端 `dsh.url` 与同一个 Bearer token。dsh 侧栏的 **Kinship** 面板会显示该 URL、token 与待粘贴的 `config.yaml` 片段，也能改桥接配置和绑定会话。
-- 运行时定位与选择见 [ai-runtimes.md](../dev/ai-runtimes.md)，适配端点与会话模型见 [adapter-contract.md](../dev/adapter-contract.md)。dsh 不在默认拓扑内；不改变 Loom 的默认启动链。
+- 模板默认：公开模板 `config.example.yaml` 与 onboarding 的默认选项都是 `ai_backend: loom`，Loom 是 Kinship 的完整工作流，也是文档、安装与排障的主路径。不要把它写成“已废弃”。
+- dsh 是可选的自带 harness（BYO）接入路径，不是开箱即用：需要安装 `harness-plugins/`、启动 bridge、在 dsh 中绑定 Kinship 会话，再配置后端 `dsh.url` 与同一个 Bearer token。dsh 侧栏的 **Kinship** 面板会显示该 URL、token 与待粘贴的 `config.yaml` 片段，也能改桥接配置和绑定会话。dsh 侧在 harness 重启后会自动恢复绑定会话（W54，适配器契约 §3.1.1），不需要先在 UI 打开会话。
+- 本机生产现状（2026-11-17 实测）：`ai_backend: dsh`，`/health` 为 `status=healthy`、`dsh.status=online`（bridge `127.0.0.1:18765`）；Loom 未运行——编排器把 `loom` 判为 `blocked (disabled)`，systemd `axeuh-loom` 为 `failed`/`disabled`，只作回滚用；`loom` 探针不启动，`/health.loom.status=unknown`。看到 `loom=blocked` 不是故障，不要为“修它”把 `ai_backend` 改回 loom。
+- 运行时定位与选择见 [ai-runtimes.md](../dev/ai-runtimes.md)，适配端点与会话模型见 [adapter-contract.md](../dev/adapter-contract.md)。切换入口只有 `config.yaml` 的 `ai_backend`（hot，保存即全链生效）。
 
 ## HTTPS 与反代一致性（2026-10-26）
 
 - 生产 Caddy vhost 固定反代 `https://127.0.0.1:8768`。后端只有在 `ssl.enabled=true` 且证书、私钥都存在时才以 HTTPS 监听 `server.port`（8768）；`ssl.enabled` 缺失或为 false 时同一端口降级为 HTTP，协议不符会让 Caddy 返回 502。
 - 502 排查顺序：`ss -lntp | grep 8768`、`journalctl -u axeuh-health` 查 `HTTP mode (no SSL)` / `HotServer` 迁移日志、核对 `ssl.enabled`、`ssl.cert`、`ssl.key` 与 Caddy vhost。不要先重启生产。
-- 仅补证书路径不等于启用 HTTPS；三者缺一不可。修改 `ssl.enabled` 后 HotServer 支持热迁移监听（日志出现 `监听已迁移 ... ssl=True`），不需要重启后端；若未迁移，再按确认窗口重启。
+- 仅补证书路径不等于启用 HTTPS；三者缺一不可。`ssl.*` 属部署接线（schema `apply_strategy=deployment`）：通过 `PUT /api/system/config` 修改会被 409 `deployment_required` 拒绝。正确流程是改 `config.yaml`、`chmod 600`，再按确认窗口 `sudo systemctl restart axeuh-health`；启动后以 `ss`、`/health` 与 Caddy 502 排查顺序复验。`server.host` / `server.port` 仍是 hot 键，改端口会触发 HotServer 原地重绑监听。
 - `frontend/mobile/dist` 与后端监听是两件事：前端 200 不代表 8768 可达；以 `https://<domain>/health` 和 `ss` 同时确认。
 
 ## 内核探针与声纹排障（2026-10-26）
 
 - 分析日志中的 `vp=Nspk/Mco(raw|AS)` 来自外层只读探针；内核不可达或请求超时一律降级为 `0spk/0co`。这表示探针失败，不代表 `config.yaml` 的声纹配置或 state-dir 注册库被删除。
 - 先查内核进程与 HTTP：`ps -eo pid,ppid,etime,%cpu,%mem,cmd | grep axeuh_kernel`，以及 `kernel_state/voiceprints/voiceprints.json`、`voiceprint/cohort_active.jsonl` 的大小与 mtime。注册库存在但探针为 0 时，优先排查内核卡住、CPU 饱和或 job 长时间 running。
-- 内核是懒启动：后端启动不 spawn，第一条音频分析/ASR/声纹请求才触发 `ensure()`。没有新音频时“内核未运行”是正常状态，不要手动 `python -m axeuh_kernel`（会劫持共享 pidfile）。
+- 内核是懒启动：后端启动不 spawn，第一条音频分析/ASR/声纹请求才触发 `ensure()`。没有新音频时“内核未运行”是正常状态，不要手动 `python -m axeuh_kernel`：pidfile 由**后端**在握手成功后写入并携带 token；手工进程与后端互相不可见，会形成双实例/端口冲突，且后端对存活但非自己拉起的 pid 一律拒绝接管（`stale_kernel_detected`）。
 - 确认内核卡死且需要重启时，按 PID 停止，由后端下一次请求重新 spawn；不要按名称杀进程。恢复后验证 `vp` 回到 `1spk/500co(AS)` 一类真实值。
 
 ## 模型下载与源站排障（2026-10-26）
@@ -41,18 +43,20 @@
 - 信任：`kws` 归档 SHA-256、`cnn14` SHA-256+MD5、发布资产 SHA-256 都会强校验。第三方 GitHub 代理能同时改 manifest 和资产，SHA 只能证明“与清单一致”，不能证明清单来自官方；生产建议自建镜像，把 `onboarding.release_manifest_url` 与 `onboarding.release_base_url` 指向正常 HTTPS 根。
 - 模型步骤允许跳过；跳过会进入 degraded，`finish` 需要显式 `allow_degraded=true`。required 模型缺失时不要标记完成；用带 Bearer 的 `GET /api/system/onboarding/models` 或 `kernel_model_assets.status()` 核对 `present` 与 `missing_files`。
 
-## 首次启动与 bootstrap 模式
+## 首次启动与引导门禁
 
-- 判定：无用户或引导状态未完成时进入 bootstrap；已有用户且没有状态文件的旧安装始终按完整模式启动，避免锁死生产。`AXEUH_ONBOARDING_BOOTSTRAP=1/0` 可在状态缺失或未完成时切换；磁盘状态已完成时始终按完整模式启动，env 不能重新锁死已完成实例。
-- 门禁：bootstrap 期间只放行 `/health`、`/auth`、`/api/system/onboarding/*`、`/api/system/config/*`、`/api/ota/*`、`/api/clients/*`、`/mobile` 与静态资源；其他 HTTP 路径返回 503 `onboarding_required`，WebSocket 以 1013 关闭。`BootstrapRuntime.active` 为 false 时中间件完全透传。
-- 完成：`finish` 在进程内激活服务面（调度器、脚本、音频 ingest、Health Cloud、Loom 探针、QQ、P2P（实验，当前不可用）、配置 watcher），不需要重启后端；单个子系统失败只写入 activation 报告。
-- 11 步与 state v4：`welcome`、`account`、`dependencies`、`kernel`、`kernel_models`、`xiaomi`、`qq`、`moss`、`loom`、`clients`、`finish`。`preflight` 与 `startup` 不再是可见步骤，由 `POST /api/system/onboarding/finish` 统一执行预检、Xiaomi/QQ/MOSS 集成校验、启动校验、promote 与 commit；硬失败 409，软失败需 `allow_degraded=true`。v3/v2 已完成安装迁移到 v4 时补记合成 `xiaomi`/`qq`，不重新过门禁；未完成安装必须真实执行 v4 finish。模型根在 `kernel_models` 步选择，storage API 只写 `models.dir`，不搬运模型。MOSS 仅外部服务，Loom 仅内联 key 单动作，均无单元管理或 token 手填 UI。详见 [onboarding-v4-2026-10-27.md](../dev/onboarding-v4-2026-10-27.md)。
+- 启动路径（任务 17 起，见 [ADR 0003](../adr/0003-remove-bootstrap-mode.md)）：只有一条启动路径——服务面随 `lifespan` 启动，是否完成引导不再决定服务面起不起；未配置的服务实例以编排器 `blocked` 状态表达，而不是整层不启动。`BootstrapRuntime` 仍驱动 finish 的生命周期与报告，但主入口恒以 `active=False` 创建，不再用它当引导门禁。
+- 门禁：`OnboardingGateMiddleware` 的唯一判据是 `onboarding_state.completed`。状态文件缺失时回落到 `auth.is_setup_required()`（已有用户且无状态文件的旧安装直接放行）；第一阶段三步 `welcome` / `account` / `dependencies` 记录齐全也放行，数据面不必等 finish。门禁关闭时只放行 `/`、`/favicon.ico`、`/login`、`/health`、`/auth`、`/mobile`、`/static`、`/api/system/onboarding/*`、`/api/system/config/*`、`/api/config/*`、`/api/ota/*`、`/api/clients/*`；其他 HTTP 路径返回 503 `onboarding_required`，WebSocket 以 1013 关闭。`AXEUH_ONBOARDING_BOOTSTRAP` 不再驱动启动（`is_bootstrap_mode()` 已标 deprecated，仅供回滚脚本与只读展示）。
+- 完成：`finish` 不激活服务面（服务面已启动），而是依次执行预检（端口/路径）、一次性应用步骤累积的配置草稿、按编排器快照审计 `critical=True` 的服务。当前只有 `kernel` 是 critical：它必须 `ready`，或用户显式跳过 `kernel` 步；`loom` / `moss_watcher` 是 `critical=False`，失败只记录不阻断。审计通过后记录 `completed`；关键服务未就绪返回 409 `finish_blocked`。
+- 11 步与 state v4：`welcome`、`account`、`dependencies`、`kernel`、`kernel_models`、`xiaomi`、`qq`、`moss`、`loom`、`clients`、`finish`。`preflight` 与 `startup` 不再是可见步骤：`POST /api/system/onboarding/finish` 执行预检、应用配置草稿与关键服务就绪审计（不再做 Xiaomi/QQ/MOSS 集成校验、attempt/validate/promote）；硬失败 409 `finish_blocked`，软失败需 `allow_degraded=true`。v3/v2 已完成安装迁移到 v4 时补记合成 `xiaomi`/`qq`，不重新过门禁；未完成安装必须真实执行 v4 finish。模型根在 `kernel_models` 步选择，storage API 只写 `models.dir`，不搬运模型。MOSS 仅外部服务，Loom 仅内联 key 单动作，均无单元管理或 token 手填 UI。详见 [onboarding-v4-2026-10-27.md](../dev/onboarding-v4-2026-10-27.md)。
 - 前端自愈：启动时若 `frontend/mobile/dist/index.html` 缺失，日志记录 warning、来源、进度、校验和重试结果，并后台下载 release 资产；已有 dist 不覆盖，API 在下载完成前仍可用。
-- staging 隔离：至少设置 `AXEUH_PROJECT_ROOT`、`AXEUH_AUTH_STATE_DIR`、`AXEUH_ONBOARDING_STATE`（兼容 `AEUH_ONBOARDING_STATE`）、`CONFIG_PATH`、`AXEUH_ONBOARDING_BOOTSTRAP=1`；所有路径必须在临时根内。不要在没有 `AXEUH_PROJECT_ROOT` 时运行初始化动作。
-- onboarding 复测：不要直接使用可能早于 onboarding 的生产 `frontend/mobile/dist`；用 `npm run build:atomic` 产出的 `dist-*`。启动日志必须出现 `[Bootstrap] mode=True` 与 `service plane deferred`；若出现 `mode=False`，立即按 PID 停止并检查启动器是否用 `os.execve(..., env)` 传递环境。首次复测清空 staging 的 `auth/` 与 `onboarding/`，否则“已有用户 + 无状态”会按 legacy 完成处理。
+- staging 隔离：至少设置 `AXEUH_PROJECT_ROOT`、`AXEUH_AUTH_STATE_DIR`、`AXEUH_ONBOARDING_STATE`（兼容 `AEUH_ONBOARDING_STATE`）、`CONFIG_PATH`；所有路径必须在临时根内。不要在没有 `AXEUH_PROJECT_ROOT` 时运行初始化动作。`AXEUH_ONBOARDING_BOOTSTRAP` 已不驱动启动，不需要再设。
+- onboarding 复测：不要直接使用可能早于 onboarding 的生产 `frontend/mobile/dist`；用 `npm run build:atomic` 产出的 `dist-*`。启动日志应出现 `[Bootstrap] 单一启动路径：服务面随 lifespan 启动` 与 `[Orchestrator] start_all`；门禁是否生效用业务路径实测（未完成引导时应返回 503 `onboarding_required`，而 `/health`、`/api/system/onboarding/*` 放行），不要再用旧版 `mode=True` / `service plane deferred` 日志断言。首次复测清空 staging 的 `auth/` 与 `onboarding/`，否则“已有用户 + 无状态”会按 legacy 完成处理。
 - 发行：`onboarding.release_manifest_url` 默认指向 `Xehuri/kinship` 的 `release-manifest.json`；清单固定 frontend/kernel/Android/Windows 的文件名、大小与 SHA-256。
 
 ## Loom 计划排班（master + WakeQueue；2026-10-28 06:45 live）
+
+> 本节描述 Loom 运行时下的排班实现。本机生产当前 `ai_backend: dsh`，同一份 `plan/master.json` 与当日 overlay 由 dsh 的 `kinship-plan-scheduler` 对账与投递（见 [ai-runtimes.md](../dev/ai-runtimes.md) §3.1）；`axeuh-loom-plan.timer` 与 `axeuh-loom-review.timer` 当前 `disabled`，只在切回 Loom 时才启用。切换运行时不产生第二份排班真源。
 
 生产已于 2026-10-28 06:45 切到 live：`ai/.loom/config.yaml` 的 `scheduling` 为 `wakeQueue: live` / `planScheduler: live`；`axeuh-loom-plan.timer`（05:00）与 `axeuh-loom-review.timer`（07:30）已安装。旧固定时点 YAML 与 `data_check_scheduler.py`/`session_compactor.py` 已 `enabled: false`，文件保留回滚。执行记录保留在私有运维文档。
 
@@ -94,6 +98,8 @@
 
 ## Loom 单主会话与 Web 会话绑定（2026-10-28）
 
+> 本节仅适用于 `ai_backend: loom`。本机生产当前 `ai_backend: dsh`，Web 对话与 SSE 都指向 bridge 的绑定会话（`GET /health` 的 `dsh.session_id`），`/session/list` 的 dsh 聚合腿返回该会话；不要按本节去修 `ai/.loom/session/main-session.json`。
+
 - 权威主会话：生产 `ses_6320a1b90e522bfa`（历史主会话，已 unarchive）；`server.mainSessionId` 与 `scheduling.sessionId` 均未配置，主会话由 marker `{stateRoot}/session/main-session.json` 固定为 6320，调度目标也回落到同一主会话。Loom boot 解析优先级：`server.mainSessionId` > 标记 > `scheduling.sessionId` > 首个已持久化会话 > 新生成；标记是运行时数据（`{sessionID,source,updatedAt}`，原子覆盖），不提交 git。
 - Loom API：`GET /sessions/main` 返回单个 `{sessionID,status,createdAt,title?,archived}`，未解析 503 `main_session_unavailable`，未注册就地自愈；`GET /sessions` 与 `GET /sessions?archived=1` 缺省 404 `session_list_disabled`，仅 `server.sessionList: true` 开放。全部逐会话端点不受列表开关影响。详见 [06-Loom使用文档](../../loom-harness/docs/06-Loom使用文档.md) §3.4。
 - 后端绑定：`loom:main-task` 是 Web 聊天的主会话缓存，`/sessions/main` 的 200 结果覆盖陈旧绑定；Loom 暂时不可用（503/传输故障）时降级复用该绑定，绝不创建；Loom 确实无主会话（404）时，仅 `POST /session/create` 与 `POST /session/message` 创建一次主会话并绑定，不产生随机会话或重复会话。裸 `main-task` 属语音/QQ，主会话解析器不读不写。
@@ -131,17 +137,27 @@
 - 音量设置：App 设置页「声音与播报」页内有「提示音音量」（`data_collector` prefs `hint_tone_volume`，默认 90）与「TTS 语音音量」（`tts_volume`，默认 100）两个滑块，各带「试听」按钮；提示音是 `HintTonePlayer` 用 SoundPool 播放的内置音效 `res/raw/start.mp3` | `end.mp3`（非 TTS 语音），TTS 音量经 App 注入的 `?tts_volume=` 与 `window.__axeuhSetTtsVolume(v)` 下发到 WebView 内网页播放器的 GainNode
 - 后端日志：`backend/logs/backend.log`（按日轮转，保留 30 天），另有控制台彩色输出
 - `start.ps1` 不再结束其他进程；端口被占用时只报告占用者。不要使用历史脚本的按进程名清理方式
-- `kernel/` 是**闭源分发物**：内核源码在私有仓开发维护，对外分发经 PyArmor 保护构建（`kernel/build_dist.py`）+ `kernel/EULA.md`；对外契约只认 `docs/kernel-contract.md`（设计稿 `docs/kernel-design.md` 只读）。`AXEUH_KERNEL_TOKEN` 经环境变量注入内核进程（无命令行参数），任何文档/提交不得写入真实 token 或密钥
+- `kernel/` 是**闭源分发物**：内核源码在私有仓开发维护，对外分发经 PyArmor 保护构建（`kernel/build_dist.py`）+ `kernel/EULA.md`；对外契约只认 `docs/kernel-contract.md`（设计稿 `kernel-design.md` 在私有侧维护，只读，本仓不含）。`AXEUH_KERNEL_TOKEN` 经环境变量注入内核进程（无命令行参数），任何文档/提交不得写入真实 token 或密钥
 - `backend/models.py`（Pydantic 数据模型）与历史 ML 权重目录 `backend/models/`（Wave C3 已整体出库删除，权重归内核私有模型目录）同名易混，导入时注意前者才是现役模块
 - `app/` 目录是 Android 模块（Gradle），不是 FastAPI 的 app 包
-- 端口：后端 **8768**（HTTP 与 HTTPS 同端口，由 `ssl.enabled` 决定协议；本地与公网一致，frpc 8768→8768）、Loom 助手 **5100**（`127.0.0.1`，默认助手宿主，`ai_backend: loom`；稳定态由后端作为受管子进程托管，systemd `axeuh-loom` 仅迁移与回滚；dsh 可选，走独立 bridge）、PC 感知采集器 **18888**（本地 HTTP）、QQ 网关 **8770**（`127.0.0.1`，默认关闭；生产已启用）、Vite dev **5173**、音频内核 **127.0.0.1:动态端口**（`--port 0` spawn，实际端口记录在 `backend/data/kernel_state/kernel.pid` pidfile，非固定）、本地 LLM **8000**（`127.0.0.1`，systemd `vllm-27b`，Qwen3.8-27B-GPTQ-W4A16 TP=2 双 2080Ti，256K 上下文 turboquant_k8v4 KV，开机自启；运维 `docs/vram-3gpu-coexistence-20261018.md`）、MOSS serve **8100**（`127.0.0.1` 仅回环，systemd `axeuh-moss` 常驻**卡2（3060 Ti, x1 转接）fp8 量化**，`--max-num-seqs 1` 串行化；`axeuh-moss-watch` 唯一调用方；转正执行中，待两日回归 + 七天观察）、音频工作台 **8790**（`tools/audio-console/`，素材试听+人耳基线标注）
+- 端口（2026-11-17 实测；「本机生产」= 当前这台 Ubuntu 生产机）：
+  - 后端 **8768**（`0.0.0.0`，HTTP/HTTPS 同端口，由 `ssl.enabled` 决定协议；本机生产为 HTTPS；frpc 8768→8768）
+  - dsh bridge **18765**（`127.0.0.1`，kinship-bridge 插件；本机生产在跑，父进程是 systemd `axeuh-dsh`，不归后端编排器）
+  - dsh Web **3080**（`127.0.0.1`，`axeuh-dsh` 的网页入口；本机生产在跑）
+  - Loom 助手 **5100**（`127.0.0.1`；仅 `ai_backend: loom` 时由后端编排器作为受管子进程托管。本机生产当前 `ai_backend: dsh`，5100 无监听，systemd `axeuh-loom` 为 `failed`/`disabled`，只作回滚用）
+  - MOSS serve **8100**（`127.0.0.1` 仅回环，systemd `axeuh-moss` 常驻**卡2（3060 Ti, x1 转接）fp8 量化**，`--max-num-seqs 1` 串行化；不归编排器）。MOSS watcher **没有自己的端口**，它是后端 `moss_watcher` 受管子进程，随 `axeuh-health` 起停
+  - PC 感知采集器 **18888**（Windows PC 本机 HTTP，不在 Ubuntu 主机监听）
+  - QQ 网关 **8770**（`127.0.0.1`，后端进程内；生产已启用）
+  - 音频内核 **127.0.0.1:动态端口**（`--port 0` spawn，实际端口记录在 `backend/data/kernel_state/kernel.pid` pidfile，非固定）
+  - 本地 LLM **8000**（`127.0.0.1`，可选，systemd `vllm-27b`；本机当前未运行）、音频工作台 **8790**（可选的本机工具，本仓不含该工具，按需自备）、Vite dev **5173**（仅前端开发时）
+  - P2P 信令 **8787**（实验，当前不可用，不应部署）
 
-- MOSS 转正运维：`axeuh-moss`（serve）+ `axeuh-moss-watch`（watcher）+ `axeuh-moss-regression.timer`（每日 05:00，周日 full）+ `axeuh-moss-alert.timer`（hourly）；报告在 `tools/moss-shadow/state/regression/`，告警失败落 `state/alerts/failed.jsonl`；通知走后端 `POST /api/notification/send`。详见 `tools/moss-shadow/README.md` 与 `docs/moss-formalization-plan-2026-10-22.md`。
+- MOSS 转正运维：`axeuh-moss`（vLLM serve，独立单元，不读写 `ai/data`）+ 后端托管的 `moss_watcher` 子进程（`moss.enabled=true` 时由编排器 spawn，停止按精确 PID SIGTERM→30 秒→SIGKILL）+ `axeuh-moss-regression.timer`（每日 05:00，周日 full）+ `axeuh-moss-alert.timer`（hourly）；systemd `axeuh-moss-watch` 是旧拓扑遗留单元，当前 `disabled`/`inactive`，不要手工启动（会与子进程双订阅）。报告在 `tools/moss-shadow/state/regression/`，告警失败落 `state/alerts/failed.jsonl`；通知走后端 `POST /api/notification/send`。详见 `tools/moss-shadow/README.md` 与 `docs/moss-formalization-plan-2026-10-22.md`。
 - Loom 交互式 PTY（2026-10-19）：`pty_spawn/pty_write/pty_read/pty_list/pty_kill`（node-pty）。`notifyOnExit` 默认 true，退出通知经 `deliverWake` 作为 durable user 消息投回发起会话：空闲立即起唤醒轮，忙则当前轮收尾后起新轮；env 剥离 `LOOM_`/`AXEUH_` 等前缀，spawn cwd 限 workspace，权限/deny/net 走 D7 缝。
 - Loom 自动唤醒（2026-10-21）：主会话 converge 可选 `wake`（倒计时/带时区 ISO/本地时间/HH:MM/none），到点经 `deliverWake` 投 `【自动唤醒】` durable user 消息并起轮；sidecar `ai/.loom/state/session/wake/{sid}.json` 耐重启；`server.autoWakeEnabled` 缺省启用、显式 false 关闭需重启；侧会话/子智能体不可用。
 - Loom 压缩（2026-10-21）：生产走 worker `summaryMode:auto` + `summaryReasoningEffort:low`；旧 compactable toolResult 先投影清空、预算内单次摘要、超预算递归 depth≤2；2026-10-22 起 worker 默认 ops+chat 双视角、合成一条摘要注入，`summaryPerspectives:["ops"]` 可回退；详见 `../loom-harness/docs/06-Loom使用文档.md` §5.4.1。
 - Loom converge 回执简化（2026-10-21）：主会话只需 `status`（digest 自动派生、body 可省略）；侧会话 digest 亦内部派生。
-- Loom 是默认助手宿主（`127.0.0.1:5100`），`ai_backend: loom`。稳定态由 `core.hot_server` 作为受管子进程托管；systemd `axeuh-loom` 仅迁移期与回滚使用。`launcher.py` 已退役，不再管理助手或后端编排。助手调用点经 `services/ai_client_factory.py`（`acquire_ai_client()`）按 `ai_backend` 选择客户端，公开模板与生产默认走 Loom；dsh 是可选路径，其接入参数在 dsh 自己的 Kinship 面板里维护。
+- Loom（`127.0.0.1:5100`）是模板默认助手宿主（`ai_backend: loom`）。稳定态由 `core.hot_server` 作为受管子进程托管；systemd `axeuh-loom` 仅迁移期与回滚使用。`launcher.py` 已退役，不再管理助手或后端编排。助手调用点经 `services/ai_client_factory.py`（`acquire_ai_client()`）按 `ai_backend` 选择客户端；公开模板与 onboarding 默认走 Loom。dsh 是可选路径，其接入参数在 dsh 自己的 Kinship 面板里维护；本机生产当前选择 dsh（见上文「AI 运行时选择」）。
 - P2P（实验，当前不可用）：仅保留实验代码与配置骨架，当前不具备可用性。保持 `p2p.enabled: false`；不要部署 `axeuh-signal`、不要安装 `backend/requirements-p2p.txt`，也不要把 P2P 端点列入正式连接方案。
 - Android 客户端网络（2026-10-25）：设置→网络维护有序连接层列表（网络地址 / P2P 占位），支持 AUTO_CHAIN / PINNED、测试并应用；仅 IOException 触发换层，401/4xx/5xx 不切；旧 `server_url` / `endpoint_candidates` / `transport_mode` 迁移后只读。桌面端仍按其自身配置模型。
-- 具体配置以 `config.example.yaml` 与 `docs/system-config-hot-reload.md` 为准；生产承载文件可能是 `config.yaml`、JSON 或 SQLite。
+- 具体配置以 `config.example.yaml` 与 `docs/ops/system-config-hot-reload.md` 为准；生产承载文件可能是 `config.yaml`、JSON 或 SQLite。

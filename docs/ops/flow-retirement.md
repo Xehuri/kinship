@@ -1,5 +1,9 @@
-# Flow Phase A 退休运维手册
+# Flow Phase A 退休运维手册（已完成，保留为历史/回滚参考）
 
+> 状态：Phase A 已完成（2026-11-17）。生产 `kinship-data/ai/.loom/config.yaml` 的 `flow.enabled: false`、
+> `retireConverge: true`，Flow 机制已从文档与活动流程中移除；本手册保留为一次性的操作记录与回滚参考，
+> 不再需要重复执行。
+>
 > 目的：在把 `flow.enabled` 设为 `false` 之前，安全、可逆地把 Flow 状态（磁盘数据 + wake 队列条目）
 > 清出生产路径，**不删除、不移动、不改动**任何用户数据。Phase B（移除 Flow 代码）是后续独立任务。
 
@@ -32,11 +36,21 @@ sudo cp -a kinship-data/ai/.loom/config.yaml kinship-data/ai/.loom/config.yaml.b
 
 **严禁**在本任务中编辑 `kinship-data/ai/.loom/config.yaml`。
 
-## 步骤 1：停止服务（只用 systemd，禁止 pkill / killall）
+## 步骤 1：停止 Loom（按当前拓扑二选一，禁止 pkill / killall）
+
+`ai_backend: loom` 稳定态下 Loom 是后端编排器的子进程，用运维闸门停，不要动 systemd 单元：
+
+```bash
+# 运维闸门会停掉 Loom 子进程并锁定为 blocked/manually_paused
+api POST /api/services/loom/pause
+# 确认 5100 已释放
+ss -lntp 'sport = :5100'
+```
+
+只有迁移期/回滚态（Loom 由 systemd `axeuh-loom` 托管）才用：
 
 ```bash
 sudo systemctl stop axeuh-loom
-# 确认端口已释放、进程已退出
 sudo systemctl status axeuh-loom --no-pager | head -5
 ```
 
@@ -67,7 +81,15 @@ node scripts/retire-flow.mjs --state-root /path/to/stateRoot --apply
 
 幂等：重复 `apply` 只会再建一个带随机后缀的新归档目录，绝不覆盖或删除既有归档/原数据。
 
-## 步骤 4：启动服务
+## 步骤 4：恢复 Loom
+
+稳定态用 `resume` 让编排器重新拉起子进程：
+
+```bash
+api POST /api/services/loom/resume
+```
+
+迁移期/回滚态才用 systemd：
 
 ```bash
 sudo systemctl start axeuh-loom
@@ -103,7 +125,7 @@ node scripts/retire-flow.mjs --state-root /path/to/stateRoot --verify \
 
 由于 `apply` 只复制、不删除、不改动原数据：
 
-1. 若尚未手动删原 flow 目录：直接把 `config.yaml` 里 `flow.enabled` 设回 `true` 并 `systemctl restart axeuh-loom` 即可，wake sidecar 中被取消的 flow 条目可由 Flow 子系统在下次 reconcile 时重建。
+1. 若尚未手动删原 flow 目录：直接把 `config.yaml` 里 `flow.enabled` 设回 `true` 并重启 Loom 即可（稳定态 `api POST /api/services/loom/pause` 再 `resume`，迁移期 `systemctl restart axeuh-loom`），wake sidecar 中被取消的 flow 条目可由 Flow 子系统在下次 reconcile 时重建。
 2. 若已手动删原 flow 目录、需要找回：从 `flow.retired-<时间戳>/session/<sid>/flow` **复制回**原路径即可。
 
 ## 退出码约定（CLI）

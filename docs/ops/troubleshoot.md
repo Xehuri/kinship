@@ -1,6 +1,7 @@
 # 故障处置手册（症状、判据、处置）
 
-> 状态：现行（2026-10-29）。本文取代 `docs/部署踩坑与注意事项.md` 的排障部分；原文件只保留历史记录。
+> 状态：现行（2026-11-17）。本文取代 `docs/部署踩坑与注意事项.md` 的排障部分；原文件只保留历史记录。
+> 本机生产是 `ai_backend: dsh`：`/health` 为 `healthy` 时 `dsh.status=online`、`loom.status=unknown` 是正常态；`axeuh-loom` 为 `failed`/`disabled`，`axeuh-moss-watch` 为 `disabled`/`inactive`（watcher 是后端子进程）。
 > 适用：Ubuntu + systemd + 进程编排器的生产部署。
 > 相关手册：[部署](deploy-linux.md)、编排器迁移（公开树不包含）、[备份与恢复](backup-restore.md)。
 > 总规则：结束进程只按精确 PID。先证明进程归属，再发信号。禁止按进程名批量结束。
@@ -65,18 +66,19 @@ stop_pid() {
 
 **症状**
 
-- 启动日志出现 `address already in use`，或 `ss` 显示 8768、5100、8100、18888、8770 等端口已有监听。
+- 启动日志出现 `address already in use`，或 `ss` 显示 8768、18765、3080、5100、8100、18888、8770 等端口已有监听。
 - 迁移 stage3.0 后 `loom` 的 detail 出现 `port_in_use`。
 
 **判据**
 
 ```bash
-ss -lntp | grep -E ':(8768|5100|8100|18888|8770)\b'
+ss -lntp | grep -E ':(8768|18765|3080|5100|8100|18888|8770)\b'
 ```
 
 - 8768 的监听者应该是 `core.hot_server`，父进程是 `axeuh-health`。
-- 5100 的监听者在稳定态应该是 `node .../cli.js serve`，父进程是 `core.hot_server`；迁移期是 systemd `axeuh-loom`。
-- 8100 的监听者应该是 `axeuh-moss` 的 vLLM 进程。
+- 18765 是 dsh kinship-bridge，监听者应是 `node .../bin/dsh`，父进程是 systemd `axeuh-dsh`；3080 是 dsh Web，同属 `axeuh-dsh`（`ai_backend: dsh` 时）。
+- 5100 只在 `ai_backend: loom` 时出现，监听者是 `node .../cli.js serve`，父进程是 `core.hot_server`；迁移期是 systemd `axeuh-loom`。本机生产当前没有 5100 是正常状态。
+- 8100 的监听者应该是 `axeuh-moss` 的 vLLM 进程。MOSS watcher 没有端口。
 - 18888 是 Windows PC 采集器，不应出现在 Ubuntu 生产。
 - 8770 是后端内的 QQ 网关，不应有独立进程占端口。
 
@@ -164,7 +166,7 @@ test -f "$ROOT/config.yaml"; echo "config.yaml=$?"
 api GET /api/services
 journalctl -u axeuh-health -n 200 --no-pager | grep -i kernel
 tail -n 80 backend/data/kernel_state/kernel.stderr.log
-test -x /opt/kinship/.venv-kernel/bin/python; echo "kernel_python=$?"
+test -x /opt/venvs/axeuh-kernel/bin/python; echo "kernel_python=$?"   # 以 AXEUH_KERNEL_PYTHON / kernel.python 实际值为准
 ```
 
 - `kernel` 为 `failed`，且不是 `stale_kernel_detected` 或 `pidfile_corrupt`。
@@ -177,7 +179,7 @@ test -x /opt/kinship/.venv-kernel/bin/python; echo "kernel_python=$?"
 
    ```bash
    systemctl show -p Environment axeuh-health | tr ' ' '\n' | grep AXEUH_KERNEL_PYTHON
-   /opt/kinship/.venv-kernel/bin/python -c "import torch; print(torch.__version__)"
+   /opt/venvs/axeuh-kernel/bin/python -c "import torch; print(torch.__version__)"
    ```
 
 2. 按 stderr 修根因。模型缺失按 `docs/kernel-contract.md` 的三级解析链放权重；不要往 `backend/models/` 放。
@@ -194,7 +196,7 @@ test -x /opt/kinship/.venv-kernel/bin/python; echo "kernel_python=$?"
    sudo systemctl restart axeuh-health
    ```
 
-5. 不要手动执行 `python -m axeuh_kernel`。手动 spawn 会改写共享 pidfile，后端可能复用到错误解释器。
+5. 不要手动执行 `python -m axeuh_kernel`。pidfile 由后端在握手成功后写入、含 token；手工进程不写 pidfile，会与后端形成双实例/端口冲突，后端的归属检查也不会接管它。
 
 ## 症状 04：`stale_kernel_detected`
 
@@ -316,7 +318,7 @@ api GET /api/system/config
 | --- | --- | --- |
 | `missing_config` | `missing_config: moss.enabled` | 配置没有该键 |
 | `missing_config` | `missing_config: loom.url` | Loom 地址为空 |
-| `disabled` | `disabled` | `moss.enabled=false`，或 `ai_backend` 不是 `loom` |
+| `disabled` | `disabled` | `moss.enabled=false`（watcher），或 `ai_backend` 不是 `loom`（loom 服务）。`ai_backend: dsh` 时 `loom=blocked/disabled` 是预期 |
 | `gate_failed` | `gate_failed: python_missing` | MOSS 解释器不存在 |
 | `gate_failed` | 其他闸门文本 | spec 闸门返回非预期值 |
 | `manually_paused` | `paused by operator` | 运维执行过 `pause`，不是故障 |
@@ -337,15 +339,15 @@ api GET /api/system/config
 3. `python_missing`：
 
    ```bash
-   test -x /opt/kinship/.venv-moss/bin/python
-   sudo /opt/kinship/.venv-moss/bin/pip install -r tools/moss-shadow/requirements.txt
+   test -x /opt/venvs/axeuh-moss/bin/python   # 生产路径；也看 moss.python 配置
+   sudo /opt/venvs/axeuh-moss/bin/pip install -r tools/moss-shadow/requirements.txt
    ```
 
-4. `ai_backend` 不是 `loom`：
+4. `ai_backend` 不是 `loom`：这是 **Loom 服务**被 blocked 的预期原因，不是故障。本机生产 `ai_backend: dsh`，`loom=blocked/disabled` 是正确状态，**不要**为了让它变 ready 而把 `ai_backend` 改回 loom。只有当你确实要切回 Loom 时，才改配置：
 
    ```bash
    api GET /api/system/config
-   # 把 ai_backend 改为 loom，loom.url 改为 http://127.0.0.1:5100，再 apply
+   # 确认要回滚时：把 ai_backend 改为 loom、loom.url 改为 http://127.0.0.1:5100，再 apply
    ```
 
 5. 配置修复后：
@@ -384,7 +386,7 @@ grep -n '<失败键>' config.yaml
 2. 按失败原因修复。典型情况：
 
    - `respawn` 策略在编排器 off 时失败：先完成 stage3，或临时直接改 `config.yaml`。
-   - 值非法：按 `docs/CONFIGURATION.md` 修正类型与范围。
+   - 值非法：按 `docs/ops/CONFIGURATION.md` 修正类型与范围。
    - 依赖键缺失：先 apply 依赖键。
 
 3. 修复后重新提交失败键，确认：
@@ -398,10 +400,12 @@ grep -n '<失败键>' config.yaml
 
 ## 症状 08：Loom child 起不来
 
+> 仅 `ai_backend: loom` 时适用。`ai_backend: dsh` 下 `loom=blocked/disabled`、`axeuh-loom` failed/disabled 都是预期；此时网页/QQ 对话走 dsh，见症状 20。
+
 **症状**
 
-- `/api/services` 中 `loom` 为 `failed` 或 `blocked`。
-- 网页或 QQ 对话不可用，Loom `/health` 不可达。
+- `/api/services` 中 `loom` 为 `failed`，或 `blocked` 且 `reason_code` 不是 `disabled`。
+- 网页或 QQ 对话不可用，Loom `/health` 不可达（且 `ai_backend: loom`）。
 
 **判据**
 
@@ -615,7 +619,7 @@ api GET /api/services
 6. 只读冒烟，不写行：
 
    ```bash
-   /opt/kinship/.venv-moss/bin/python tools/moss-shadow/watcher.py --once --dry
+   /opt/venvs/axeuh-moss/bin/python tools/moss-shadow/watcher.py --once --dry
    ```
 
    如果 dry 显示 backlog 为 0 且 serve 探活失败，问题在 serve 或新音频发现，不在 watcher 写入。
@@ -687,7 +691,7 @@ PY
 KPORT=$(python3 -c 'import json; print(json.load(open("backend/data/kernel_state/kernel.pid"))["port"])')
 curl -fsS "http://127.0.0.1:${KPORT}/v1/health"
 tail -n 80 backend/data/kernel_state/kernel.stderr.log
-/opt/kinship/.venv-kernel/bin/python -c "import torch; print(torch.__version__)"
+/opt/venvs/axeuh-kernel/bin/python -c "import torch; print(torch.__version__)"
 ```
 
 - 内核 `/v1/health` 不可达，或 stderr 有模型缺失。
@@ -703,9 +707,9 @@ tail -n 80 backend/data/kernel_state/kernel.stderr.log
 3. RTX 50 系：
 
    ```bash
-   sudo /opt/kinship/.venv-kernel/bin/pip install torch torchaudio \
+   sudo /opt/venvs/axeuh-kernel/bin/pip install torch torchaudio \
      --index-url https://download.pytorch.org/whl/cu128
-   sudo /opt/kinship/.venv-kernel/bin/python -c \
+   sudo /opt/venvs/axeuh-kernel/bin/python -c \
      "import torch; x=torch.randn(8, device='cuda'); print((x*2).sum().item())"
    ```
 
@@ -935,8 +939,8 @@ sudo ls -l /etc/kinship-qq-gateway/mcp.token
 ```
 
 - `qq_gateway.enabled` 为 false。
-- `mcp.enabled` 为 false，或 token 文件缺失、权限不对。
-- 后端已经启动，但配置是 `lru_cache` 读的，改完没有重启。
+- `qq_gateway.mcp.enabled` 为 false，或 token 文件缺失、权限不对。
+- `qq_gateway.*` 是 reconnect 策略：保存配置后由应用器原地重连，不需要重启后端。只有在你**只改了 token 文件内容**（没有改任何配置键）时，才不会触发重连。
 
 **处置**
 
@@ -957,7 +961,7 @@ sudo ls -l /etc/kinship-qq-gateway/mcp.token
    sudoedit /etc/kinship-qq-gateway/mcp.token
    ```
 
-3. 配置或 token 修改后，只有满足"`/health` 200 且 8770 无监听"才重启后端：
+3. 改配置（`PUT /api/system/config`）后看响应 `applied` 是否包含 `integrations`，并复查 8770。只改了 token 文件内容、且确认需要重读时，才在确认窗口重启后端：
 
    ```bash
    sudo systemctl restart axeuh-health
@@ -1011,6 +1015,41 @@ ss -lntp | grep 18765
 
 - 不要用“反复重启 dsh”当作修复；`sync-profile.sh` 拷贝的包只要该 profile 再装一次插件就会复发。
 
+## 症状 20：dsh 通道离线或绑定会话丢失（`ai_backend: dsh`）
+
+**症状**
+
+- 后端 `/health` 为 `status=degraded`、`dsh.status=offline`；或网页对话发送失败。
+- dsh 网页本身可能正常，Kinship 面板显示「未绑定 / 绑定会话已丢失」。
+- 后端日志出现 `[DshHealth] offline`，或请求返回 409 `bound_session_missing` / `bound_session_unavailable`。
+
+**判据**
+
+```bash
+curl -sk https://127.0.0.1:8768/health   # ai_backend / dsh.status / dsh.checked_at
+systemctl is-active axeuh-dsh
+ss -lntp | grep -E ':(18765|3080)\b'
+TOKEN=$(cat <DSH_HOME>/kinship/bridge-token)
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18765/v1/health
+ls -l <DSH_HOME>/kinship/binding.json <DSH_HOME>/kinship/bridge-token
+journalctl -u axeuh-dsh -n 80 --no-pager | grep -i 'skipping profile bundle\|error'
+```
+
+- 降级判据（`backend/main.py`）：只有 `ai_backend=dsh`、`dsh.status=offline` 且 `checked_at` 非空时 `/health` 才转 `degraded`。首探窗口内 `unknown` 不算降级；`ai_backend=loom` 时 `dsh` 恒为 `unknown`，反过来也一样，不要拿非当前通道的状态报故障。
+- bridge `/v1/health` 为 `unbound`：bridge 活着但没有绑定，去 dsh 的 **Kinship** 面板绑定。
+- `--dump-config` 里 `id: kinship-` 计数为 0：profile 包被 pnpm 清掉，按症状 19 处理，不要在 dsh 里反复重启。
+- token 文件不可读、路径与 `dsh.token_file` 不一致、文件内容与 bridge 侧不同：后端探针会稳定 offline。
+- `bound_session_missing`：绑定记录指向的会话在 dsh 里已不存在；`bound_session_unavailable`：会话存在但恢复失败（不是瞬时问题）。W54 起 bridge 启动预热 + 请求期懒恢复，正常情况下不需要人工在 UI 打开会话。
+
+**处置**
+
+1. `axeuh-dsh` 不是 active：先 `sudo systemctl start axeuh-dsh`，看 `journalctl -u axeuh-dsh` 的启动错误；`18765` 没起来且日志有 `skipping profile bundle` 时转症状 19。
+2. bridge 起来了但 `offline`：核对 `dsh.url` 是 `http://127.0.0.1:18765`、`dsh.token_file` 指向 `<DSH_HOME>/kinship/bridge-token`，文件权限 0600、内容与面板显示的一致。改完保存配置即热应用（`ai_backend` / `dsh.*` 都是 hot），不需要重启后端。
+3. `unbound`：打开 dsh UI → 左侧栏 **Kinship** → 绑定 `kinship` preset 的会话；绑定后探针通常在一个周期（15 秒）内回到 online。
+4. `bound_session_missing`：在面板里重新绑定；不要直接删除 `binding.json` 再重启 dsh（会丢失绑定线索）。`bound_session_unavailable` 先看 dsh 日志里的恢复错误，仍失败再重新绑定或重启 dsh（重启 dsh 会中断 UI 会话，按确认窗口执行）。
+5. 不要把 `dsh.status=offline` 当作重启后端的理由：`/health` 的 degraded 是诚实降级，重启后端不会修复 bridge。
+6. 修复后验收：`/health` 为 `status=healthy`、`ai_backend=dsh`、`dsh.status=online`、`dsh.session_id` 是绑定会话；`loom.status=unknown` 属正常。
+
 ## 历史事件与已退役做法
 
 > 本节保留原《部署踩坑与注意事项》的历史事件，供追溯。它不是现行操作依据；现行处置见上文章节。
@@ -1029,14 +1068,14 @@ ss -lntp | grep 18765
 | VPS nginx + frps 20077 | frpc 80/443 透传 + 本机 Caddy 443/8443 |
 | `start.bat` / `start.ps1` / PowerShell | systemd `axeuh-health` |
 | `C:\Kinship`、`%LOCALAPPDATA%` | `/opt/kinship`、`~/.cache/...` |
-| conda `axeuh-multi-agent` | `/opt/kinship/.venv-health`、`axeuh-kernel`、`axeuh-moss` |
+| conda `axeuh-multi-agent` | `/opt/venvs/axeuh-health`、`/opt/venvs/axeuh-kernel`、`/opt/venvs/axeuh-moss` |
 | `backend/models/` 放权重 | 内核私有模型目录，三级解析链 |
 | certbot / 宝塔 / nginx 反代 | Caddy 自动证书 + 反代 |
 | `Test-NetConnection` 判断端口 | `ss` + 应用层 `curl` |
 
 ### H2 2026-10-20 旧版助手端点退役
 
-旧版助手端点曾由后端使用。退役后不再监听，任何助手路径不得引用旧端口。现行默认助手宿主是 Loom（`127.0.0.1:5100`）；dsh 是可选路径，选择与接入见 [ai-runtimes.md](../dev/ai-runtimes.md)。故障时不要把任何旧实例当作回退。
+旧版助手端点曾由后端使用。退役后不再监听，任何助手路径不得引用旧端口。公开模板的默认助手宿主是 Loom（`127.0.0.1:5100`）；本机生产当前选择 dsh（`127.0.0.1:18765`），选择与接入见 [ai-runtimes.md](../dev/ai-runtimes.md)。故障时不要把任何旧实例当作回退。
 
 ### H3 2026-10-22 系统盘被 venv 占满
 
@@ -1062,9 +1101,9 @@ ss -lntp | grep 18765
 
 Loom 在部分环境下收到 SIGTERM 后不退出，systemd 会停在 `deactivating (stop-sigterm)`。`axeuh-loom.service` 的 `TimeoutStopSec=15` 会兜底 SIGKILL。人工处置只按 MainPID 发 TERM，短等不退再 KILL。不要按进程名结束 node。迁移到 child 模式后，LOOM 的停止由 `loom_spec` 先 TERM，等待 5 秒排水，再 KILL。
 
-### H9 手动 spawn 内核劫持 pidfile
+### H9 手动 spawn 内核造成双实例（旧说法已更正）
 
-历史上曾出现手工执行 `python -m axeuh_kernel` 的情况。内核会把新 pidfile 写到共享状态目录，后端下次请求可能复用到错误解释器，表现为音频分析全部静默失败。现行规则是内核只由后端 spawn；需要重启时用 `pause`/`resume` 或按精确 PID 停止。
+历史上曾出现手工执行 `python -m axeuh_kernel` 的情况。当时的描述是“内核会写共享 pidfile、后端复用到错误解释器”；现行实现并非如此：pidfile 由**后端**在握手成功后原子写入（含 token/nonce/created_at），内核自身不写；后端对 pidfile 里存活但非自己拉起的 pid 一律抛 `stale_kernel_detected`，不会自动接管。手工 spawn 的真实风险是双实例与端口/模型显存冲突，仍应只由后端 spawn；需要重启时用 `pause`/`resume` 或按精确 PID 停止。
 
 ### H10 旧 Windows 脚本按进程名结束端口占用进程
 

@@ -1,6 +1,6 @@
 # 系统配置热更新与初始化向导
 
-> 最后更新：2026-10-27。本文描述现行配置运行面：可插拔载体、热应用、配置 API、初始化向导与回滚。键的完整清单仍以 `config.example.yaml` 与 `backend/config/config_schema.py` 为准。
+> 最后更新：2026-11-17。本文描述现行配置运行面：可插拔载体、热应用、配置 API、初始化向导与回滚。键的完整清单仍以 `config.example.yaml` 与 `backend/config/config_schema.py` 为准。
 
 ## 1. 目标与保证
 
@@ -30,7 +30,7 @@
 | store | `backend/config/store.py` | 加载默认值、base 与 env 覆盖层，发布不可变语义的快照，串行化写入，校验 revision，分发应用器，轮询外部变更。 |
 | providers | `backend/config/providers.py` | YAML / JSON / SQLite 持久化与 env 只读覆盖层；原子写、备份、0600、文件锁、revision。 |
 | facade | `backend/config/config.py` | 稳定 `Config` 对象。模块持有同一个 facade，store 换快照后属性读取立即看到新值。 |
-| reconcilers | `backend/services/config_reconciler.py` | 六个领域应用器：AI、音频、数据路径、外部集成、内核、监听/TLS/CORS。 |
+| reconcilers | `backend/services/config_reconciler.py` | 七个领域应用器：AI、AI 派生面（`ai_surface`）、音频、数据路径、外部集成、内核、监听/TLS/CORS。 |
 | HotServer | `backend/core/hot_server.py` | 程序化 uvicorn 宿主；进程内重绑监听地址/端口，TLS 证书轮换。 |
 | API | `backend/routers/system_config.py`、`backend/routers/system_onboarding.py` | 读取、校验、保存、引导状态与引导动作。 |
 | authz | `backend/services/config_authz.py` | 无用户时强制 setup token；有用户时 Bearer + 当前密码。 |
@@ -75,7 +75,7 @@
 
 TLS 轮换使用 `ssl_context_factory` 捕获监听 context，并通过 `sni_callback` 在每次新握手时把连接指向当前活动 context。证书替换只影响后续握手，已建立的 TLS 会话继续使用旧证书直到断开。
 
-当 `server.host`、`server.https_port`、`server.http_port`、`ssl.enabled` 或证书路径变化时，监听应用器调用 `rebind_from_config()`。仅证书内容变化且端点不变时，走 `reload_tls()`，不重建监听。
+当 `server.host` / `server.port` 变化时，监听应用器调用 `rebind_from_config()`，原地重绑监听。`ssl.enabled` / `ssl.cert` / `ssl.key` 属部署接线（deployment）：HTTP 写入被 409 拒绝，改配置文件后需重启后端；重启时按新配置构建监听与 TLS context。`reload_tls()` 仍保留为证书内容轮换路径（例如未改配置时触发一次 `server` 字段保存后的重应用），但不要把它当成 `ssl.*` 的热更新入口。
 
 ### 2.4 认证判定
 
@@ -97,7 +97,7 @@ TLS 轮换使用 `ssl_context_factory` 捕获监听 context，并通过 `sni_cal
 | `AXEUH_CONFIG_SQLITE_PATH` | SQLite 文件路径 | 默认 `<repo>/backend/data/settings.db`。设置后若未指定 backend，推断为 SQLite。 |
 | `AXEUH_SETTINGS__<DOTTED_UPPER>` | 只读 env 覆盖层 | 前缀固定 `AXEUH_SETTINGS__`；`__` 表示层级分隔。值先按 JSON 解析，失败按字符串处理。 |
 | `AXEUH_AUTH_STATE_DIR` | `auth.json` 与 `.setup_token` 目录 | 默认 `<repo>/backend/config`。 |
-| `AEUH_ONBOARDING_STATE` | 引导状态文件路径 | 默认 `<repo>/backend/data/onboarding_state.json`。 |
+| `AXEUH_ONBOARDING_STATE`（兼容 `AEUH_ONBOARDING_STATE`） | 引导状态文件路径 | 默认 `<repo>/backend/data/onboarding_state.json`；两个变量都设时 `AXEUH_` 优先。 |
 
 补充说明：
 
@@ -170,17 +170,17 @@ YAML/JSON 保存会重新序列化整个文档。文件中已有的未知键会�
 
 ## 4. 生效策略矩阵
 
-`backend/config/config_schema.py` 给每个键标注 `apply_strategy`。当前共 262 个叶子键，其中 36 个核心键、19 个分类。按策略统计：hot 174、reconnect 77、respawn 5、deployment 6。
+`backend/config/config_schema.py` 给每个键标注 `apply_strategy`。当前共 290 个叶子键（`FIELDS`），其中 58 个核心键、23 个分类。按字段级策略统计：hot 194、reconnect 79、respawn 12、deployment 5。
 
 | 策略 | 含义 | 代表键组 | 用户看到什么 | API 行为 |
 | --- | --- | --- | --- | --- |
-| `hot` | 保存后立即应用，不重建进程 | `server.*`、`ssl.*`、`data.*`、`ai_backend`、`loom.*`、`api.mimo_key`、`api.dashscope_key`、`tts.*`、`audio.*`、`health.*`、`scripts.*`、`pc_sensor.*`、`ota.*`、`unknown_speaker.*`、`audio_compressor.*` | 多数情况下立即生效。改端口或 SSL 会触发监听重绑；改 `data.dir` 只影响新写入；TLS 证书文件原地替换会在下一次 `server`/`ssl` 配置应用时检测并轮换（无配置变更时仍需触发一次保存或重启）。 | 正常写入并返回逐域 `applied`。 |
-| `reconnect` | 原地重启外部集成，不重启后端 | `qq_gateway.*`、`p2p.*`（实验，当前不可用） | QQ 网关或 P2P 管理器短暂断开后按新配置重连。 | 正常写入；应用器失败时 `failed` 包含 `integrations`。 |
-| `respawn` | 停止并重新拉起音频内核 | `kernel.device`、`kernel.cpu_affinity`、`kernel.cuda_visible_devices`、`kernel.nice`、`kernel.state_dir` | 内核短暂不可用，正在处理的音频任务可能中断。 | 正常写入；内核重启失败时 `failed` 包含 `kernel`。 |
-| `deployment` | 由部署接线决定，运行中只读 | `api.baidu_map_ak`、已退役 `launcher.*` 回滚元数据 | 保存被拒绝，提示使用部署命令重启。 | 409 `deployment_required`，附 `command`。 |
-| `none` | 已废弃或不可写 | `log.level`、`voiceprint.*`、`memory.*`、`agent.*` 等废弃键 | 写入被拒绝。 | 422 `unsupported_change` 或校验错误 `deprecated_key`。 |
+| `hot` | 保存后立即应用，不重建进程 | `server.*`、`data.*`、`models.*`、`ai_backend`、`loom.*`、`dsh.*`、`opencode.*`（`opencode.enabled` 除外）、`api.mimo_key`、`api.dashscope_key`、`tts.*`、`audio.*`、`health.*`、`scripts.*`、`pc_sensor.*`、`ota.*`、`unknown_speaker.*`、`audio_compressor.*`、`tasks.*`、`features.*`、`onboarding.*` | 多数情况下立即生效。改端口或 SSL 会触发监听重绑；改 `data.dir` 只影响新写入；TLS 证书文件原地替换会在下一次 `server`/`ssl` 配置应用时检测并轮换（无配置变更时仍需触发一次保存或重启）。 | 正常写入并返回逐域 `applied`。 |
+| `reconnect` | 原地重启外部集成，不重启后端 | `qq_gateway.*`、`p2p.*`（实验，当前不可用）、`moss.base_url` / `moss.model` | QQ 网关或 P2P 管理器短暂断开后按新配置重连；MOSS 地址/模型变更由 watcher 下次取配置时生效。 | 正常写入；应用器失败时 `failed` 包含 `integrations`。 |
+| `respawn` | 停止并重新拉起音频内核 / MOSS watcher 子进程 | `kernel.*`（`device` / `python` / `model_dir` / `cpu_affinity` / `cuda_visible_devices` / `nice` / `state_dir` / `torch_index_url`）、`moss.enabled` / `moss.python` / `moss.data_root` / `moss.state_dir` | 内核短暂不可用，正在处理的音频任务可能中断；MOSS watcher 重拉不影响主链。 | 正常写入；内核重启失败时 `failed` 包含 `kernel`，watcher 重拉失败包含 `moss_watcher`/`moss`。 |
+| `deployment` | 由部署接线决定，运行中只读 | `ssl.enabled` / `ssl.cert` / `ssl.key`、`api.baidu_map_ak`、`opencode.enabled` | 保存被拒绝，提示使用部署命令重启。 | 409 `deployment_required`，附 `command`。 |
+| `none` | 已废弃或不可写 | `log.level`、`voiceprint.min_snr` 等旧声纹键、`memory.*`、`agent.*` | 写入被拒绝。 | 422 `unsupported_change` 或校验错误 `deprecated_key`。 |
 
-`launcher.*` 属于已退役启动器的回滚元数据，只在迁移回滚时解析，运行中修改不会影响当前进程。legacy assistant compatibility keys 继续由后端兼容读取，但不再出现在系统配置 API 或编辑器中；已有配置文件里的值继续生效。
+`launcher.*` 已从配置 schema 删除：显式写入返回 422 `unknown_key`（`clear_keys` 可清除文档里既有的旧键）。legacy assistant compatibility keys 继续由后端兼容读取，但不再出现在系统配置 API 或编辑器中；已有配置文件里的值继续生效。
 
 修改这些回滚键的流程是：编辑承载文件或部署配置，然后按回滚方案重启对应进程。生产环境按部署单元重启（公开示例为 `sudo systemctl restart kinship`）。`POST /api/system/config/restart` 不会执行重启，它只返回 409 与同一条命令。
 
@@ -229,7 +229,7 @@ YAML/JSON 保存会重新序列化整个文档。文件中已有的未知键会�
 | GET / POST | `/api/system/onboarding/qq`, `/qq/validate`, `/qq/config` | 读权限 / 写权限加 `current_password` | 校验并保存 `qq_gateway.*` 与 token 文件；不启动网关。 |
 | GET / POST | `/api/system/onboarding/moss`, `/moss/config` | 读权限 / 写权限加 `current_password` | 只读写 `moss.enabled`、`moss.base_url`、`moss.model`；不探测网络、不管理单元。旧 `moss/validate`、`moss/apply` 已移除。 |
 | GET / POST | `/api/system/onboarding/loom`, `/loom/setup` | 读权限 / 写权限加 `current_password` | 读取预填信息；一次性写内联 key 配置、启动 Loom、健康与 catalog 校验。 |
-| GET / POST | `/api/system/onboarding/finish` | 读权限 / 写权限加 `current_password` | 读取收口快照；执行预检、集成校验、启动校验、promote/commit 并返回 closing。 |
+| GET / POST | `/api/system/onboarding/finish` | 读权限 / 写权限加 `current_password` | 读取收口快照；执行预检、一次性应用配置草稿、关键服务就绪审计并返回 closing（不再 attempt/validate/promote）。 |
 | POST | `/api/system/onboarding/action` | 配置写权限 | 请求体 `{action, overwrite?, current_password?}`；支持 `copy_ai_template` 与 `generate_self_signed_cert`。 |
 | GET | `/api/system/onboarding/storage` | 读权限 | 返回数据根、模型根、空间、可写性与告警。 |
 | POST | `/api/system/onboarding/storage` | 写权限加 `password` | 只保存绝对 `models_dir`，不创建目录、不迁移缓存。 |
@@ -257,7 +257,7 @@ YAML/JSON 保存会重新序列化整个文档。文件中已有的未知键会�
 首启向导使用 11 步契约：`welcome`、`account`、`dependencies`、`kernel`、`kernel_models`、`xiaomi`、`qq`、`moss`、`loom`、`clients`、`finish`。步骤 id、顺序与每步职责的唯一真源是 [onboarding-v4-2026-10-27.md](../dev/onboarding-v4-2026-10-27.md)；本节只记录与配置系统的交叉点。
 
 - 预检已并入 `finish`，共 11 项只读检查，优先读取 ConfigStore 的有效快照（schema 默认值 + base + env overlay），SQLite/JSON/env 载体不会误报“配置文件缺失”；只有 store 不可用才回退原始文件。硬失败项为 `python`、`config`、`frontend_dist`、`disk`、`ports`、`ssl`；软失败项为 `ai_dir`、`kernel`、`kernel_models`、`loom`、`ai_backend`。
-- `finish` 在一次 POST 中执行预检、Xiaomi/QQ/MOSS 集成校验、启动校验、promote/commit；`preflight` 与 `startup` 不再是可见步骤，仅保留 headless 兼容端点。软失败需 `allow_degraded=true`，硬失败 409，提交失败返回 `activation_failed` 且不写入完成状态。
+- `finish` 在一次 POST 中执行：预检（端口/路径）→ 一次性应用步骤累积的配置草稿 → 按编排器快照审计 `critical=True` 服务（当前只有 `kernel` 是 critical，须 `ready` 或该步骤显式 `skipped`；`loom` / `moss_watcher` 非关键，失败只记录）。不再执行 attempt/validate/promote，也不负责“激活服务面”（服务面随 lifespan 已启动）。软失败需 `allow_degraded=true`（否则 409 `finish_degraded_requires_ack`），硬失败 409 `finish_blocked`，配置应用失败 409 `finish_apply_failed`，状态写入失败 409 `finish_record_failed` 且不写入完成状态。
 - `kernel_models` 步骤内含模型根选择区块。`GET/POST /api/system/onboarding/storage` 只读写 `models.dir` 的绝对路径，不创建目录、不迁移缓存，也不接受 `data.root`。`data.root` 仍由 `AXEUH_DATA_ROOT` 或 `data.root` 配置。
 - 管理员步骤调用 `/auth/setup` 创建首个用户。创建成功后 `.setup_token` 被删除，系统进入常规模式。已有管理员重新进入向导时，入口闸门通过只读 `POST /auth/verify-password` 验证一次当前密码；验证通过后密码只保留在内存并注入后续写请求，不写入 localStorage/sessionStorage。各步骤不再显示当前密码输入框；刷新或重开向导需重新验证。
 - 状态文件默认 `backend/data/onboarding_state.json`，可用 `AXEUH_ONBOARDING_STATE` 或兼容的 `AEUH_ONBOARDING_STATE` 覆盖。当前 `STATE_VERSION=4`；已完成 `finish` 的 v3/v2/v1 安装直接迁移为完成态，不重新过门禁；未完成安装保留进度并把新增的 `xiaomi`/`qq` 记为 skipped，必须真实执行 v4 finish。`preflight`/`startup` 的 step_data 迁入 `legacy_step_data`。写入使用同目录临时文件、`fsync`、0600、`os.replace`；损坏文件隔离为 `.corrupt-<时间戳>` 后回到默认状态。
@@ -396,13 +396,13 @@ python -m core.hot_server
 3. `data.dir` 只影响之后的写入路径，不做历史数据迁移。切换目录后旧数据仍留在原目录，需要人工搬迁或保留双份。
 4. 内核 respawn 会停止旧内核，正在处理的音频任务可能中断。高负载时改 `kernel.*` 应避开采集高峰。
 5. v1 不支持运行中切换配置载体。切换 `AXEUH_CONFIG_BACKEND` 必须重启进程。
-6. `launcher.*` 是已退役启动器的回滚元数据，HTTP API 只读；只在迁移回滚时使用。
+6. `launcher.*` 已从配置 schema 删除（不再是 HTTP 可写或可读的配置面）；旧 `config.yaml` 里残留的键只能通过 `clear_keys` 清除，显式写入返回 422 `unknown_key`。
 7. AI 侧仍存在直接读取项目根 `config.yaml` 的代码，例如 `ai/mcp/ai_mcp.py` 与 `ai/analysis/mi_fitness_fetch.py`。切换载体或热改端口后，这些读取点不会自动跟随，需要单独迁移或重启。
 8. YAML/JSON 保存会丢失注释。需要在文件中保留人工注释时，先备份，或改用 SQLite。
 9. SQLite 没有同名侧车备份。需要可回滚副本时，依赖定期 `.backup` 或外部快照。
 10. `env` 后端与 env 覆盖层只读。命中覆盖层的键无法通过 Web 修改。
 11. 配置保存不是跨子系统事务。应用器失败不会自动回滚已落盘的配置。
-12. `qa_config_staging.py` 的 auth 隔离键与运行时代码不一致，见 8.5 节。
+12. `qa_config_staging.py` 注入的 `AXEUH_AUTH_STATE_DIR` / `AEUH_ONBOARDING_STATE` 与运行时代码一致（见 8.5 节），但该 harness 只用 `uvicorn main:app` 做 `/health` 与 `/mobile/` 冒烟，不覆盖 HotServer 重绑与 TLS 轮换。
 13. 桌面端与 Android 原生设置不在此配置面内。它们只通过 SPA 获得设置页入口；服务器地址、证书等本机设置仍由各客户端自己的配置管理。
 
 ## 10. 测试与验证
@@ -411,7 +411,7 @@ python -m core.hot_server
 
 ```bash
 cd backend
-/opt/kinship/.venv-health/bin/python -m pytest \
+/opt/venvs/axeuh-health/bin/python -m pytest \
   tests/test_config_schema.py \
   tests/test_config_providers.py \
   tests/test_config_store.py \
@@ -429,7 +429,7 @@ cd backend
 
 ```bash
 cd backend
-/opt/kinship/.venv-health/bin/python -m pytest tests/ -v
+/opt/venvs/axeuh-health/bin/python -m pytest tests/ -v
 ```
 
 前端定向 Vitest：

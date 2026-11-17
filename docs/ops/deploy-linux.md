@@ -26,23 +26,27 @@ Caddy 443/8443
 
 ### 1.2 编排器模型
 
-`axeuh-health` 是唯一的监督进程。systemd 直接运行 `core.hot_server`，后端在同一个进程树里管理三个子服务：
+`axeuh-health` 是唯一的监督进程。systemd 直接运行 `core.hot_server`，后端在同一个进程树里管理子服务。`ai_backend: loom` 与 `ai_backend: dsh` 是两种不同拓扑：Loom 由编排器托管，dsh 是独立 systemd 单元、不归编排器。
 
 ```text
 axeuh-health.service (systemd)
   └─ python -m core.hot_server                     后端 API，8768
        ├─ python -m axeuh_kernel --port 0          音频内核，127.0.0.1 动态端口，pidfile 归属
        ├─ python -m services.orchestrator.child_entry
-       │    └─ node packages/server/dist/cli.js serve
-       │       Loom，127.0.0.1:5100
+       │    └─ python tools/moss-shadow/watcher.py --loop --data-root <DATA_DIR>
+       │       MOSS watcher，纯 CPU 旁路（moss.enabled=true 时）
        └─ python -m services.orchestrator.child_entry
-            └─ python tools/moss-shadow/watcher.py --loop
-               MOSS watcher，纯 CPU 旁路
+            └─ node packages/server/dist/cli.js serve
+               Loom，127.0.0.1:5100（仅 ai_backend=loom 时）
+
+axeuh-dsh.service (systemd)                        ai_backend=dsh 时（本机生产）
+  └─ node <node>/bin/dsh --profile <profile>
+       └─ kinship-bridge 127.0.0.1:18765 + dsh Web 127.0.0.1:3080
 ```
 
-外部仍有独立的 GPU 推理单元 `axeuh-moss.service`（vLLM，`127.0.0.1:8100`）和边缘入口 `caddy`、`frpc`。Loom 与 MOSS watcher 的 systemd 单元只保留给迁移前状态和回滚，稳定态必须处于 `inactive` 且 `disabled`。
+外部仍有独立的 GPU 推理单元 `axeuh-moss.service`（vLLM，`127.0.0.1:8100`）和边缘入口 `caddy`、`frpc`。Loom 与 MOSS watcher 的 systemd 单元（`axeuh-loom`、`axeuh-moss-watch`）只保留给迁移前状态和回滚，稳定态必须处于 `inactive` 且 `disabled`。`axeuh-moss-watch` 不再参与稳定态：watcher 是后端子进程。
 
-子服务由编排器按固定顺序注册：`kernel`、`moss_watcher`、`loom`。关停时按注册逆序停止，即 `loom`、`moss_watcher`、`kernel`，总预算 15 秒，内核保留至少 3 秒 SIGTERM 窗口。
+子服务由编排器按固定顺序注册：`kernel`、`moss_watcher`、`loom`。关停时按注册逆序停止，即 `loom`、`moss_watcher`、`kernel`，总预算 15 秒，内核保留至少 3 秒 SIGTERM 窗口；watcher 的停止语义是 SIGTERM 后最多等 30 秒，再按精确 PID SIGKILL。
 
 ### 1.3 稳定态与迁移态
 
@@ -54,29 +58,33 @@ axeuh-health.service (systemd)
 | `axeuh-loom` | `active`、`enabled` | `inactive`、`disabled` |
 | `axeuh-moss-watch` | `active`、`enabled` | `inactive`、`disabled` |
 | 内核 | 后端首次请求时懒启动 | 编排器在 `start_all()` 中拉起 |
-| Loom 父进程 | systemd | `core.hot_server` |
+| Loom 父进程 | systemd | `core.hot_server`（仅 `ai_backend: loom`） |
 | MOSS watcher 父进程 | systemd | `core.hot_server` |
+| dsh bridge 父进程 | —— | systemd `axeuh-dsh`（`ai_backend: dsh`，不归编排器） |
+
+本机生产（2026-11-17）是 `ai_backend: dsh`：`axeuh-loom` 为 `failed`/`disabled`、`5100` 无监听、编排器 `loom=blocked (disabled)`；`axeuh-dsh` active，`18765`/`3080` 可用。表中 Loom 行描述 `ai_backend: loom` 的拓扑，不要按它去启动 `axeuh-loom`。
 
 ## 2. systemd 单元
 
 ### 2.1 `axeuh-health`
 
-作者生产环境的单元不在公开树中；公开示例是 `deploy/kinship.service.example`。关键字段：
+作者生产环境的单元不在公开树中；公开示例是 `deploy/kinship.service.example`。下面是 2026-11 迁移后的生产关键字段形状（公开示例仍用 `/opt/kinship` + `.venv` 占位，按本节改）：
 
 ```ini
 [Service]
 Type=simple
-User=kinship
-Group=kinship
-WorkingDirectory=/opt/kinship/backend
+User=<service-user>
+WorkingDirectory=<project>/backend
 EnvironmentFile=/etc/kinship-loom/credentials.conf
-Environment=AXEUH_KERNEL_PYTHON=/opt/kinship/.venv-kernel/bin/python
+Environment=AXEUH_KERNEL_PYTHON=/opt/venvs/axeuh-kernel/bin/python
 Environment=AXEUH_LOOM_MODE=child
 Environment=AXEUH_ORCHESTRATOR=on
-ExecStart=/opt/kinship/.venv-health/bin/python -m core.hot_server
+ExecStart=/opt/venvs/axeuh-health/bin/python -m core.hot_server
 Restart=always
 RestartSec=5
 ```
+
+`CONFIG_PATH`、`AXEUH_CONFIG_PATH`、`AXEUH_PROJECT_ROOT`、`AXEUH_DATA_ROOT`、`AXEUH_MODELS_DIR`、`AXEUH_AUTH_STATE_DIR`、`AXEUH_KERNEL_STATE_DIR` 通常由主机级 drop-in（如 `20-kinship-data.conf`）注入，不要写进公开示例。
 
 安装：
 
@@ -89,11 +97,13 @@ systemd-analyze verify /etc/systemd/system/kinship.service
 
 注意：unit 的 `WorkingDirectory` 固定指向主检出。即从 worktree 安装 unit，运行的仍是主检出里的代码。部署新代码必须按迁移手册把代码放进主检出，不能只改 worktree。
 
+公开示例 `deploy/kinship.service.example` 里的 `/opt/kinship`、`.venv-health` / `.venv-kernel`、`User=kinship` 都是新装占位。2026-11 迁移后的本机生产实例已改为 `/opt/venvs/axeuh-health/bin/python -m core.hot_server`、`AXEUH_KERNEL_PYTHON=/opt/venvs/axeuh-kernel/bin/python`、`/opt/venvs/axeuh-moss`，服务用户为 `xehuri`，`CONFIG_PATH` / `AXEUH_DATA_ROOT` / `AXEUH_CONFIG_PATH` 等由主机级 drop-in 注入；`EnvironmentFile=/etc/axeuh-loom/credentials.conf` 在 `ai_backend: dsh` 时仍保留（文件缺失会让单元启动失败，因为 `EnvironmentFile=` 没有前导 `-`）。示例文件本身尚未同步这些差异，按实际路径改，不要直接拷。
+
 主机级 drop-in `/etc/systemd/system/axeuh-health.service.d/10-p2p.conf` 属于实验 P2P，当前不可用；不要部署或启用。
 
 ### 2.2 `axeuh-loom`（仅迁移期与回滚）
 
-稳定态由后端以 child 模式托管，systemd 单元只用于迁移前和回滚：
+`ai_backend: loom` 时稳定态由后端以 child 模式托管，systemd 单元只用于迁移前和回滚；`ai_backend: dsh` 时 Loom 不运行（本机生产即此），单元保持 `disabled`、非 active：
 
 - 监听 `127.0.0.1:5100`。
 - `TimeoutStopSec=15`，Loom 自身排水约 5 秒。
@@ -102,20 +112,20 @@ systemd-analyze verify /etc/systemd/system/kinship.service
 
 迁移 stage3.0 重启后端后，编排器尝试启动 Loom child，此时 systemd Loom 仍占用 5100，child 必须失败在 `port_in_use`。这是正向证据，不是故障。stage3.3 先 `disable --now axeuh-loom`，再 `resume loom`。
 
-稳定态如果发现 `axeuh-loom` 仍为 `active`，按双实例风险处理，见[故障处置](troubleshoot.md)的 Loom 条目。不要直接 `systemctl start axeuh-loom` 来"修"child 启动失败。
+稳定态如果发现 `axeuh-loom` 仍为 `active`，按双实例风险处理，见[故障处置](troubleshoot.md)的 Loom 条目。不要直接 `systemctl start axeuh-loom` 来"修"child 启动失败；`ai_backend: dsh` 下也不需要它。
 
 ### 2.3 `axeuh-moss` 与 `axeuh-moss-watch`
 
 | 单元 | 职责 | 稳定态 | 说明 |
 | --- | --- | --- | --- |
-| `axeuh-moss` | vLLM MOSS serve，`:8100` | `active` | GPU 卡 2，fp8，`--max-num-seqs 1` 串行化；MOSS 必须独占整张卡 |
-| `axeuh-moss-watch` | 文件订阅 watcher | `inactive`、`disabled` | 迁移 stage2 停用；stage3 起由编排器 spawn |
+| `axeuh-moss` | vLLM MOSS serve，`:8100` | `active` | GPU 卡 2，fp8，`--max-num-seqs 1` 串行化；MOSS 必须独占整张卡；不归编排器 |
+| `axeuh-moss-watch` | 旧拓扑的文件订阅 watcher | `inactive`、`disabled` | 迁移 stage2 停用；stage3 起 watcher 由编排器 `moss_watcher` spec 作为后端子进程 spawn，**不要再启用本单元** |
 
-`axeuh-moss` 不读写 `ai/data`，不参与主链。`axeuh-moss-watch` 只旁路追加 `ai/data/daily/{date}/audio_deepdive.jsonl`，不改 `perception.jsonl`。watcher 的启动条件：
+`axeuh-moss` 不读写 `ai/data`，不参与主链。watcher（无论由谁托管）只旁路追加 `ai/data/daily/{date}/audio_deepdive.jsonl`，不改 `perception.jsonl`。watcher 的启动条件：
 
 - 有效配置 `moss.enabled=true`。默认是 `false`，生产 `config.yaml` 可能没有该键。
-- `moss.python` 可执行，否则解析顺序为 `/opt/kinship/.venv-moss/bin/python`、`<repo>/.venv-moss/bin/python`。
-- 仓库参考件在 `tools/moss-shadow/systemd/`；装机件可能不同，以 `systemctl show -p Environment axeuh-moss` 为准。
+- `moss.python` 可执行；生产为 `/opt/venvs/axeuh-moss/bin/python`。为空时代码兜底探测 `/opt/kinship/.venv-moss/bin/python`、`<repo>/.venv-moss/bin/python`（新装占位，生产不要依赖）。
+- 编排器 spawn 的参数是 `watcher.py --loop --data-root <cfg.MOSS_DATA_ROOT 或 DATA_DIR>`；`moss.state_dir` 非空时追加 `--state-root`。仓库参考件在 `tools/moss-shadow/systemd/`；旧装机件可能不同，以 `systemctl show -p Environment axeuh-moss` 为准。
 
 仓库参考 unit 带 `AXEUH_MOSS_HOST=127.0.0.1`，但 2026-10-22 实测生产曾监听 `0.0.0.0:8100`。每次部署后用 `ss -lntp` 核对；`8100` 无鉴权，不能裸露到公网。
 
@@ -123,10 +133,11 @@ systemd-analyze verify /etc/systemd/system/kinship.service
 
 | 单元 | 启动依赖 | 运行依赖 | 验证 |
 | --- | --- | --- | --- |
-| `axeuh-health` | `network-online.target` | `config.yaml`、`backend/config/auth.json`、`/etc/kinship-loom/credentials.conf`、`/opt/kinship/.venv-health` | `/health` 200 |
-| 内核 child | 后端服务面启动 | `AXEUH_KERNEL_PYTHON` 指向 `/opt/kinship/.venv-kernel/bin/python`，内核模型按三级链可解析 | pidfile 的端口 `/v1/health` 200 |
-| Loom child | 内核与 MOSS 注册之后 | `node` 在 PATH、`loom-harness/packages/server/dist/cli.js`、`ai/.loom/config.yaml`、`LOOM_TOKEN`、`loom.url` 为回环 | `/health` 200，父进程是 `core.hot_server` |
-| MOSS watcher child | `moss.enabled=true` | `/opt/kinship/.venv-moss`、`axeuh-moss` 的 `:8100` 可达 | `/api/services` 中 `moss_watcher=ready` |
+| `axeuh-health` | `network-online.target` | `config.yaml`、`backend/config/auth.json`、`/etc/kinship-loom/credentials.conf`、`/opt/venvs/axeuh-health` | `/health` 200 |
+| 内核 child | 后端服务面启动 | `AXEUH_KERNEL_PYTHON` 指向 `/opt/venvs/axeuh-kernel/bin/python`，内核模型按三级链可解析 | pidfile 的端口 `/v1/health` 200 |
+| Loom child | 内核与 MOSS 注册之后 | `node` 在 PATH、`loom-harness/packages/server/dist/cli.js`、`ai/.loom/config.yaml`、`LOOM_TOKEN`、`loom.url` 为回环 | `/health` 200，父进程是 `core.hot_server`（仅 `ai_backend: loom`） |
+| dsh bridge（`ai_backend: dsh`） | `axeuh-dsh` 单元启动 | profile 已装 `kinship-harness-plugins` 且为 `link:` 依赖、`<DSH_HOME>/kinship/bridge-token` 可读、`KINSHIP_BRIDGE_PORT=18765` | `ss` 18765 监听、`/v1/health` 为 `bound`、后端 `/health.dsh=online` |
+| MOSS watcher child | `moss.enabled=true` | `/opt/venvs/axeuh-moss`、`axeuh-moss` 的 `:8100` 可达 | `/api/services` 中 `moss_watcher=ready` |
 | `axeuh-moss` | `network-online.target` | 卡 2 空闲、vLLM 权重、`/etc/kinship-moss/credentials.conf`（可选） | `/v1/models` 200 |
 | `caddy` / `frpc` | 网络 | 证书、DNS、`config.yaml` 的 SSL 证书路径 | 公网 `/health` 与 `/mobile/` |
 
@@ -140,14 +151,16 @@ command -v python3 node npm rsync systemctl
 df -h / /mnt/d
 ```
 
-Python 环境：
+Python 环境（2026-11 起的生产布局）：
 
 ```bash
-sudo python3 -m venv /opt/kinship/.venv-health
-sudo /opt/kinship/.venv-health/bin/pip install -r backend/requirements.txt
-sudo python3 -m venv /opt/kinship/.venv-kernel
-sudo python3 -m venv /opt/kinship/.venv-moss
+sudo python3 -m venv /opt/venvs/axeuh-health
+sudo /opt/venvs/axeuh-health/bin/pip install -r backend/requirements.txt
+sudo python3 -m venv /opt/venvs/axeuh-kernel
+sudo python3 -m venv /opt/venvs/axeuh-moss
 ```
+
+首次引导的 `kernel` 步会在 `<repo>/.venv-kernel` 建内核 venv（代码既有行为）；生产实例把 `AXEUH_KERNEL_PYTHON` / `kernel.python` 指向 `/opt/venvs/axeuh-kernel/bin/python`、`moss.python` 指向 `/opt/venvs/axeuh-moss/bin/python`，所以实际不再使用 `<repo>/.venv-kernel`。旧 `/opt/kinship/.venv-*` 布局已不存在，不要按它写 unit。
 
 内核依赖由首次引导的第 4 步 `kernel` 自动构建。手动安装时必须先装 torch，再 `pip install -e kernel/`，顺序不可反；否则 funasr 会先把 CPU torch 拉一遍。磁盘守卫要求 CPU 路径至少 8 GiB、CUDA 路径至少 12 GiB。MOSS 的 vLLM 与 watcher 依赖按 `docs/moss-8g-deploy/README.md` 安装。首次引导的 `kernel_models` 步只写 `models.dir`，不搬运模型。
 
@@ -191,10 +204,11 @@ build.bat
 | 键 | 要求 |
 | --- | --- |
 | `server.host` / `server.port` | `0.0.0.0` / `8768` |
-| `ssl.enabled` / `ssl.cert` / `ssl.key` | 生产为 `true`，两个文件都存在且域名匹配 |
-| `ai_backend` | `loom` |
-| `loom.url` | `http://127.0.0.1:5100` 或 `http://localhost:5100`，child 模式只允许回环 |
-| `loom.token` / `loom.token_file` | 至少一个可用；`LOOM_TOKEN` 环境变量是回退 |
+| `ssl.enabled` / `ssl.cert` / `ssl.key` | 生产为 `true`，两个文件都存在且域名匹配；`ssl.*` 属 deployment 策略，改后重启 `axeuh-health` 才生效 |
+| `ai_backend` | 公开模板默认 `loom`；选 `dsh` 时还要配 `dsh.url` / `dsh.token_file`，并让 `axeuh-dsh` 在线 |
+| `loom.url` | `http://127.0.0.1:5100` 或 `http://localhost:5100`，child 模式只允许回环（仅 `ai_backend: loom`） |
+| `loom.token` / `loom.token_file` | 至少一个可用；`LOOM_TOKEN` 环境变量是回退（仅 `ai_backend: loom`） |
+| `dsh.url` / `dsh.token_file` | `dsh.url` 默认 `http://127.0.0.1:18765`；token 文件指向 `<DSH_HOME>/kinship/bridge-token`，与 bridge 侧同一个 Bearer（仅 `ai_backend: dsh`） |
 | `data.dir` / `data.ai_root` | 默认 `ai/data` / `ai` |
 | `moss.enabled` | 需要 watcher 时为 `true` |
 | `kernel.python` | 为空时用 `AXEUH_KERNEL_PYTHON` |
@@ -239,7 +253,7 @@ curl -kfsS https://127.0.0.1:8768/health
 
 首次打开 `https://<domain>/mobile/` 进入 11 步引导：`welcome`、`account`、`dependencies`、`kernel`、`kernel_models`、`xiaomi`、`qq`、`moss`、`loom`、`clients`、`finish`。`finish` 在进程内激活服务面，不需要重启后端。引导未完成时，业务路径返回 503 `onboarding_required`；`/health`、`/auth`、`/api/system/onboarding/*`、`/api/system/config/*`、`/api/ota/*`、`/api/clients/*`、`/mobile` 与静态资源放行。
 
-不要手动执行 `python -m axeuh_kernel`。手动 spawn 会改写共享 pidfile，后端可能复用到错误解释器，导致音频分析全线静默失败。内核只由后端 spawn。
+不要手动执行 `python -m axeuh_kernel`。pidfile 由**后端**在 spawn 握手成功后写入（`{state_dir}/kernel.pid`，含 port/pid/api_version/token/nonce/created_at），内核自身不写 pidfile；手工进程会与后端形成双实例/端口冲突，后端对存活但非自己拉起的 pid 拒绝复用（`stale_kernel_detected`）。内核只由后端 spawn。
 
 ### 3.4 公网入口
 
@@ -288,28 +302,29 @@ api_get() {
 api_get /api/services
 ```
 
-稳定态响应：
+稳定态响应（`ai_backend: dsh`，本机生产）：
 
 ```json
 {"orchestrator":"on","services":[
   {"id":"kernel","state":"ready"},
   {"id":"moss_watcher","state":"ready"},
-  {"id":"loom","state":"ready"}
+  {"id":"loom","state":"blocked","reason_code":"disabled"}
 ]}
 ```
 
-迁移完成前或回滚后，`orchestrator` 为 `off`，`services` 为空数组。
+`loom` 为 `blocked/disabled` 是因为 `ai_backend: dsh`，属预期；`ai_backend: loom` 时应为 `ready`。迁移完成前或回滚后，`orchestrator` 为 `off`，`services` 为空数组。
 
 ### 4.2 各服务探针
 
 | 对象 | 命令 | 期望 |
 | --- | --- | --- |
-| 后端 | `curl -kfsS https://127.0.0.1:8768/health` | 200，`status` 为健康值 |
+| 后端 | `curl -kfsS https://127.0.0.1:8768/health` | 200，`status=healthy`；`ai_backend=dsh` 时 `dsh.status=online`、`loom.status=unknown` |
 | 内核 | 读 pidfile 的 `port`，`curl -fsS http://127.0.0.1:<port>/v1/health` | 200 `{"status":"ok"}` |
-| Loom | 带 `LOOM_TOKEN` 请求 `http://127.0.0.1:5100/health` | 200，`status=ok`，版本符合预期 |
+| dsh bridge | `curl -s -H "Authorization: Bearer <bridge-token>" http://127.0.0.1:18765/v1/health` | 200，`status=bound`（仅 `ai_backend: dsh`） |
+| Loom | 带 `LOOM_TOKEN` 请求 `http://127.0.0.1:5100/health` | 200，`status=ok`，版本符合预期（仅 `ai_backend: loom`） |
 | MOSS serve | `curl -fsS http://127.0.0.1:8100/v1/models` | 200，包含 `moss-audio-4b` |
 | MOSS watcher | `api_get /api/services` | `moss_watcher=ready`，deepdive 有新行 |
-| 编排器子进程归属 | `ps -o pid,ppid,args -p <loom_pid>` | `ppid` 等于 `systemctl show -p MainPID --value axeuh-health` |
+| 编排器子进程归属 | `ps -o pid,ppid,args -p <loom_pid>` / `<watcher_pid>` | `ppid` 等于 `systemctl show -p MainPID --value axeuh-health` |
 
 内核探针：
 
@@ -378,12 +393,15 @@ curl -kfsS -X POST -K - "https://127.0.0.1:8768/api/services/loom/resume" <<< "h
 
 `pause` 会停止进程并锁定在 `blocked/manually_paused`；`resume` 解除锁定并重新判定。只调用 `resume` 不会重启已经在 `ready` 的进程。Loom 构建产物更新后，必须 `pause` 再 `resume` 才会换新进程。
 
+dsh 不归编排器管：bridge 与 dsh Web 的启停/升级走 `sudo systemctl restart axeuh-dsh`（`ai_backend: dsh` 时）。bridge 掉线后先按[故障处置](troubleshoot.md)的 dsh 症状核对 profile 依赖，不要用后端 `pause/resume` 去修 dsh。
+
 ### 5.4 代码与前端升级
 
 - 后端代码：按编排器迁移手册的四阶段部署。新代码不能先手工重启，否则会以默认 `AXEUH_ORCHESTRATOR=on` 提前接管服务。
 - 前端：`npm run build:atomic`、`npm run verify:dist`、原子替换 `frontend/mobile/dist/`。仅前端变更不需要重启后端。
 - Loom：在 `loom-harness` 里构建 dist，然后 `pause loom`、`resume loom`。不要 `systemctl start axeuh-loom`。
-- MOSS watcher：改 `moss.enabled` 或 `moss.python` 后通过配置应用或 `pause/resume moss_watcher` 生效。
+- dsh：在 `harness-plugins` 里 `npm run build` 后重启 `axeuh-dsh`（`link:` 依赖指向仓库，不需要再拷包）；`ai_backend` 本身是 hot 键，切换不需要重启后端。
+- MOSS watcher：改 `moss.enabled` / `moss.python` / `moss.data_root` / `moss.state_dir` 后由配置应用器重拉子进程，或 `pause/resume moss_watcher`。
 
 ### 5.5 回退到 launcher（仅迁移期历史路径）
 
@@ -404,20 +422,24 @@ AXEUH_ALLOW_CODE_ROLLBACK=1 bash scripts/migrate-orchestrator/rollback-stage1.sh
 | --- | --- | --- |
 | 80 / 443 | Caddy | 证书挑战、浏览器 HTTPS 主入口 |
 | 8443 | Caddy | IPv6 直连入口 |
-| 8768 | 0.0.0.0 | 后端 HTTP/HTTPS 同端口 |
-| 5100 | 127.0.0.1 | Loom |
-| 8100 | 127.0.0.1（部署后核对） | MOSS vLLM serve |
-| 18888 | 127.0.0.1 | PC 感知采集器本地 API（Windows 端） |
-| 8770 | 127.0.0.1 | QQ 网关 |
+| 8768 | 0.0.0.0 | 后端 HTTP/HTTPS 同端口（本机生产 HTTPS） |
+| 18765 | 127.0.0.1 | dsh kinship-bridge（`ai_backend: dsh`，属 `axeuh-dsh`） |
+| 3080 | 127.0.0.1 | dsh Web（`ai_backend: dsh`，属 `axeuh-dsh`） |
+| 5100 | 127.0.0.1 | Loom（仅 `ai_backend: loom`；本机当前未运行） |
+| 8100 | 127.0.0.1（部署后核对） | MOSS vLLM serve（不归编排器；watcher 无端口） |
+| 18888 | 127.0.0.1 | PC 感知采集器本地 API（Windows 端，不在 Ubuntu 主机） |
+| 8770 | 127.0.0.1 | QQ 网关（后端进程内） |
 | 8787 | 127.0.0.1 | P2P 信令（实验，当前不可用，不应部署） |
-| 8000 | 127.0.0.1 | 本地 27B LLM |
+| 8000 | 127.0.0.1 | 本地 27B LLM（可选，本机当前未运行） |
+| 5173 | 127.0.0.1 | Vite 开发服务器（仅前端开发） |
 | 动态 | 127.0.0.1 | 音频内核，端口在 pidfile |
 
 | 凭据 | 位置 | 权限 |
 | --- | --- | --- |
 | 管理员账号 | `backend/config/auth.json` | 0600 |
 | 首次引导令牌 | `backend/config/.setup_token` | 0600，创建管理员后删除 |
-| Loom token | `/etc/kinship-loom/credentials.conf` | `root:kinship 0640` |
+| Loom token | `/etc/kinship-loom/credentials.conf` | `root:kinship 0640`；`ai_backend: dsh` 时 `axeuh-health` 仍用 `EnvironmentFile=` 读它，不要删 |
+| dsh bridge token | `<DSH_HOME>/kinship/bridge-token` | 0600；与 `dsh.token_file` 指向同一文件 |
 | QQ 网关 MCP token | `/etc/kinship-qq-gateway/mcp.token` | 0600 |
 | MOSS 凭据 | `/etc/kinship-moss/credentials.conf` | 0600 |
 | TLS 私钥 | `config.yaml` 的 `ssl.key` 指向文件 | 按证书规范 |
@@ -426,7 +448,8 @@ AXEUH_ALLOW_CODE_ROLLBACK=1 bash scripts/migrate-orchestrator/rollback-stage1.sh
 | --- | --- |
 | 后端文件日志 | `backend/logs/backend.log`，按日轮转，保留 30 天 |
 | 后端 systemd | `journalctl -u axeuh-health -n 200 --no-pager` |
-| Loom child | `backend/data/logs/loom-child.log` |
+| Loom child | `backend/data/logs/loom-child.log`（仅 loom 模式） |
+| dsh | `journalctl -u axeuh-dsh -n 200 --no-pager`（插件的 `ctx.logger` 不写 journal，属正常） |
 | 内核 stderr | `backend/data/kernel_state/kernel.stderr.log` |
 | MOSS serve | `journalctl -u axeuh-moss -n 100 --no-pager` |
 | MOSS watcher（稳定态） | `journalctl -u axeuh-health -n 200 --no-pager` 中的 watcher 输出 |
@@ -438,11 +461,12 @@ AXEUH_ALLOW_CODE_ROLLBACK=1 bash scripts/migrate-orchestrator/rollback-stage1.sh
 - [ ] `systemctl is-active axeuh-health frpc caddy` 全为 `active`。
 - [ ] `curl -kfsS https://127.0.0.1:8768/health` 返回 200。
 - [ ] `curl -kfsS https://<domain>:8768/health` 证书有效，域名匹配。
-- [ ] `/api/services` 返回 `orchestrator=on`，`kernel`、`moss_watcher`、`loom` 全为 `ready`。
-- [ ] Loom 的 `ppid` 等于 `axeuh-health` 的 `MainPID`。
-- [ ] `axeuh-loom` 与 `axeuh-moss-watch` 为 `inactive`、`disabled`。
+- [ ] `/api/services` 返回 `orchestrator=on`：`kernel`、`moss_watcher` 为 `ready`；`loom` 在 `ai_backend: loom` 时 `ready`，在 `ai_backend: dsh` 时 `blocked/disabled`（预期）。
+- [ ] `ai_backend: dsh`：`systemctl is-active axeuh-dsh` active、`/health.dsh=online`、`ss` 见 18765/3080。
+- [ ] Loom 的 `ppid` 等于 `axeuh-health` 的 `MainPID`（仅 loom 模式）。
+- [ ] `axeuh-loom` 与 `axeuh-moss-watch` 为 `inactive`/`failed` 且 `disabled`。
 - [ ] 内核 pidfile 有 `pid`/`port`，`/v1/health` 可达，stderr 无持续报错。
 - [ ] `https://<domain>/mobile/` 可打开，管理员登录正常。
-- [ ] `ss` 确认 8100 未裸露公网、8770 仅回环，8768 与 5100 的监听者归属正确。
+- [ ] `ss` 确认 8100 未裸露公网、8770 仅回环，8768 的监听者是 `core.hot_server`，18765/3080 归属 `axeuh-dsh`，5100 仅在 loom 模式下出现。
 - [ ] 当日 `perception.jsonl` 有新增行，`audio_deepdive.jsonl` 可选有新行。
 - [ ] `df -h / /mnt/d` 有足够余量；`journalctl` 无连续 5xx 或 OOM。

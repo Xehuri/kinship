@@ -51,7 +51,7 @@ cd backend && python -m core.hot_server
 curl http://127.0.0.1:8768/health
 ```
 
-首次启动后打开 Web UI 完成管理员注册和 11 步初始化。Loom 的 token 和模型配置在初始化流程中写入 AI 根下的 `.loom/config.yaml`。
+首次启动后打开 Web UI 完成管理员注册和 11 步初始化。默认 AI 通道是 Loom：其 token 和模型配置在初始化流程中写入 AI 根下的 `.loom/config.yaml`。如果选择 dsh（自带 harness，BYO），向导只写 `ai_backend: dsh` 与 `dsh.url`，不安装、不启动 Loom，也不写 `.loom/config.yaml`。
 
 ## Windows
 
@@ -91,16 +91,17 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now kinship
 ```
 
-示例中的 `/opt/kinship`、用户、Python 路径和凭据文件都是占位符，必须按实际部署修改。作者自己的生产单元不在公开树中，不要照抄私有部署配置。
+示例中的 `/opt/kinship`、用户、Python 路径和凭据文件都是占位符，必须按实际部署修改。2026-11 迁移后的本机生产实例使用 `/opt/venvs/axeuh-health`、`/opt/venvs/axeuh-kernel`、`/opt/venvs/axeuh-moss`，由主机级 drop-in 注入配置与数据路径；公开示例尚未同步这些差异。作者自己的生产单元不在公开树中，不要照抄私有部署配置。
 
 ## 首次初始化
 
-1. 打开 `http://<host>:8768/`。
+1. 打开 `http://<host>:8768/`（生产 HTTPS 时用 `https://<domain>/`）。
 2. 完成管理员注册。
-3. 按页面完成 11 步初始化：账户、依赖、内核、模型、小米健康云、QQ、MOSS、Loom、客户端、完成。
-4. 在 Loom 步骤填写 provider、模型和密钥；初始化会写入 `ai/.loom/config.yaml` 并启动 Loom。
+3. 按页面完成 11 步初始化：欢迎、账户、依赖、内核、模型、小米健康云、QQ、MOSS、AI 助手、客户端、完成。
+4. AI 助手步骤选择通道：默认 Loom，填写 provider、模型和密钥后由向导写入 `ai/.loom/config.yaml` 并启动 Loom；选 dsh 时只声明 `ai_backend: dsh` 与 `dsh.url`，Loom 不启动。
 5. 内核模型由 `kernel_models` 步骤下载；内核压缩包本身不含模型目录。
 6. 前端缺失时由 `onboarding.frontend_autodownload` 后台下载；下载完成前 API 仍然可用。
+7. 引导门禁只看状态文件：`welcome` / `account` / `dependencies` 三步记录齐全后数据面即可用；`finish` 负责预检、应用配置草稿与就绪审计，不需要重启后端。
 
 ## 脚本不做什么
 
