@@ -68,7 +68,7 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 
 ### 修复
 
-- **dsh profile 本地包被 pnpm 清理导致 Kinship 通道掉线（2026-11-17）**：主 dsh profile 安装 `dsh-state-notifier 0.7.0` 时，pnpm 把 `sync-profile.sh` 之前拷入、但未在 `package.json` 声明的六个 Kinship 插件包 + `kinship-harness-plugins` bundle 移入 `node_modules/.ignored/`（`Packages: +5 -7`）；profile 的 HMR 热重载后 `kinship-bridge` 无法解析，`127.0.0.1:18765` 关闭，后端 `/health.dsh` 从 00:50:55 起降级。只重启 dsh 无效（包仍未声明）。处置：备份 profile 三件套后，把七个包改成 `link:` 依赖（`dsh plugin --profile web add link:...`），并在 `cordis.patch.yml` 加注释触发 HMR 重新组合；同一个 dsh 进程内 18765 恢复监听、`/v1/health` 回到 `bound`、后端 12:30:15 起 `[DshHealth] online`。文档同步：[docs/ops/dsh-production-rollout.md](docs/ops/dsh-production-rollout.md) 新增第 9 节（机理/判据/link 安装/回滚），[harness-plugins/README.md](harness-plugins/README.md) 安装段加警告与命令，[docs/ops/troubleshoot.md](docs/ops/troubleshoot.md) 新增症状 19 与 H11。`link:` 依赖已用隔离 `DSH_HOME` 验证可经受后续 `pnpm add/remove`。
+- **dsh profile 本地包被 pnpm 清理导致 Kinship 通道掉线（2026-11-17）**：主 dsh profile 安装 `dsh-state-notifier 0.7.0` 时，pnpm 把 `sync-profile.sh` 之前拷入、但未在 `package.json` 声明的六个 Kinship 插件包 + `kinship-harness-plugins` bundle 移入 `node_modules/.ignored/`（`Packages: +5 -7`）；profile 的 HMR 热重载后 `kinship-bridge` 无法解析，`127.0.0.1:18765` 关闭，后端 `/health.dsh` 从 00:50:55 起降级。只重启 dsh 无效（包仍未声明）。处置：备份 profile 三件套后，把七个包改成 `link:` 依赖（`dsh plugin --profile web add link:...`），并在 `cordis.patch.yml` 加注释触发 HMR 重新组合；同一个 dsh 进程内 18765 恢复监听、`/v1/health` 回到 `bound`、后端 12:30:15 起 `[DshHealth] online`。文档同步：[docs/ops/dsh-production-rollout.md](docs/ops/dsh-production-rollout.md) 新增第 9 节（机理/判据/link 安装/回滚），`harness-plugins/README.md` 安装段加警告与命令（该目录不随公开树导出），[docs/ops/troubleshoot.md](docs/ops/troubleshoot.md) 新增症状 19 与 H11。`link:` 依赖已用隔离 `DSH_HOME` 验证可经受后续 `pnpm add/remove`。
 - **Loom 压缩死锁修复（2026-11-05，issue #7）**：压缩网络错误分类补齐 `IncompleteRead` / `connection error` / `upstream stream aborted`，413 归 overflow，用户 abort 优先；摘要输入改用摘要专用保守尺子（thinking 直渲染、token-aware 截断、两两分层 merge、`single` 总量超预算回退分块），`auto`/`single` 遇 overflow 自动降级 `chunked` 重试一次；`retry_pending` 增加 10 分钟冷却 + 窗口余量 fail-open（仅 failed，失败重试单次预算），worker started/retrying/failed/succeeded/noop/aborted 事件接入宿主日志。主请求触发阈值语义保持不变。
 - **Stratum query 关系扩散（2026-11-05）**：`stratum query --follow` 增加一跳 card/claim/report 关系扩展；`report` 查询跟随 `report_cards` / `report_relations`。关系以 context 行返回，带 relation 与来源 ID。新增 `--sort time|relevance`：默认时间，`relevance` 让 primary 优先、因果关系优先于时间关系。本次不提升版本号，继续用 `0.1.2`。
 - **因果链关系命令与旧脚本归档（2026-11-05）**：新增 `stratum add relation`（card-to-card，`triggered_by` / `precedes` / `supported_by` 等）；02 负责日链，03/04 负责 claim `derived_from`；旧 `build_relations.py` 归档到 `analysis/legacy-index-archive/`，不再从活动流程调用。
@@ -80,6 +80,16 @@ Kinship / 知己文字品牌批（2026-10-24）：产品名、作者名与公开
 - **Android OTA 发布与路径修复（2026-11-04）**：`OTA_APK_DIR` 的相对默认值改为按项目根解析（此前按后端 cwd 解析，生产 OTA 恒返回 `no_apk`）；Android 升至 `versionCode 12 / versionName 0.1.1` 并发布到生产 OTA 目录。
 
 ### 变更
+
+- **公开文档全量对齐运行面（2026-11-17）**：按「最新代码 + 当前正在运行的实例」复核并修正公开文档（`docs/`、根 README/AGENTS/CONTRIBUTING、各子系统 AGENTS 与 harness 文档；`ai-template/` 由另一会话处理，不在本轮范围）。关键对齐：
+  - 运行时分两层写清：模板默认 `ai_backend: loom`；本机生产实例当前 `dsh`（`/health` 为 `healthy` + `dsh.status=online`，`axeuh-loom` 为 `failed`/`disabled` 仅回滚，`/health.loom.status=unknown` 属预期），不再把 dsh 写成“不在默认拓扑内”。
+  - MOSS watcher 拓扑改准：watcher 由后端编排器 `moss_watcher` 子进程托管（`moss.enabled` 闸门），`axeuh-moss-watch.service` 已 `disabled`/`inactive`；`axeuh-moss.service`（vLLM `:8100`）仍独立常驻。
+  - `docs/dev/API.md` 从代码重建：39 个路由模块、153 条路由声明（GET 75 / POST 73 / PUT 1 / DELETE 2 / WS 2），并给可复现核对命令；`/openapi.json`、`/docs`、`/redoc` 未注册（404）；`POST /api/screen/backend` 恒 410，切换只走 `PUT /api/system/config`。
+  - 内核 pidfile 机制改准：pidfile 由后端握手成功后写入（含 token），内核自身不写；存活但非自己拉起的 pid 一律 `stale_kernel_detected`。
+  - 前端拓扑改准：仓库只剩 `frontend/mobile/`，`preview/` 与 `vaudit/` 目录不在仓库（`main.py` 残留静态路由，实测 404）；导航按 `navV2.ts` 为桌面 6 项 / 移动端 4 项。
+  - 部署键与引导语义：`ssl.*`、`opencode.enabled`、`api.baidu_map_ak` 属 `deployment`（HTTP 写 409 `deployment_required`），`launcher.*` 已从 schema 删除；`finish` 改为「预检 → 应用配置草稿 → 就绪审计（仅 `kernel` critical）→ 记录 completed」。
+  - 公开面清理：移除公开文档里的真实主机路径与 `harness-plugins/`（当前不在导出白名单）内部文件链接，改为仓库内路径说明；补登记 4 篇此前未入索引的文档。
+  - 验证：`python tools/docs-check/check_docs.py all` 通过（53 个 markdown）；`tools/kinship_export` 复扫后文档侧 secret/PII 命中为 0（剩余命中为外部的 `ai-template/README.md` 与两处后端代码）。
 
 - **plan 工具三件改进（2026-10-28）**：新增 `user_intent`（`diff`/`revise` 写入、`read` 回显，只记录不参与 coverage）；`read`/`base` 支持 `status`/`kind` 过滤（`anchor` 别名，`details.__plan` 保持完整）；新增或改写 care 的 `done_when` 必须可核验（`HH:MM` 或 `window`），否则拒绝并建议 `kind=note`。详见 `docs/dev/loom-scheduling-redesign-2026-10-28.md` §5.1。
 - **Loom 工具输出纯文本化（2026-10-28）**：`plan` / `long_task` / 网络搜索 / `task_fetch` 的模型输出不再回灌 JSON，改为紧凑纯文本，结构化数据保留在 `details`；`plan read/base` 新增 `include_instruction`（默认隐藏任务正文，`true` 或 id 数组按需展开），`leftovers` 收敛为昨日 `planned/blocked/carried` 且排除当日同 id 条目。详见 `docs/dev/loom-scheduling-redesign-2026-10-28.md` §5.1。
